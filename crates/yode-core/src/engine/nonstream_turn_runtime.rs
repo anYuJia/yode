@@ -43,7 +43,7 @@ impl AgentEngine {
                 Err(err) => return Err(err),
             };
 
-            self.record_response_usage(&response.usage, &event_tx);
+            self.record_response_usage(&response.usage, &event_tx).await;
             self.maybe_compact_context(response.usage.prompt_tokens, &event_tx)
                 .await;
 

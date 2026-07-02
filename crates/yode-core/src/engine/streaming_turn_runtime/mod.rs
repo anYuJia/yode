@@ -127,7 +127,7 @@ impl AgentEngine {
             }
 
             if let Some(ref response) = buffers.final_response {
-                self.record_response_usage(&response.usage, &event_tx);
+                self.record_response_usage(&response.usage, &event_tx).await;
                 self.maybe_compact_context(response.usage.prompt_tokens, &event_tx)
                     .await;
             }

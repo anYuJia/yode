@@ -85,7 +85,7 @@ fn truncate_cache_text(text: &str, max_chars: usize) -> String {
     clippy::too_many_arguments,
     reason = "prompt cache diff artifact records all previous/current hashes and excerpts in one snapshot"
 )]
-fn write_prompt_cache_diff_artifact(
+async fn write_prompt_cache_diff_artifact_async(
     project_root: &std::path::Path,
     session_id: &str,
     transition_kind: &str,
@@ -108,7 +108,7 @@ fn write_prompt_cache_diff_artifact(
     current_message_text: Option<&str>,
 ) -> Option<(String, String)> {
     let dir = project_root.join(".yode").join("status");
-    std::fs::create_dir_all(&dir).ok()?;
+    tokio::fs::create_dir_all(&dir).await.ok()?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-prompt-cache-diff.md", short_session));
 
@@ -136,7 +136,7 @@ fn write_prompt_cache_diff_artifact(
         truncate_cache_text(current_message_text.unwrap_or("none"), 4_000),
     );
 
-    std::fs::write(&path, body).ok()?;
+    tokio::fs::write(&path, body).await.ok()?;
     Some((
         path.display().to_string(),
         format!(
@@ -184,7 +184,7 @@ impl AgentEngine {
             .or_insert(0) += 1;
     }
 
-    pub(super) fn record_response_usage(
+    pub(super) async fn record_response_usage(
         &mut self,
         usage: &yode_llm::types::Usage,
         event_tx: &mpsc::UnboundedSender<EngineEvent>,
@@ -209,7 +209,8 @@ impl AgentEngine {
             self.prompt_cache_runtime.last_turn_cache_read_tokens = Some(usage.cache_read_tokens);
             self.prompt_cache_runtime.last_turn_cache_deleted_tokens =
                 Some(usage.cache_deleted_tokens);
-            self.detect_prompt_cache_break(previous_cache_read, usage.cache_read_tokens);
+            self.detect_prompt_cache_break(previous_cache_read, usage.cache_read_tokens)
+                .await;
             self.prompt_cache_runtime.reported_turns =
                 self.prompt_cache_runtime.reported_turns.saturating_add(1);
             if usage.cache_write_tokens > 0 {
@@ -388,7 +389,7 @@ impl AgentEngine {
             self.pending_prompt_cache_expected_drop_reason.clone();
     }
 
-    fn detect_prompt_cache_break(
+    async fn detect_prompt_cache_break(
         &mut self,
         previous_cache_read_tokens: Option<u32>,
         current_cache_read_tokens: u32,
@@ -489,7 +490,7 @@ impl AgentEngine {
             .last_prompt_cache_transition_reason
             .clone();
         if transition_kind != "stable" {
-            if let Some((path, summary)) = write_prompt_cache_diff_artifact(
+            if let Some((path, summary)) = write_prompt_cache_diff_artifact_async(
                 &self.context.working_dir_compat(),
                 &self.context.session_id,
                 &transition_kind,
@@ -510,7 +511,9 @@ impl AgentEngine {
                 self.pending_prompt_cache_restore_text.as_deref(),
                 self.pending_prompt_cache_tool_text.as_deref(),
                 self.pending_prompt_cache_message_text.as_deref(),
-            ) {
+            )
+            .await
+            {
                 self.prompt_cache_runtime
                     .last_prompt_cache_diff_artifact_path = Some(path);
                 self.prompt_cache_runtime.last_prompt_cache_diff_summary = Some(summary);

@@ -97,23 +97,25 @@ fn test_skip_tool_assisted_memory_prevents_live_snapshot() {
     assert!(!live_path.exists());
 }
 
-#[test]
-fn test_record_response_usage_tracks_prompt_cache_telemetry() {
+#[tokio::test]
+async fn test_record_response_usage_tracks_prompt_cache_telemetry() {
     let mut engine = make_engine(vec![], vec![]);
     let (tx, _rx) = mpsc::unbounded_channel();
 
     engine.reset_prompt_cache_turn_runtime();
-    engine.record_response_usage(
-        &yode_llm::types::Usage {
-            prompt_tokens: 1_200,
-            completion_tokens: 180,
-            total_tokens: 1_380,
-            cache_write_tokens: 300,
-            cache_read_tokens: 200,
-            cache_deleted_tokens: 0,
-        },
-        &tx,
-    );
+    engine
+        .record_response_usage(
+            &yode_llm::types::Usage {
+                prompt_tokens: 1_200,
+                completion_tokens: 180,
+                total_tokens: 1_380,
+                cache_write_tokens: 300,
+                cache_read_tokens: 200,
+                cache_deleted_tokens: 0,
+            },
+            &tx,
+        )
+        .await;
 
     let usage = engine.cost_tracker().usage().clone();
     assert_eq!(usage.input_tokens, 700);
@@ -172,8 +174,8 @@ fn test_cached_microcompact_updates_prompt_cache_runtime() {
     );
 }
 
-#[test]
-fn test_prompt_cache_pending_refs_promote_to_pinned_after_usage() {
+#[tokio::test]
+async fn test_prompt_cache_pending_refs_promote_to_pinned_after_usage() {
     let mut engine = make_engine(vec![], vec![]);
     engine.messages = vec![
         Message::system("system"),
@@ -189,17 +191,19 @@ fn test_prompt_cache_pending_refs_promote_to_pinned_after_usage() {
     engine.record_prompt_cache_request_state(&request);
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    engine.record_response_usage(
-        &yode_llm::types::Usage {
-            prompt_tokens: 1_000,
-            completion_tokens: 100,
-            total_tokens: 1_100,
-            cache_write_tokens: 0,
-            cache_read_tokens: 500,
-            cache_deleted_tokens: 0,
-        },
-        &tx,
-    );
+    engine
+        .record_response_usage(
+            &yode_llm::types::Usage {
+                prompt_tokens: 1_000,
+                completion_tokens: 100,
+                total_tokens: 1_100,
+                cache_write_tokens: 0,
+                cache_read_tokens: 500,
+                cache_deleted_tokens: 0,
+            },
+            &tx,
+        )
+        .await;
 
     let runtime = engine.runtime_state();
     assert_eq!(runtime.prompt_cache.pending_cache_edit_refs, 0);
@@ -247,37 +251,41 @@ fn test_build_chat_request_prunes_stale_cache_edit_refs() {
     );
 }
 
-#[test]
-fn test_prompt_cache_break_detection_flags_unexpected_drop() {
+#[tokio::test]
+async fn test_prompt_cache_break_detection_flags_unexpected_drop() {
     let mut engine = make_engine(vec![], vec![]);
     let request = engine.build_chat_request();
     let (tx, _rx) = mpsc::unbounded_channel();
 
     engine.record_prompt_cache_request_state(&request);
-    engine.record_response_usage(
-        &yode_llm::types::Usage {
-            prompt_tokens: 1_000,
-            completion_tokens: 100,
-            total_tokens: 1_100,
-            cache_write_tokens: 0,
-            cache_read_tokens: 5_000,
-            cache_deleted_tokens: 0,
-        },
-        &tx,
-    );
+    engine
+        .record_response_usage(
+            &yode_llm::types::Usage {
+                prompt_tokens: 1_000,
+                completion_tokens: 100,
+                total_tokens: 1_100,
+                cache_write_tokens: 0,
+                cache_read_tokens: 5_000,
+                cache_deleted_tokens: 0,
+            },
+            &tx,
+        )
+        .await;
 
     engine.record_prompt_cache_request_state(&request);
-    engine.record_response_usage(
-        &yode_llm::types::Usage {
-            prompt_tokens: 1_050,
-            completion_tokens: 110,
-            total_tokens: 1_160,
-            cache_write_tokens: 0,
-            cache_read_tokens: 1_000,
-            cache_deleted_tokens: 0,
-        },
-        &tx,
-    );
+    engine
+        .record_response_usage(
+            &yode_llm::types::Usage {
+                prompt_tokens: 1_050,
+                completion_tokens: 110,
+                total_tokens: 1_160,
+                cache_write_tokens: 0,
+                cache_read_tokens: 1_000,
+                cache_deleted_tokens: 0,
+            },
+            &tx,
+        )
+        .await;
 
     let runtime = engine.runtime_state();
     assert_eq!(runtime.prompt_cache.prompt_cache_break_count, 1);
@@ -295,41 +303,45 @@ fn test_prompt_cache_break_detection_flags_unexpected_drop() {
     assert!(std::path::Path::new(diff_path).exists());
 }
 
-#[test]
-fn test_system_prefix_changes_are_classified_separately() {
+#[tokio::test]
+async fn test_system_prefix_changes_are_classified_separately() {
     let mut engine = make_engine(vec![], vec![]);
     let request = engine.build_chat_request();
     let (tx, _rx) = mpsc::unbounded_channel();
 
     engine.record_prompt_cache_request_state(&request);
-    engine.record_response_usage(
-        &yode_llm::types::Usage {
-            prompt_tokens: 1_000,
-            completion_tokens: 100,
-            total_tokens: 1_100,
-            cache_write_tokens: 0,
-            cache_read_tokens: 1_500,
-            cache_deleted_tokens: 0,
-        },
-        &tx,
-    );
+    engine
+        .record_response_usage(
+            &yode_llm::types::Usage {
+                prompt_tokens: 1_000,
+                completion_tokens: 100,
+                total_tokens: 1_100,
+                cache_write_tokens: 0,
+                cache_read_tokens: 1_500,
+                cache_deleted_tokens: 0,
+            },
+            &tx,
+        )
+        .await;
 
     engine
         .messages
         .push(Message::system("[Context summary] compacted"));
     let request = engine.build_chat_request();
     engine.record_prompt_cache_request_state(&request);
-    engine.record_response_usage(
-        &yode_llm::types::Usage {
-            prompt_tokens: 1_050,
-            completion_tokens: 110,
-            total_tokens: 1_160,
-            cache_write_tokens: 0,
-            cache_read_tokens: 1_000,
-            cache_deleted_tokens: 0,
-        },
-        &tx,
-    );
+    engine
+        .record_response_usage(
+            &yode_llm::types::Usage {
+                prompt_tokens: 1_050,
+                completion_tokens: 110,
+                total_tokens: 1_160,
+                cache_write_tokens: 0,
+                cache_read_tokens: 1_000,
+                cache_deleted_tokens: 0,
+            },
+            &tx,
+        )
+        .await;
 
     let runtime = engine.runtime_state();
     assert_eq!(
@@ -348,8 +360,8 @@ fn test_system_prefix_changes_are_classified_separately() {
     );
 }
 
-#[test]
-fn test_restore_prefix_changes_are_classified_separately() {
+#[tokio::test]
+async fn test_restore_prefix_changes_are_classified_separately() {
     let mut engine = make_engine(vec![], vec![]);
     engine.post_compact_restore_blocks =
         vec!["[Post-compact restore: files]\n- Recent files read: src/main.rs".to_string()];
@@ -357,33 +369,37 @@ fn test_restore_prefix_changes_are_classified_separately() {
     let (tx, _rx) = mpsc::unbounded_channel();
 
     engine.record_prompt_cache_request_state(&request);
-    engine.record_response_usage(
-        &yode_llm::types::Usage {
-            prompt_tokens: 1_000,
-            completion_tokens: 100,
-            total_tokens: 1_100,
-            cache_write_tokens: 0,
-            cache_read_tokens: 1_500,
-            cache_deleted_tokens: 0,
-        },
-        &tx,
-    );
+    engine
+        .record_response_usage(
+            &yode_llm::types::Usage {
+                prompt_tokens: 1_000,
+                completion_tokens: 100,
+                total_tokens: 1_100,
+                cache_write_tokens: 0,
+                cache_read_tokens: 1_500,
+                cache_deleted_tokens: 0,
+            },
+            &tx,
+        )
+        .await;
 
     engine.post_compact_restore_blocks =
         vec!["[Post-compact restore: files]\n- Recent files read: src/lib.rs".to_string()];
     let request = engine.build_chat_request();
     engine.record_prompt_cache_request_state(&request);
-    engine.record_response_usage(
-        &yode_llm::types::Usage {
-            prompt_tokens: 1_050,
-            completion_tokens: 110,
-            total_tokens: 1_160,
-            cache_write_tokens: 0,
-            cache_read_tokens: 1_000,
-            cache_deleted_tokens: 0,
-        },
-        &tx,
-    );
+    engine
+        .record_response_usage(
+            &yode_llm::types::Usage {
+                prompt_tokens: 1_050,
+                completion_tokens: 110,
+                total_tokens: 1_160,
+                cache_write_tokens: 0,
+                cache_read_tokens: 1_000,
+                cache_deleted_tokens: 0,
+            },
+            &tx,
+        )
+        .await;
 
     let runtime = engine.runtime_state();
     assert_eq!(
@@ -420,8 +436,8 @@ fn test_model_change_sets_expected_prompt_cache_drop_reason() {
     );
 }
 
-#[test]
-fn test_expected_prompt_cache_drop_writes_diff_artifact() {
+#[tokio::test]
+async fn test_expected_prompt_cache_drop_writes_diff_artifact() {
     let mut engine = make_engine(vec![], vec![]);
     engine.set_model("gpt-4o".to_string());
 
@@ -429,17 +445,19 @@ fn test_expected_prompt_cache_drop_writes_diff_artifact() {
     engine.record_prompt_cache_request_state(&request);
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    engine.record_response_usage(
-        &yode_llm::types::Usage {
-            prompt_tokens: 1_000,
-            completion_tokens: 100,
-            total_tokens: 1_100,
-            cache_write_tokens: 0,
-            cache_read_tokens: 0,
-            cache_deleted_tokens: 0,
-        },
-        &tx,
-    );
+    engine
+        .record_response_usage(
+            &yode_llm::types::Usage {
+                prompt_tokens: 1_000,
+                completion_tokens: 100,
+                total_tokens: 1_100,
+                cache_write_tokens: 0,
+                cache_read_tokens: 0,
+                cache_deleted_tokens: 0,
+            },
+            &tx,
+        )
+        .await;
 
     let runtime = engine.runtime_state();
     assert_eq!(
@@ -457,24 +475,26 @@ fn test_expected_prompt_cache_drop_writes_diff_artifact() {
     assert!(std::path::Path::new(diff_path).exists());
 }
 
-#[test]
-fn test_first_prompt_cache_snapshot_is_marked_cold_start() {
+#[tokio::test]
+async fn test_first_prompt_cache_snapshot_is_marked_cold_start() {
     let mut engine = make_engine(vec![], vec![]);
     let request = engine.build_chat_request();
     engine.record_prompt_cache_request_state(&request);
 
     let (tx, _rx) = mpsc::unbounded_channel();
-    engine.record_response_usage(
-        &yode_llm::types::Usage {
-            prompt_tokens: 1_000,
-            completion_tokens: 100,
-            total_tokens: 1_100,
-            cache_write_tokens: 0,
-            cache_read_tokens: 0,
-            cache_deleted_tokens: 0,
-        },
-        &tx,
-    );
+    engine
+        .record_response_usage(
+            &yode_llm::types::Usage {
+                prompt_tokens: 1_000,
+                completion_tokens: 100,
+                total_tokens: 1_100,
+                cache_write_tokens: 0,
+                cache_read_tokens: 0,
+                cache_deleted_tokens: 0,
+            },
+            &tx,
+        )
+        .await;
 
     let runtime = engine.runtime_state();
     assert_eq!(
@@ -486,8 +506,8 @@ fn test_first_prompt_cache_snapshot_is_marked_cold_start() {
     );
 }
 
-#[test]
-fn test_cache_edits_transition_is_classified_separately() {
+#[tokio::test]
+async fn test_cache_edits_transition_is_classified_separately() {
     let mut engine = make_engine(vec![], vec![]);
     let big = "x".repeat(1_000);
     engine.messages = vec![
@@ -512,17 +532,19 @@ fn test_cache_edits_transition_is_classified_separately() {
     let request = engine.build_chat_request();
     engine.record_prompt_cache_request_state(&request);
     let (tx, _rx) = mpsc::unbounded_channel();
-    engine.record_response_usage(
-        &yode_llm::types::Usage {
-            prompt_tokens: 1_000,
-            completion_tokens: 100,
-            total_tokens: 1_100,
-            cache_write_tokens: 0,
-            cache_read_tokens: 0,
-            cache_deleted_tokens: 200,
-        },
-        &tx,
-    );
+    engine
+        .record_response_usage(
+            &yode_llm::types::Usage {
+                prompt_tokens: 1_000,
+                completion_tokens: 100,
+                total_tokens: 1_100,
+                cache_write_tokens: 0,
+                cache_read_tokens: 0,
+                cache_deleted_tokens: 200,
+            },
+            &tx,
+        )
+        .await;
 
     let runtime = engine.runtime_state();
     assert_eq!(
