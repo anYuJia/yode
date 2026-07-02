@@ -243,15 +243,14 @@ impl Tool for AgentTool {
         match runner.run_sub_agent(prompt, options).await {
             Ok(result) => {
                 let artifact_path = if !run_in_background {
-                    ctx.working_dir
-                        .as_deref()
-                        .and_then(|dir| {
-                            warn_if_agent_runtime_failed(
-                                "persist_sub_agent_artifact",
-                                persist_sub_agent_artifact(dir, &description, &result),
-                            )
-                        })
-                        .map(|path| display_slash(&path))
+                    match ctx.working_dir.as_deref() {
+                        Some(dir) => warn_if_agent_runtime_failed(
+                            "persist_sub_agent_artifact",
+                            persist_sub_agent_artifact_async(dir, &description, &result).await,
+                        )
+                        .map(|path| display_slash(&path)),
+                        None => None,
+                    }
                 } else {
                     None
                 };
@@ -431,13 +430,14 @@ fn parse_background_task_id(output: &str) -> Option<String> {
         .map(|(task_id, _)| task_id.trim().to_string())
 }
 
-fn persist_sub_agent_artifact(
+async fn persist_sub_agent_artifact_async(
     working_dir: &std::path::Path,
     description: &str,
     body: &str,
 ) -> Result<std::path::PathBuf> {
     let dir = working_dir.join(".yode").join("agent-results");
-    std::fs::create_dir_all(&dir)
+    tokio::fs::create_dir_all(&dir)
+        .await
         .with_context(|| format!("Failed to create agent artifact dir: {}", dir.display()))?;
 
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
@@ -448,7 +448,8 @@ fn persist_sub_agent_artifact(
         chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
         body.trim()
     );
-    std::fs::write(&path, content)
+    tokio::fs::write(&path, content)
+        .await
         .with_context(|| format!("Failed to write sub-agent artifact: {}", path.display()))?;
     Ok(path)
 }
