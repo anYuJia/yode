@@ -6,11 +6,13 @@ import {
   DEFAULT_GIT_SETTINGS,
   DEFAULT_HOOKS,
   DEFAULT_HOOKS_SETTINGS,
+  DEFAULT_MCP_SERVERS,
   DEFAULT_PERSONALIZATION_SETTINGS,
   loadBrowserSettings,
   loadComputerUseSettings,
   loadGitSettings,
   loadHooksSettings,
+  loadMcpServers,
   loadConfigurationSettings,
   loadGeneralSettings,
   loadGeneralSettingsPayload,
@@ -21,6 +23,7 @@ import {
   saveConfigurationSettings,
   saveGitSettings,
   saveHooksSettings,
+  saveMcpServers,
   savePersonalizationSetting,
   savePersonalizationSettings,
   saveWorktreesSetting
@@ -541,6 +544,97 @@ describe("desktop settings helpers", () => {
       enabled: true,
       hooks: DEFAULT_HOOKS
     });
+  });
+
+  it("loads mcp server defaults from local storage", () => {
+    stubLocalStorage(() => null);
+
+    expect(loadMcpServers()).toEqual(DEFAULT_MCP_SERVERS);
+  });
+
+  it("loads mcp servers and filters invalid entries", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-mcp-servers": JSON.stringify([
+          {
+            name: "node_repl",
+            transport: "stdio",
+            command: "node",
+            args: ["--eval", 123],
+            env: { NODE_ENV: "test", PORT: 3000 },
+            disabled: false
+          },
+          {
+            name: "docs",
+            transport: "http",
+            url: "https://example.com/mcp",
+            disabled: true
+          },
+          { name: "", transport: "stdio", command: "node" },
+          { name: "bad", transport: "smtp", url: "x" },
+          { name: "missing-command", transport: "stdio" }
+        ])
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadMcpServers()).toEqual([
+      {
+        name: "node_repl",
+        transport: "stdio",
+        command: "node",
+        args: ["--eval", "123"],
+        env: { NODE_ENV: "test", PORT: "3000" },
+        disabled: false
+      },
+      {
+        name: "docs",
+        transport: "http",
+        url: "https://example.com/mcp",
+        disabled: true
+      }
+    ]);
+  });
+
+  it("falls back to default mcp servers on malformed storage", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-mcp-servers": "{broken"
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadMcpServers()).toEqual(DEFAULT_MCP_SERVERS);
+  });
+
+  it("saves normalized mcp servers through the shared helper", () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      setItem: (key: string, value: string) => saved.set(key, value)
+    });
+
+    saveMcpServers([
+      {
+        name: "node_repl",
+        transport: "stdio",
+        command: "node",
+        args: ["--eval"],
+        env: { NODE_ENV: "test" },
+        disabled: false
+      },
+      { name: "invalid", transport: "stdio", disabled: false }
+    ]);
+
+    expect(JSON.parse(saved.get("yode-mcp-servers") || "[]")).toEqual([
+      {
+        name: "node_repl",
+        transport: "stdio",
+        command: "node",
+        args: ["--eval"],
+        env: { NODE_ENV: "test" },
+        disabled: false
+      }
+    ]);
   });
 });
 

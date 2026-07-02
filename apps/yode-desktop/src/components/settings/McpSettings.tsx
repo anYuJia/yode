@@ -2,21 +2,16 @@ import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Plus, Trash2, X, Settings, RotateCw, Activity } from "lucide-react";
 import { CustomSelect } from "../CustomSelect";
-import { isTauriRuntime, loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
-
-interface McpServer {
-  name: string;
-  transport: "stdio" | "sse" | "http" | "websocket";
-  command?: string;
-  args?: string[];
-  url?: string;
-  env?: Record<string, string>;
-  disabled: boolean;
-}
-
-function isMcpTransport(value: string): value is McpServer["transport"] {
-  return value === "stdio" || value === "sse" || value === "http" || value === "websocket";
-}
+import {
+  isMcpTransport,
+  isTauriRuntime,
+  loadMcpServers,
+  loadPersistedMcpServers,
+  McpServer,
+  normalizeMcpServers,
+  saveMcpServers,
+  savePersistedMcpServers
+} from "../../lib/desktopSettings";
 
 interface McpServerStatus {
   name: string;
@@ -40,26 +35,8 @@ export function McpSettingsSettings({
   isZh: boolean;
   t: (zh: string, en: string) => string;
 }) {
-  const [servers, setServers] = useState<McpServer[]>(() => {
-    const saved = localStorage.getItem("yode-mcp-servers");
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        // Fallback
-      }
-    }
-    return [
-      {
-        name: "node_repl",
-        transport: "stdio",
-        command: "node",
-        args: [],
-        env: {},
-        disabled: false
-      }
-    ];
-  });
+  const initialServers = loadMcpServers();
+  const [servers, setServers] = useState<McpServer[]>(initialServers);
   const [statusText, setStatusText] = useState("");
   const [configPath, setConfigPath] = useState("");
   const [serverStatuses, setServerStatuses] = useState<Record<string, McpServerStatus>>({});
@@ -67,20 +44,22 @@ export function McpSettingsSettings({
   const [deleteConfirmName, setDeleteConfirmName] = useState<string | null>(null);
 
   const applyMcpState = (state: McpState) => {
-    setServers(state.servers);
+    const nextServers = normalizeMcpServers(state.servers);
+    setServers(nextServers);
     setConfigPath(state.configPath);
     setServerStatuses(Object.fromEntries(state.statuses.map((status) => [status.name, status])));
-    localStorage.setItem("yode-mcp-servers", JSON.stringify(state.servers));
+    saveMcpServers(nextServers);
   };
 
   const saveServers = async (newServers: McpServer[]) => {
-    setServers(newServers);
-    localStorage.setItem("yode-mcp-servers", JSON.stringify(newServers));
+    const normalized = normalizeMcpServers(newServers);
+    setServers(normalized);
+    saveMcpServers(normalized);
     if (isTauriRuntime()) {
-      const state = await invoke<McpState>("mcp_servers_save", { servers: newServers });
+      const state = await invoke<McpState>("mcp_servers_save", { servers: normalized });
       applyMcpState(state);
     } else {
-      await saveDesktopSetting("yode-mcp-servers", newServers);
+      await savePersistedMcpServers(normalized);
     }
   };
 
@@ -91,7 +70,7 @@ export function McpSettingsSettings({
         .catch((err) => setStatusText(String(err)));
       return;
     }
-    void loadDesktopSetting("yode-mcp-servers", servers).then(setServers);
+    void loadPersistedMcpServers(initialServers).then(setServers);
   }, []);
 
   const handleToggleServer = (name: string) => {

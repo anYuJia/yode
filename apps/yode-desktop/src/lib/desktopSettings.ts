@@ -87,6 +87,18 @@ export type HooksSettings = {
   hooks: HookEntry[];
 };
 
+export type McpTransport = "stdio" | "sse" | "http" | "websocket";
+
+export type McpServer = {
+  name: string;
+  transport: McpTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  disabled: boolean;
+};
+
 export const DEFAULT_GIT_SETTINGS: GitSettings = {
   branchPrefix: "yode/",
   mergeMethod: "merge",
@@ -144,6 +156,17 @@ export const DEFAULT_HOOKS_SETTINGS: HooksSettings = {
   hooks: DEFAULT_HOOKS
 };
 
+export const DEFAULT_MCP_SERVERS: McpServer[] = [
+  {
+    name: "node_repl",
+    transport: "stdio",
+    command: "node",
+    args: [],
+    env: {},
+    disabled: false
+  }
+];
+
 const CONFIGURATION_STORAGE_KEYS = {
   scope: "yode-config-scope",
   approvalPolicy: "yode-config-approval",
@@ -194,6 +217,10 @@ const COMPUTER_USE_STORAGE_KEYS = {
 const HOOKS_STORAGE_KEYS = {
   enabled: "yode-hooks-enabled",
   hooks: "yode-hooks-list"
+} as const;
+
+const MCP_STORAGE_KEYS = {
+  servers: "yode-mcp-servers"
 } as const;
 
 export function isTauriRuntime() {
@@ -520,6 +547,83 @@ export async function loadPersistedHooksSettings(fallback = DEFAULT_HOOKS_SETTIN
 export function saveHooksSettings(settings: HooksSettings): void {
   localStorage.setItem(HOOKS_STORAGE_KEYS.enabled, JSON.stringify(settings.enabled));
   localStorage.setItem(HOOKS_STORAGE_KEYS.hooks, JSON.stringify(normalizeHooks(settings.hooks)));
+}
+
+export function isMcpTransport(value: string): value is McpTransport {
+  return value === "stdio" || value === "sse" || value === "http" || value === "websocket";
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+function normalizeEnv(value: unknown): Record<string, string> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => key.trim().length > 0)
+      .map(([key, item]) => [key, String(item)])
+  );
+}
+
+export function normalizeMcpServer(raw: unknown): McpServer | null {
+  if (!raw || typeof raw !== "object") return null;
+  const server = raw as Record<string, unknown>;
+  const name = String(server.name || "").trim();
+  const transportRaw = String(server.transport || "stdio");
+  if (!name || !isMcpTransport(transportRaw)) return null;
+
+  const disabled = Boolean(server.disabled);
+  if (transportRaw === "stdio") {
+    const command = String(server.command || "").trim();
+    if (!command) return null;
+    return {
+      name,
+      transport: transportRaw,
+      command,
+      args: normalizeStringArray(server.args),
+      env: normalizeEnv(server.env),
+      disabled
+    };
+  }
+
+  const url = String(server.url || "").trim();
+  if (!url) return null;
+  return {
+    name,
+    transport: transportRaw,
+    url,
+    disabled
+  };
+}
+
+export function normalizeMcpServers(list: unknown): McpServer[] {
+  if (!Array.isArray(list)) return [];
+  return list.map(normalizeMcpServer).filter((server): server is McpServer => server !== null);
+}
+
+export function loadMcpServers(): McpServer[] {
+  try {
+    const raw = localStorage.getItem(MCP_STORAGE_KEYS.servers);
+    if (!raw) return DEFAULT_MCP_SERVERS;
+    const servers = normalizeMcpServers(JSON.parse(raw));
+    return servers.length > 0 ? servers : DEFAULT_MCP_SERVERS;
+  } catch {
+    return DEFAULT_MCP_SERVERS;
+  }
+}
+
+export async function loadPersistedMcpServers(fallback = DEFAULT_MCP_SERVERS): Promise<McpServer[]> {
+  const servers = normalizeMcpServers(await loadDesktopSetting(MCP_STORAGE_KEYS.servers, fallback));
+  return servers.length > 0 ? servers : DEFAULT_MCP_SERVERS;
+}
+
+export function saveMcpServers(servers: McpServer[]): void {
+  localStorage.setItem(MCP_STORAGE_KEYS.servers, JSON.stringify(normalizeMcpServers(servers)));
+}
+
+export function savePersistedMcpServers(servers: McpServer[]): Promise<void> {
+  return saveDesktopSetting(MCP_STORAGE_KEYS.servers, normalizeMcpServers(servers));
 }
 
 export function saveGeneralSettingValue(key: string, value: string | boolean) {
