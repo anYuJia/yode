@@ -92,9 +92,9 @@ import {
   PaneKind,
 } from "./lib/paneLayout";
 import {
-  lastModelStorageKey,
-  LLM_PROVIDERS_STORAGE_KEY,
-  preferredModelForProvider
+  preferredModelFromStorage,
+  saveLastModelForProvider,
+  saveStoredProviders
 } from "./lib/llmProviderStorage";
 import { useAppUiStore } from "./lib/appUiStore";
 import { applyStoredAppearanceSettings, applyTranslucentSidebarSetting } from "./lib/appearanceSettings";
@@ -114,7 +114,7 @@ function refreshProviderCache() {
   invoke<unknown[]>("config_get_providers")
     .then((providers) => {
       if (Array.isArray(providers)) {
-        localStorage.setItem(LLM_PROVIDERS_STORAGE_KEY, JSON.stringify(providers));
+        saveStoredProviders(providers);
       }
     })
     .catch(console.error);
@@ -342,12 +342,7 @@ export function App() {
   };
 
   const handleUpdateProvider = async (provider: string) => {
-    const defaultModel = preferredModelForProvider(
-      provider,
-      localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY),
-      PROVIDERS_META,
-      localStorage.getItem(lastModelStorageKey(provider))
-    );
+    const defaultModel = preferredModelFromStorage(provider, PROVIDERS_META);
 
     if (activeSessionId) {
       setSessionItems((items) =>
@@ -370,7 +365,7 @@ export function App() {
   };
 
   const handleUpdateModel = async (model: string) => {
-    localStorage.setItem(lastModelStorageKey(currentProvider), model);
+    saveLastModelForProvider(currentProvider, model);
 
     if (activeSessionId) {
       setSessionItems((items) =>

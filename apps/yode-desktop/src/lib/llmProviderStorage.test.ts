@@ -1,12 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   lastModelStorageKey,
+  loadLastModelForProvider,
+  loadStoredProvidersRaw,
+  LLM_PROVIDERS_STORAGE_KEY,
   modelsForProvider,
   parseStoredProviders,
   providerDisplayName,
   providerOptionsFromStorage,
-  preferredModelForProvider
+  preferredModelForProvider,
+  preferredModelFromStorage,
+  saveLastModelForProvider,
+  saveStoredProviders
 } from "./llmProviderStorage";
 
 const meta = [
@@ -15,6 +21,11 @@ const meta = [
 ];
 
 describe("llm provider storage helpers", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it("parses provider cache arrays and ignores invalid entries", () => {
     const raw = JSON.stringify([
       { id: "openai", models: ["gpt-5.5", 42, "gpt-5.4"] },
@@ -65,4 +76,31 @@ describe("llm provider storage helpers", () => {
     expect(providerDisplayName("local", null, meta)).toBe("本地模型");
     expect(providerDisplayName("missing", null, meta)).toBe("missing");
   });
+
+  it("persists provider cache and last models", () => {
+    const dispatchEvent = vi.fn();
+    stubMemoryLocalStorage();
+    vi.stubGlobal("window", { dispatchEvent });
+
+    saveStoredProviders([{ id: "openai", models: ["stored"], enabled: true }]);
+    saveLastModelForProvider("openai", "stored");
+
+    expect(loadStoredProvidersRaw()).toBe(localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY));
+    expect(loadLastModelForProvider("openai")).toBe("stored");
+    expect(preferredModelFromStorage("openai", meta)).toBe("stored");
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.any(Event));
+  });
 });
+
+function stubMemoryLocalStorage(seed: Record<string, string> = {}) {
+  const values = new Map(Object.entries(seed));
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+    removeItem: (key: string) => {
+      values.delete(key);
+    }
+  });
+}

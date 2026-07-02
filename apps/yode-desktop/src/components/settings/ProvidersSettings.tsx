@@ -18,6 +18,11 @@ import {
 } from "lucide-react";
 import { CustomSelect } from "../CustomSelect";
 import { Bootstrap, DefaultLlm } from "../../lib/desktopTypes";
+import {
+  loadStoredProvidersRaw,
+  saveLastModelForProvider,
+  saveStoredProviders
+} from "../../lib/llmProviderStorage";
 
 interface ProviderConfigData {
   id: string;
@@ -405,7 +410,7 @@ export function ProvidersSettings({
     if ("__TAURI_INTERNALS__" in window) {
       return [];
     }
-    const saved = localStorage.getItem("yode-llm-providers");
+    const saved = loadStoredProvidersRaw();
     if (saved) {
       try {
         const data = JSON.parse(saved);
@@ -466,8 +471,7 @@ export function ProvidersSettings({
           if (Array.isArray(data)) {
             const normalized = data.map(normalizeProvider);
             setProviders(normalized);
-            localStorage.setItem("yode-llm-providers", JSON.stringify(normalized));
-            window.dispatchEvent(new Event("yode-llm-providers-change"));
+            saveStoredProviders(normalized);
           }
         })
         .catch(console.error);
@@ -497,8 +501,7 @@ export function ProvidersSettings({
 
   const saveProviders = (list: ProviderConfigData[]) => {
     setProviders(list);
-    localStorage.setItem("yode-llm-providers", JSON.stringify(list));
-    window.dispatchEvent(new Event("yode-llm-providers-change"));
+    saveStoredProviders(list);
     if ("__TAURI_INTERNALS__" in window) {
       invoke("config_save_providers", { providers: list }).catch(console.error);
     }
@@ -653,7 +656,7 @@ export function ProvidersSettings({
     }
     const nextDefault = { provider: provider.id, model: nextModel };
     setDefaultLlm(nextDefault);
-    localStorage.setItem(`yode-last-model-${provider.id}`, nextModel);
+    saveLastModelForProvider(provider.id, nextModel);
     if ("__TAURI_INTERNALS__" in window) {
       try {
         const saved = await invoke<DefaultLlm>("config_set_default_llm", nextDefault);

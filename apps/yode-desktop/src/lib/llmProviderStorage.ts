@@ -16,6 +16,25 @@ export function lastModelStorageKey(provider: string) {
   return `yode-last-model-${provider}`;
 }
 
+export function loadStoredProvidersRaw() {
+  return localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY);
+}
+
+export function saveStoredProviders(providers: unknown[]) {
+  localStorage.setItem(LLM_PROVIDERS_STORAGE_KEY, JSON.stringify(providers));
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event("yode-llm-providers-change"));
+  }
+}
+
+export function loadLastModelForProvider(provider: string) {
+  return localStorage.getItem(lastModelStorageKey(provider));
+}
+
+export function saveLastModelForProvider(provider: string, model: string) {
+  localStorage.setItem(lastModelStorageKey(provider), model);
+}
+
 export function parseStoredProviders(raw: string | null): StoredProvider[] {
   if (!raw) return [];
   try {
@@ -56,6 +75,18 @@ export function preferredModelForProvider(
   const models = modelsForProvider(provider, rawStoredProviders, providerMeta);
   if (lastUsedModel && models.includes(lastUsedModel)) return lastUsedModel;
   return models[0] || "";
+}
+
+export function preferredModelFromStorage(
+  provider: string,
+  providerMeta: ProviderModelsMeta[]
+) {
+  return preferredModelForProvider(
+    provider,
+    loadStoredProvidersRaw(),
+    providerMeta,
+    loadLastModelForProvider(provider)
+  );
 }
 
 export function providerOptionsFromStorage(
