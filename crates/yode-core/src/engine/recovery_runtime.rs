@@ -1,6 +1,8 @@
 use super::*;
 use crate::permission::{bash_risk_rationale, CommandClassifier};
 
+use std::path::PathBuf;
+
 impl AgentEngine {
     pub(super) fn detect_project_kind(root: &std::path::Path) -> ProjectKind {
         let has_cargo = root.join("Cargo.toml").exists();
@@ -80,9 +82,6 @@ impl AgentEngine {
             .working_dir_compat()
             .join(".yode")
             .join("recovery");
-        if std::fs::create_dir_all(&dir).is_err() {
-            return;
-        }
         let path = dir.join("latest-recovery.md");
         let breadcrumbs = if self.recovery_breadcrumbs.is_empty() {
             "- none".to_string()
@@ -106,8 +105,19 @@ impl AgentEngine {
             self.last_permission_action.as_deref().unwrap_or("none"),
             breadcrumbs
         );
-        if std::fs::write(&path, body).is_ok() {
-            self.last_recovery_artifact_path = Some(path.display().to_string());
+
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                self.last_recovery_artifact_path = Some(path.display().to_string());
+                drop(handle.spawn_blocking(move || {
+                    write_recovery_artifact_file(path, body);
+                }));
+            }
+            Err(_) => {
+                if write_recovery_artifact_file(path.clone(), body) {
+                    self.last_recovery_artifact_path = Some(path.display().to_string());
+                }
+            }
         }
     }
 
@@ -216,4 +226,23 @@ impl AgentEngine {
             _ => None,
         }
     }
+}
+
+fn write_recovery_artifact_file(path: PathBuf, body: String) -> bool {
+    let Some(dir) = path.parent() else {
+        warn!(
+            "Failed to resolve recovery artifact directory for {}",
+            path.display()
+        );
+        return false;
+    };
+    if let Err(err) = std::fs::create_dir_all(dir) {
+        warn!("Failed to create recovery artifact directory: {}", err);
+        return false;
+    }
+    if let Err(err) = std::fs::write(&path, body) {
+        warn!("Failed to write recovery artifact: {}", err);
+        return false;
+    }
+    true
 }
