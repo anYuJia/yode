@@ -3,9 +3,9 @@ use serde_json::{json, Value};
 
 use crate::builtin::git_commit::GitCommitTool;
 use crate::builtin::review_common::{
-    merge_review_metadata, persist_review_artifact, persist_review_status,
-    render_review_artifact_message, render_review_then_commit_summary, review_findings_count,
-    review_metadata_with_extra, review_output_has_findings,
+    merge_review_metadata, persist_review_outputs, render_review_artifact_message,
+    render_review_then_commit_summary, review_findings_count, review_metadata_with_extra,
+    review_output_has_findings,
 };
 use crate::tool::{SubAgentOptions, Tool, ToolContext, ToolErrorType, ToolResult};
 
@@ -74,20 +74,14 @@ pub(super) async fn execute_review_then_commit(
         )
         .await?;
 
-    let artifact_path = ctx
-        .working_dir
-        .as_deref()
-        .and_then(|dir| {
-            persist_review_artifact(dir, "pre-commit-review", focus, &review_output).ok()
-        })
-        .map(|path| path.display().to_string());
-    let findings_count = review_findings_count(&review_output);
-    if let (Some(dir), Some(path)) = (
+    let artifact_path = persist_review_outputs(
         ctx.working_dir.as_deref(),
-        artifact_path.as_deref().map(std::path::Path::new),
-    ) {
-        let _ = persist_review_status(dir, "pre-commit-review", focus, &review_output, Some(path));
-    }
+        "pre-commit-review",
+        focus,
+        &review_output,
+    )
+    .await;
+    let findings_count = review_findings_count(&review_output);
 
     if review_output_has_findings(&review_output) && !allow_findings_commit {
         let summary = render_review_then_commit_summary(&review_output, "skipped due to findings");

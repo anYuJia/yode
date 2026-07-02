@@ -2,9 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
-use crate::builtin::review_common::{
-    persist_review_artifact, persist_review_status, review_findings_count,
-};
+use crate::builtin::review_common::{persist_review_outputs, review_findings_count};
 use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct VerificationAgentTool;
@@ -130,15 +128,7 @@ impl Tool for VerificationAgentTool {
             .await?;
 
         let artifact_path = if !run_in_background {
-            ctx.working_dir
-                .as_deref()
-                .and_then(|dir| persist_review_artifact(dir, "verification", focus, &result).ok())
-                .inspect(|path| {
-                    let _ = ctx.working_dir.as_deref().and_then(|dir| {
-                        persist_review_status(dir, "verification", focus, &result, Some(path)).ok()
-                    });
-                })
-                .map(|path| path.display().to_string())
+            persist_review_outputs(ctx.working_dir.as_deref(), "verification", focus, &result).await
         } else {
             None
         };

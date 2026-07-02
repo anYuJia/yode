@@ -33,6 +33,40 @@ pub fn persist_review_artifact(
     Ok(path)
 }
 
+pub async fn persist_review_artifact_async(
+    working_dir: &Path,
+    kind: &str,
+    title: &str,
+    body: &str,
+) -> Result<PathBuf> {
+    let dir = working_dir.join(".yode").join("reviews");
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .with_context(|| format!("Failed to create review artifact dir: {}", dir.display()))?;
+
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let path = dir.join(format!("{}-{}.md", kind, timestamp));
+    let diff_path = dir.join(format!("{}-{}.diff.txt", kind, timestamp));
+    let diff_artifact_path = capture_diff_artifact_async(working_dir, &diff_path)
+        .await
+        .ok();
+    let content = format!(
+        "# Review Artifact\n\n- Kind: {}\n- Title: {}\n- Timestamp: {}\n- Diff Artifact: {}\n\n## Result\n\n```text\n{}\n```\n",
+        kind,
+        title,
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+        diff_artifact_path
+            .as_ref()
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|| "none".to_string()),
+        body.trim()
+    );
+    tokio::fs::write(&path, content)
+        .await
+        .with_context(|| format!("Failed to write review artifact: {}", path.display()))?;
+    Ok(path)
+}
+
 fn capture_diff_artifact(working_dir: &Path, diff_path: &Path) -> Result<PathBuf> {
     let output = std::process::Command::new("git")
         .arg("-C")
@@ -48,6 +82,27 @@ fn capture_diff_artifact(working_dir: &Path, diff_path: &Path) -> Result<PathBuf
         anyhow::bail!("empty diff");
     }
     std::fs::write(diff_path, diff)
+        .with_context(|| format!("Failed to write diff artifact: {}", diff_path.display()))?;
+    Ok(diff_path.to_path_buf())
+}
+
+async fn capture_diff_artifact_async(working_dir: &Path, diff_path: &Path) -> Result<PathBuf> {
+    let output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(working_dir)
+        .args(["diff", "--stat"])
+        .output()
+        .await
+        .with_context(|| format!("Failed to run git diff in {}", working_dir.display()))?;
+    if !output.status.success() {
+        anyhow::bail!("git diff --stat failed");
+    }
+    let diff = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if diff.is_empty() {
+        anyhow::bail!("empty diff");
+    }
+    tokio::fs::write(diff_path, diff)
+        .await
         .with_context(|| format!("Failed to write diff artifact: {}", diff_path.display()))?;
     Ok(diff_path.to_path_buf())
 }
@@ -90,6 +145,73 @@ pub fn persist_review_status(
     std::fs::write(&path, serde_json::to_string_pretty(&snapshot)?)
         .with_context(|| format!("Failed to write review status file: {}", path.display()))?;
     Ok(path)
+}
+
+pub async fn persist_review_status_async(
+    working_dir: &Path,
+    kind: &str,
+    title: &str,
+    body: &str,
+    artifact_path: Option<&Path>,
+) -> Result<PathBuf> {
+    let dir = working_dir.join(".yode").join("reviews");
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .with_context(|| format!("Failed to create review status dir: {}", dir.display()))?;
+
+    let path = dir.join("latest-status.json");
+    let findings_count = review_findings_count(body);
+    let snapshot = ReviewStatusSnapshot {
+        kind: kind.to_string(),
+        title: title.to_string(),
+        timestamp: chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        status: if findings_count == 0 {
+            "clean".to_string()
+        } else {
+            "findings".to_string()
+        },
+        findings_count,
+        artifact_path: artifact_path.map(|path| path.display().to_string()),
+    };
+    tokio::fs::write(&path, serde_json::to_string_pretty(&snapshot)?)
+        .await
+        .with_context(|| format!("Failed to write review status file: {}", path.display()))?;
+    Ok(path)
+}
+
+pub async fn persist_review_outputs(
+    working_dir: Option<&Path>,
+    kind: &str,
+    title: &str,
+    body: &str,
+) -> Option<String> {
+    let working_dir = working_dir?;
+    let path = match persist_review_artifact_async(working_dir, kind, title, body).await {
+        Ok(path) => path,
+        Err(error) => {
+            tracing::warn!(
+                kind,
+                title,
+                error = %error,
+                "Failed to persist review artifact"
+            );
+            return None;
+        }
+    };
+
+    if let Err(error) =
+        persist_review_status_async(working_dir, kind, title, body, Some(&path)).await
+    {
+        tracing::warn!(
+            kind,
+            title,
+            artifact_path = %path.display(),
+            error = %error,
+            "Failed to persist review status"
+        );
+    }
+
+    Some(path.display().to_string())
 }
 
 pub fn review_metadata_payload(
