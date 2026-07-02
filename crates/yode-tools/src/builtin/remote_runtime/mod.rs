@@ -19,16 +19,17 @@ use crate::runtime_tasks::RuntimeTaskStore;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 use artifacts::{
-    load_or_create_remote_control_payload, load_or_create_remote_live_session_payload,
-    load_or_create_remote_transport_payload, probe_remote_transport, record_remote_transport_event,
-    write_remote_control_payload, write_remote_live_session_payload,
-    write_remote_queue_execution_artifact, write_remote_session_transcript_sync_artifact,
-    write_remote_transport_payload,
+    load_or_create_remote_control_payload_async, load_or_create_remote_live_session_payload_async,
+    load_or_create_remote_transport_payload_async, probe_remote_transport_async,
+    record_remote_transport_event_async, write_remote_control_payload_async,
+    write_remote_live_session_payload_async, write_remote_queue_execution_artifact_async,
+    write_remote_session_transcript_sync_artifact_async, write_remote_transport_payload_async,
 };
 use params::{RemoteQueueDispatchParams, RemoteQueueResultParams, RemoteTransportControlParams};
 use paths::{
-    latest_artifact_by_suffix, latest_remote_transport_events_artifact,
-    latest_remote_transport_state_artifact, latest_transcript_artifact, now_string, remote_dir,
+    latest_artifact_by_suffix_async, latest_remote_transport_events_artifact_async,
+    latest_remote_transport_state_artifact_async, latest_transcript_artifact_async, now_string,
+    remote_dir,
 };
 use queue::{insert_queue_item, resolve_queue_index};
 use status::{
@@ -106,30 +107,38 @@ impl Tool for RemoteQueueDispatchTool {
         let provider = ctx.provider.as_deref().unwrap_or("unknown");
         let model = ctx.model.as_deref().unwrap_or("unknown");
 
-        let mut payload = load_or_create_remote_control_payload(
+        let mut payload = load_or_create_remote_control_payload_async(
             project_root,
             session_id,
             provider,
             model,
             "tool-driven remote control queue",
-        );
-        let mut transport = load_or_create_remote_transport_payload(project_root, session_id);
+        )
+        .await;
+        let mut transport =
+            load_or_create_remote_transport_payload_async(project_root, session_id).await;
         if transport.connection_status != "connected" {
             transport.last_command = Some("remote_queue_dispatch".to_string());
             transport.queue_gate = Some(format!("blocked: {}", transport_block_reason(&transport)));
             transport.last_transition_at = Some(now_string());
             let transport_artifacts =
-                write_remote_transport_payload(project_root, session_id, &mut transport)?;
+                write_remote_transport_payload_async(project_root, session_id, &mut transport)
+                    .await?;
             let mut live_session =
-                load_or_create_remote_live_session_payload(project_root, session_id);
+                load_or_create_remote_live_session_payload_async(project_root, session_id).await;
             sync_live_session_with_transport(
                 project_root,
                 session_id,
                 &transport,
                 &mut live_session,
-            );
-            let live_artifacts =
-                write_remote_live_session_payload(project_root, session_id, &mut live_session)?;
+            )
+            .await;
+            let live_artifacts = write_remote_live_session_payload_async(
+                project_root,
+                session_id,
+                &mut live_session,
+            )
+            .await?;
             return Ok(ToolResult::error_typed(
                 format!(
                     "Remote transport is not connected. Use `remote_transport_control` with action=\"connect\" or action=\"reconnect\" first.\nTransport: {}\nLive session: {}",
@@ -156,7 +165,7 @@ impl Tool for RemoteQueueDispatchTool {
         let transcript_path = params
             .transcript_path
             .clone()
-            .or_else(|| latest_transcript_artifact(project_root));
+            .or(latest_transcript_artifact_async(project_root).await);
 
         let task = start_runtime_task(
             ctx.runtime_tasks.as_ref(),
@@ -192,7 +201,7 @@ impl Tool for RemoteQueueDispatchTool {
         };
         payload.status = summarize_queue_status(&payload.command_queue);
 
-        let event_path = record_remote_transport_event(
+        let event_path = record_remote_transport_event_async(
             project_root,
             session_id,
             "dispatch",
@@ -202,14 +211,16 @@ impl Tool for RemoteQueueDispatchTool {
                 "queued {} for remote execution",
                 payload.command_queue[index].command
             ),
-        )?;
-        let execution_path = write_remote_queue_execution_artifact(
+        )
+        .await?;
+        let execution_path = write_remote_queue_execution_artifact_async(
             project_root,
             &payload.command_queue[index],
             "dispatched",
             &preview,
             Some(event_path.as_path()),
-        )?;
+        )
+        .await?;
         payload.command_queue[index].execution_artifact =
             Some(execution_path.display().to_string());
 
@@ -218,15 +229,19 @@ impl Tool for RemoteQueueDispatchTool {
         transport.last_transition_at = Some(now_string());
         transport.latest_transport_task_id = task_id.clone();
         let transport_artifacts =
-            write_remote_transport_payload(project_root, session_id, &mut transport)?;
-        let control_artifacts = write_remote_control_payload(project_root, &mut payload)?;
+            write_remote_transport_payload_async(project_root, session_id, &mut transport).await?;
+        let control_artifacts =
+            write_remote_control_payload_async(project_root, &mut payload).await?;
 
-        let mut live_session = load_or_create_remote_live_session_payload(project_root, session_id);
+        let mut live_session =
+            load_or_create_remote_live_session_payload_async(project_root, session_id).await;
         live_session.latest_queue_item_id = Some(item_id.clone());
         live_session.updated_at = now_string();
-        sync_live_session_with_transport(project_root, session_id, &transport, &mut live_session);
+        sync_live_session_with_transport(project_root, session_id, &transport, &mut live_session)
+            .await;
         let live_artifacts =
-            write_remote_live_session_payload(project_root, session_id, &mut live_session)?;
+            write_remote_live_session_payload_async(project_root, session_id, &mut live_session)
+                .await?;
 
         Ok(ToolResult::success_with_metadata(
             format!(
@@ -341,15 +356,18 @@ impl Tool for RemoteQueueResultTool {
         let session_id = ctx.session_id.as_deref().unwrap_or("remote-tool-session");
         let provider = ctx.provider.as_deref().unwrap_or("unknown");
         let model = ctx.model.as_deref().unwrap_or("unknown");
-        let mut payload = load_or_create_remote_control_payload(
+        let mut payload = load_or_create_remote_control_payload_async(
             project_root,
             session_id,
             provider,
             model,
             "tool-driven remote control queue",
-        );
-        let mut transport = load_or_create_remote_transport_payload(project_root, session_id);
-        let mut live_session = load_or_create_remote_live_session_payload(project_root, session_id);
+        )
+        .await;
+        let mut transport =
+            load_or_create_remote_transport_payload_async(project_root, session_id).await;
+        let mut live_session =
+            load_or_create_remote_live_session_payload_async(project_root, session_id).await;
 
         let target = params.target.as_deref().unwrap_or("latest");
         let index = resolve_queue_index(&payload, target)
@@ -389,7 +407,7 @@ impl Tool for RemoteQueueResultTool {
             }
         }
 
-        let event_path = record_remote_transport_event(
+        let event_path = record_remote_transport_event_async(
             project_root,
             session_id,
             match normalized_status {
@@ -401,14 +419,16 @@ impl Tool for RemoteQueueResultTool {
             Some(item_snapshot.id.as_str()),
             item_snapshot.runtime_task_id.as_deref(),
             &params.summary,
-        )?;
-        let execution_path = write_remote_queue_execution_artifact(
+        )
+        .await?;
+        let execution_path = write_remote_queue_execution_artifact_async(
             project_root,
             &item_snapshot,
             normalized_status,
             &params.summary,
             Some(event_path.as_path()),
-        )?;
+        )
+        .await?;
         payload.command_queue[index].execution_artifact =
             Some(execution_path.display().to_string());
         payload.status = summarize_queue_status(&payload.command_queue);
@@ -417,8 +437,9 @@ impl Tool for RemoteQueueResultTool {
         transport.queue_gate = Some(format!("ready: {} {}", normalized_status, item_snapshot.id));
         transport.last_transition_at = Some(now.clone());
         let transport_artifacts =
-            write_remote_transport_payload(project_root, session_id, &mut transport)?;
-        let control_artifacts = write_remote_control_payload(project_root, &mut payload)?;
+            write_remote_transport_payload_async(project_root, session_id, &mut transport).await?;
+        let control_artifacts =
+            write_remote_control_payload_async(project_root, &mut payload).await?;
 
         live_session.latest_queue_item_id = Some(item_snapshot.id.clone());
         if normalized_status != "acked" {
@@ -444,23 +465,26 @@ impl Tool for RemoteQueueResultTool {
                 .transcript_path
                 .clone()
                 .or_else(|| item_snapshot.transcript_path.clone());
-            write_remote_session_transcript_sync_artifact(
+            write_remote_session_transcript_sync_artifact_async(
                 project_root,
                 session_id,
                 item_snapshot.id.as_str(),
                 transcript_path.as_deref(),
                 result_id.as_str(),
                 Some(endpoint.endpoint_id.as_str()),
-            )?
+            )
+            .await?
         };
         if let Some(path) = transcript_sync_path.as_ref() {
             live_session.transcript_sync_status = "synced".to_string();
             live_session.last_transcript_sync_at = Some(now.clone());
             live_session.transcript_sync_artifact = Some(path.display().to_string());
         }
-        sync_live_session_with_transport(project_root, session_id, &transport, &mut live_session);
+        sync_live_session_with_transport(project_root, session_id, &transport, &mut live_session)
+            .await;
         let live_artifacts =
-            write_remote_live_session_payload(project_root, session_id, &mut live_session)?;
+            write_remote_live_session_payload_async(project_root, session_id, &mut live_session)
+                .await?;
 
         Ok(ToolResult::success_with_metadata(
             format!(
@@ -547,8 +571,10 @@ impl Tool for RemoteTransportControlTool {
             .as_deref()
             .ok_or_else(|| anyhow!("working_dir not available"))?;
         let session_id = ctx.session_id.as_deref().unwrap_or("remote-tool-session");
-        let mut transport = load_or_create_remote_transport_payload(project_root, session_id);
-        let mut live_session = load_or_create_remote_live_session_payload(project_root, session_id);
+        let mut transport =
+            load_or_create_remote_transport_payload_async(project_root, session_id).await;
+        let mut live_session =
+            load_or_create_remote_live_session_payload_async(project_root, session_id).await;
 
         let task = if matches!(params.action.as_str(), "connect" | "reconnect") {
             start_runtime_task(
@@ -567,7 +593,7 @@ impl Tool for RemoteTransportControlTool {
         match params.action.as_str() {
             "status" => {}
             "connect" => {
-                probe_remote_transport(project_root)?;
+                probe_remote_transport_async(project_root).await?;
                 transport.connection_status = "connected".to_string();
                 transport.connection_id = Some(format!("transport-{}", uuid::Uuid::new_v4()));
                 transport.connected_at = Some(now_string());
@@ -588,7 +614,7 @@ impl Tool for RemoteTransportControlTool {
                 transport.last_transition_at = Some(now_string());
             }
             "reconnect" => {
-                probe_remote_transport(project_root)?;
+                probe_remote_transport_async(project_root).await?;
                 transport.connection_status = "connected".to_string();
                 transport.connection_id = Some(format!("transport-{}", uuid::Uuid::new_v4()));
                 transport.connected_at = Some(now_string());
@@ -607,14 +633,15 @@ impl Tool for RemoteTransportControlTool {
             .detail
             .clone()
             .unwrap_or_else(|| format!("transport {}", params.action));
-        let event_path = record_remote_transport_event(
+        let event_path = record_remote_transport_event_async(
             project_root,
             session_id,
             params.action.as_str(),
             None,
             task_id.as_deref(),
             detail.as_str(),
-        )?;
+        )
+        .await?;
         if let (Some(store), Some(task_id)) = (ctx.runtime_tasks.as_ref(), task_id.as_deref()) {
             let mut store = store.lock().await;
             store.update_progress(task_id, detail.clone());
@@ -622,10 +649,12 @@ impl Tool for RemoteTransportControlTool {
         }
 
         let transport_artifacts =
-            write_remote_transport_payload(project_root, session_id, &mut transport)?;
-        sync_live_session_with_transport(project_root, session_id, &transport, &mut live_session);
+            write_remote_transport_payload_async(project_root, session_id, &mut transport).await?;
+        sync_live_session_with_transport(project_root, session_id, &transport, &mut live_session)
+            .await;
         let live_artifacts =
-            write_remote_live_session_payload(project_root, session_id, &mut live_session)?;
+            write_remote_live_session_payload_async(project_root, session_id, &mut live_session)
+                .await?;
 
         Ok(ToolResult::success_with_metadata(
             format!(
@@ -675,7 +704,7 @@ fn start_runtime_task(
     })
 }
 
-fn sync_live_session_with_transport(
+async fn sync_live_session_with_transport(
     project_root: &Path,
     session_id: &str,
     transport: &RemoteTransportPayload,
@@ -692,12 +721,15 @@ fn sync_live_session_with_transport(
             _ => "idle".to_string(),
         }
     };
-    payload.latest_transport_state =
-        latest_remote_transport_state_artifact(project_root).map(|path| path.display().to_string());
-    payload.latest_transport_events = latest_remote_transport_events_artifact(project_root)
+    payload.latest_transport_state = latest_remote_transport_state_artifact_async(project_root)
+        .await
+        .map(|path| path.display().to_string());
+    payload.latest_transport_events = latest_remote_transport_events_artifact_async(project_root)
+        .await
         .map(|path| path.display().to_string());
     payload.latest_remote_control =
-        latest_artifact_by_suffix(&remote_dir(project_root), "remote-control.md")
+        latest_artifact_by_suffix_async(&remote_dir(project_root), "remote-control.md")
+            .await
             .map(|path| path.display().to_string());
     let endpoint = local_remote_endpoint(
         transport,
@@ -771,8 +803,10 @@ fn default_remote_endpoint_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::paths::{
-        latest_remote_control_state_artifact, latest_remote_live_session_state_artifact,
-        latest_remote_transport_event_log_artifact, latest_remote_transport_state_artifact,
+        latest_remote_control_state_artifact_async,
+        latest_remote_live_session_state_artifact_async,
+        latest_remote_transport_event_log_artifact_async,
+        latest_remote_transport_state_artifact_async,
     };
     use super::{RemoteQueueDispatchTool, RemoteQueueResultTool, RemoteTransportControlTool};
     use crate::runtime_tasks::RuntimeTaskStore;
@@ -802,8 +836,12 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.is_error);
-        assert!(latest_remote_transport_state_artifact(dir.path()).is_some());
-        assert!(latest_remote_live_session_state_artifact(dir.path()).is_some());
+        assert!(latest_remote_transport_state_artifact_async(dir.path())
+            .await
+            .is_some());
+        assert!(latest_remote_live_session_state_artifact_async(dir.path())
+            .await
+            .is_some());
     }
 
     #[tokio::test]
@@ -822,7 +860,9 @@ mod tests {
             .await
             .unwrap();
         assert!(!dispatch.is_error);
-        assert!(latest_remote_control_state_artifact(dir.path()).is_some());
+        assert!(latest_remote_control_state_artifact_async(dir.path())
+            .await
+            .is_some());
 
         let result = RemoteQueueResultTool
             .execute(
@@ -832,12 +872,17 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.is_error);
-        let live_state =
-            std::fs::read_to_string(latest_remote_live_session_state_artifact(dir.path()).unwrap())
-                .unwrap();
+        let live_state = std::fs::read_to_string(
+            latest_remote_live_session_state_artifact_async(dir.path())
+                .await
+                .unwrap(),
+        )
+        .unwrap();
         assert!(live_state.contains("\"latest_result_status\": \"completed\""));
 
-        let event_log = latest_remote_transport_event_log_artifact(dir.path()).unwrap();
+        let event_log = latest_remote_transport_event_log_artifact_async(dir.path())
+            .await
+            .unwrap();
         let entries = std::fs::read_to_string(event_log)
             .unwrap()
             .lines()
@@ -850,9 +895,12 @@ mod tests {
         assert_eq!(entries[1]["event"], "dispatch");
         assert_eq!(entries[2]["cursor"], 3);
         assert_eq!(entries[2]["event"], "result_completed");
-        let transport_state =
-            std::fs::read_to_string(latest_remote_transport_state_artifact(dir.path()).unwrap())
-                .unwrap();
+        let transport_state = std::fs::read_to_string(
+            latest_remote_transport_state_artifact_async(dir.path())
+                .await
+                .unwrap(),
+        )
+        .unwrap();
         assert!(transport_state.contains("\"resume_cursor\": 3"));
     }
 
@@ -871,8 +919,12 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("connect remote transport"));
-        assert!(latest_remote_transport_state_artifact(dir.path()).is_some());
-        assert!(latest_remote_live_session_state_artifact(dir.path()).is_some());
+        assert!(latest_remote_transport_state_artifact_async(dir.path())
+            .await
+            .is_some());
+        assert!(latest_remote_live_session_state_artifact_async(dir.path())
+            .await
+            .is_some());
     }
 
     #[tokio::test]
@@ -888,9 +940,12 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.is_error);
-        let state =
-            std::fs::read_to_string(latest_remote_transport_state_artifact(dir.path()).unwrap())
-                .unwrap();
+        let state = std::fs::read_to_string(
+            latest_remote_transport_state_artifact_async(dir.path())
+                .await
+                .unwrap(),
+        )
+        .unwrap();
         assert!(state.contains("\"reconnect_attempts\": 1"));
     }
 }

@@ -3,49 +3,65 @@ use std::path::{Path, PathBuf};
 use anyhow::Result;
 use serde::Deserialize;
 
-pub(super) fn latest_artifact_by_suffix(dir: &Path, suffix: &str) -> Option<PathBuf> {
-    let mut entries = std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.ends_with(suffix))
-        })
-        .collect::<Vec<_>>();
-    entries.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
-    entries.into_iter().next()
+pub(super) async fn latest_artifact_by_suffix_async(dir: &Path, suffix: &str) -> Option<PathBuf> {
+    let mut entries = tokio::fs::read_dir(dir).await.ok()?;
+    let mut paths = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(suffix))
+        {
+            paths.push(path);
+        }
+    }
+    paths.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
+    paths.into_iter().next()
 }
 
-pub(super) fn latest_remote_control_state_artifact(project_root: &Path) -> Option<PathBuf> {
-    latest_artifact_by_suffix(&remote_dir(project_root), "remote-control-session.json")
+pub(super) async fn latest_remote_control_state_artifact_async(
+    project_root: &Path,
+) -> Option<PathBuf> {
+    latest_artifact_by_suffix_async(&remote_dir(project_root), "remote-control-session.json").await
 }
 
-pub(super) fn latest_remote_transport_state_artifact(project_root: &Path) -> Option<PathBuf> {
-    latest_artifact_by_suffix(&remote_dir(project_root), "remote-transport-state.json")
+pub(super) async fn latest_remote_transport_state_artifact_async(
+    project_root: &Path,
+) -> Option<PathBuf> {
+    latest_artifact_by_suffix_async(&remote_dir(project_root), "remote-transport-state.json").await
 }
 
-pub(super) fn latest_remote_transport_events_artifact(project_root: &Path) -> Option<PathBuf> {
-    latest_artifact_by_suffix(&remote_dir(project_root), "remote-transport-events.md")
+pub(super) async fn latest_remote_transport_events_artifact_async(
+    project_root: &Path,
+) -> Option<PathBuf> {
+    latest_artifact_by_suffix_async(&remote_dir(project_root), "remote-transport-events.md").await
 }
 
 #[cfg(test)]
-pub(super) fn latest_remote_transport_event_log_artifact(project_root: &Path) -> Option<PathBuf> {
-    latest_artifact_by_suffix(&remote_dir(project_root), "remote-events.jsonl")
+pub(super) async fn latest_remote_transport_event_log_artifact_async(
+    project_root: &Path,
+) -> Option<PathBuf> {
+    latest_artifact_by_suffix_async(&remote_dir(project_root), "remote-events.jsonl").await
 }
 
-pub(super) fn latest_remote_live_session_state_artifact(project_root: &Path) -> Option<PathBuf> {
-    latest_artifact_by_suffix(&remote_dir(project_root), "remote-live-session-state.json")
+pub(super) async fn latest_remote_live_session_state_artifact_async(
+    project_root: &Path,
+) -> Option<PathBuf> {
+    latest_artifact_by_suffix_async(&remote_dir(project_root), "remote-live-session-state.json")
+        .await
 }
 
-pub(super) fn latest_transcript_artifact(project_root: &Path) -> Option<String> {
-    latest_artifact_by_suffix(&project_root.join(".yode").join("transcripts"), ".md")
+pub(super) async fn latest_transcript_artifact_async(project_root: &Path) -> Option<String> {
+    latest_artifact_by_suffix_async(&project_root.join(".yode").join("transcripts"), ".md")
+        .await
         .map(|path| path.display().to_string())
 }
 
-pub(super) fn load_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
-    Ok(serde_json::from_str(&std::fs::read_to_string(path)?)?)
+pub(super) async fn load_json_async<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
+    Ok(serde_json::from_str(
+        &tokio::fs::read_to_string(path).await?,
+    )?)
 }
 
 pub(super) fn short_session(session_id: &str) -> String {
@@ -68,8 +84,12 @@ pub(super) fn remote_transport_event_log_path(project_root: &Path, session_id: &
     remote_dir(project_root).join(format!("{}-remote-events.jsonl", short_session(session_id)))
 }
 
-pub(super) fn read_remote_event_log_cursor(path: &Path) -> Option<u64> {
-    let body = std::fs::read_to_string(path).ok()?;
+pub(super) async fn read_remote_event_log_cursor_async(path: &Path) -> Option<u64> {
+    let body = tokio::fs::read_to_string(path).await.ok()?;
+    remote_event_log_cursor_from_body(&body)
+}
+
+pub(super) fn remote_event_log_cursor_from_body(body: &str) -> Option<u64> {
     body.lines().rev().find_map(|line| {
         let line = line.trim();
         if line.is_empty() {

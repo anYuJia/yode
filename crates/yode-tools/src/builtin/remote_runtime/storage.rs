@@ -1,67 +1,50 @@
-use std::io::Write;
 use std::path::Path;
 
 use anyhow::Result;
+use tokio::io::AsyncWriteExt;
 
-pub(super) trait RemoteStorage {
-    fn create_dir_all(&self, path: &Path) -> Result<()>;
-    fn exists(&self, path: &Path) -> bool;
-    fn read_text(&self, path: &Path) -> Result<String>;
-    fn write_text(&self, path: &Path, body: &str) -> Result<()>;
-    fn append_line(&self, path: &Path, line: &str) -> Result<()>;
+pub(super) async fn create_dir_all(path: &Path) -> Result<()> {
+    Ok(tokio::fs::create_dir_all(path).await?)
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-pub(super) struct LocalRemoteStorage;
-
-impl RemoteStorage for LocalRemoteStorage {
-    fn create_dir_all(&self, path: &Path) -> Result<()> {
-        Ok(std::fs::create_dir_all(path)?)
-    }
-
-    fn exists(&self, path: &Path) -> bool {
-        path.exists()
-    }
-
-    fn read_text(&self, path: &Path) -> Result<String> {
-        Ok(std::fs::read_to_string(path)?)
-    }
-
-    fn write_text(&self, path: &Path, body: &str) -> Result<()> {
-        Ok(std::fs::write(path, body)?)
-    }
-
-    fn append_line(&self, path: &Path, line: &str) -> Result<()> {
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
-        writeln!(file, "{}", line)?;
-        Ok(())
-    }
+pub(super) async fn read_text(path: &Path) -> Result<String> {
+    Ok(tokio::fs::read_to_string(path).await?)
 }
 
-pub(super) fn local_remote_storage() -> LocalRemoteStorage {
-    LocalRemoteStorage
+pub(super) async fn write_text(path: &Path, body: impl AsRef<[u8]>) -> Result<()> {
+    Ok(tokio::fs::write(path, body).await?)
+}
+
+pub(super) async fn append_line(path: &Path, line: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let mut file = tokio::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .await?;
+    file.write_all(line.as_bytes()).await?;
+    file.write_all(b"\n").await?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{local_remote_storage, RemoteStorage};
+    use super::{append_line, create_dir_all, read_text};
 
-    #[test]
-    fn local_remote_storage_appends_lines() {
+    #[tokio::test]
+    async fn remote_storage_appends_lines() {
         let dir =
             std::env::temp_dir().join(format!("yode-remote-storage-{}", uuid::Uuid::new_v4()));
         let path = dir.join("events.jsonl");
-        let storage = local_remote_storage();
 
-        storage.create_dir_all(&dir).unwrap();
-        storage.append_line(&path, r#"{"cursor":1}"#).unwrap();
-        storage.append_line(&path, r#"{"cursor":2}"#).unwrap();
+        create_dir_all(&dir).await.unwrap();
+        append_line(&path, r#"{"cursor":1}"#).await.unwrap();
+        append_line(&path, r#"{"cursor":2}"#).await.unwrap();
 
         assert_eq!(
-            storage.read_text(&path).unwrap(),
+            read_text(&path).await.unwrap(),
             "{\"cursor\":1}\n{\"cursor\":2}\n"
         );
 
