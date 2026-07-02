@@ -499,10 +499,8 @@ impl AgentEngine {
         let tool_pool = self.build_tool_pool_snapshot();
         let inventory = self.tools.inventory();
         let plan_snapshot = self.plan_runtime_state();
-        let skills = crate::skills::SkillRegistry::discover_async(
-            &crate::skills::SkillRegistry::default_paths(&project_root),
-        )
-        .await;
+        let skill_paths = crate::skills::SkillRegistry::default_paths_async(&project_root).await;
+        let skills = crate::skills::SkillRegistry::discover_async(&skill_paths).await;
         let mcp_cache = yode_tools::mcp_resource_cache_stats();
 
         let read_files = ordered_recent_read_files(&self.recent_file_reads, &self.files_read);

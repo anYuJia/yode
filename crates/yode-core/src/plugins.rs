@@ -14,8 +14,16 @@ impl PluginRegistry {
         discover_plugins(&project_root.join(".yode").join("plugins"))
     }
 
+    pub async fn discover_async(project_root: &Path) -> Self {
+        discover_plugins_async(&project_root.join(".yode").join("plugins")).await
+    }
+
     pub fn discover_dir(plugins_dir: &Path) -> Self {
         discover_plugins(plugins_dir)
+    }
+
+    pub async fn discover_dir_async(plugins_dir: &Path) -> Self {
+        discover_plugins_async(plugins_dir).await
     }
 
     pub fn plugins(&self) -> &[Plugin] {
@@ -226,11 +234,86 @@ fn discover_plugins(plugins_dir: &Path) -> PluginRegistry {
     }
 }
 
+async fn discover_plugins_async(plugins_dir: &Path) -> PluginRegistry {
+    let mut plugins = Vec::new();
+    let mut diagnostics = Vec::new();
+
+    let mut entries = match tokio::fs::read_dir(plugins_dir).await {
+        Ok(entries) => entries,
+        Err(_) => {
+            return PluginRegistry {
+                plugins,
+                diagnostics,
+            };
+        }
+    };
+    let mut plugin_dirs = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if tokio::fs::metadata(&path)
+            .await
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or(false)
+        {
+            plugin_dirs.push(path);
+        }
+    }
+    plugin_dirs.sort();
+
+    for plugin_dir in plugin_dirs {
+        let manifest_path = plugin_dir.join("plugin.toml");
+        if tokio::fs::metadata(&manifest_path)
+            .await
+            .map(|metadata| !metadata.is_file())
+            .unwrap_or(true)
+        {
+            diagnostics.push(PluginDiagnostic {
+                plugin_dir,
+                manifest_path,
+                message: "missing plugin.toml".to_string(),
+            });
+            continue;
+        }
+
+        match parse_plugin_manifest_async(&plugin_dir, &manifest_path).await {
+            Ok(plugin) => plugins.push(plugin),
+            Err(message) => diagnostics.push(PluginDiagnostic {
+                plugin_dir,
+                manifest_path,
+                message,
+            }),
+        }
+    }
+
+    PluginRegistry {
+        plugins,
+        diagnostics,
+    }
+}
+
 fn parse_plugin_manifest(plugin_dir: &Path, manifest_path: &Path) -> Result<Plugin, String> {
     let content = std::fs::read_to_string(manifest_path)
         .map_err(|err| format!("failed to read plugin.toml: {err}"))?;
+    parse_plugin_manifest_content(plugin_dir, manifest_path, &content)
+}
+
+async fn parse_plugin_manifest_async(
+    plugin_dir: &Path,
+    manifest_path: &Path,
+) -> Result<Plugin, String> {
+    let content = tokio::fs::read_to_string(manifest_path)
+        .await
+        .map_err(|err| format!("failed to read plugin.toml: {err}"))?;
+    parse_plugin_manifest_content(plugin_dir, manifest_path, &content)
+}
+
+fn parse_plugin_manifest_content(
+    plugin_dir: &Path,
+    manifest_path: &Path,
+    content: &str,
+) -> Result<Plugin, String> {
     let manifest: PluginManifest =
-        toml::from_str(&content).map_err(|err| format!("invalid plugin.toml: {err}"))?;
+        toml::from_str(content).map_err(|err| format!("invalid plugin.toml: {err}"))?;
 
     let name = manifest.name.trim();
     if name.is_empty() {
@@ -380,11 +463,83 @@ pub fn discover_plugin_mcp_servers(project_root: &Path) -> PluginMcpDiscovery {
     discovery
 }
 
+pub async fn discover_plugin_mcp_servers_async(project_root: &Path) -> PluginMcpDiscovery {
+    let mut discovery = PluginMcpDiscovery::default();
+    let registry = PluginRegistry::discover_async(project_root).await;
+    for plugin in registry.enabled_plugins() {
+        for contribution in &plugin.contributions.mcp_servers {
+            let path = Path::new(contribution);
+            if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
+                continue;
+            }
+            if path.is_absolute()
+                || path
+                    .components()
+                    .any(|component| matches!(component, std::path::Component::ParentDir))
+            {
+                discovery.diagnostics.push(format!(
+                    "MCP contribution must stay inside plugin '{}': {}",
+                    plugin.name, contribution
+                ));
+                continue;
+            }
+            let path = plugin.root.join(path);
+            match tokio::fs::read_to_string(&path)
+                .await
+                .map_err(|err| format!("failed to read {}: {}", path.display(), err))
+                .and_then(|content| {
+                    toml::from_str::<crate::config::McpConfig>(&content)
+                        .map_err(|err| format!("invalid MCP manifest {}: {}", path.display(), err))
+                }) {
+                Ok(config) => {
+                    for (server, config) in config.servers {
+                        discovery.servers.entry(server).or_insert(config);
+                    }
+                }
+                Err(message) => discovery.diagnostics.push(message),
+            }
+        }
+    }
+    discovery
+}
+
 pub fn discover_plugin_commands(project_root: &Path) -> PluginCommandDiscovery {
     let mut discovery = PluginCommandDiscovery::default();
     for path in PluginRegistry::discover(project_root).enabled_command_paths() {
         for command_path in expand_toml_contribution(path) {
             match std::fs::read_to_string(&command_path)
+                .map_err(|err| format!("failed to read {}: {}", command_path.display(), err))
+                .and_then(|content| {
+                    toml::from_str::<PluginCommandManifest>(&content).map_err(|err| {
+                        format!(
+                            "invalid command manifest {}: {}",
+                            command_path.display(),
+                            err
+                        )
+                    })
+                }) {
+                Ok(manifest) => {
+                    for entry in manifest.commands {
+                        match normalize_plugin_command(entry, &command_path) {
+                            Ok(command) => discovery.commands.push(command),
+                            Err(message) => discovery.diagnostics.push(message),
+                        }
+                    }
+                }
+                Err(message) => discovery.diagnostics.push(message),
+            }
+        }
+    }
+    discovery
+}
+
+pub async fn discover_plugin_commands_async(project_root: &Path) -> PluginCommandDiscovery {
+    let mut discovery = PluginCommandDiscovery::default();
+    let registry = PluginRegistry::discover_async(project_root).await;
+    for path in registry.enabled_command_paths() {
+        for command_path in expand_toml_contribution_async(path).await {
+            match tokio::fs::read_to_string(&command_path)
+                .await
                 .map_err(|err| format!("failed to read {}: {}", command_path.display(), err))
                 .and_then(|content| {
                     toml::from_str::<PluginCommandManifest>(&content).map_err(|err| {
@@ -464,6 +619,34 @@ fn expand_toml_contribution(path: PathBuf) -> Vec<PathBuf> {
             .map(|entry| entry.path())
             .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("toml"))
             .collect::<Vec<_>>();
+        paths.sort();
+        return paths;
+    }
+
+    if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+        vec![path]
+    } else {
+        Vec::new()
+    }
+}
+
+async fn expand_toml_contribution_async(path: PathBuf) -> Vec<PathBuf> {
+    if tokio::fs::metadata(&path)
+        .await
+        .map(|metadata| metadata.is_dir())
+        .unwrap_or(false)
+    {
+        let mut entries = match tokio::fs::read_dir(path).await {
+            Ok(entries) => entries,
+            Err(_) => return Vec::new(),
+        };
+        let mut paths = Vec::new();
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            if path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+                paths.push(path);
+            }
+        }
         paths.sort();
         return paths;
     }

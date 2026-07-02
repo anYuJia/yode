@@ -368,6 +368,25 @@ impl SkillRegistry {
 
         paths
     }
+
+    /// Get default discovery paths based on working directory without blocking the async runtime.
+    pub async fn default_paths_async(working_dir: &Path) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+
+        paths.push(working_dir.join(".yode").join("skills"));
+
+        paths.extend(
+            crate::plugins::PluginRegistry::discover_async(working_dir)
+                .await
+                .enabled_skill_paths(),
+        );
+
+        if let Some(home) = dirs::home_dir() {
+            paths.push(home.join(".yode").join("skills"));
+        }
+
+        paths
+    }
 }
 
 fn normalized_list(values: &[String]) -> Vec<String> {

@@ -145,7 +145,7 @@ pub(super) async fn setup_desktop_tooling(
         }
     }
 
-    let skill_paths = yode_core::skills::SkillRegistry::default_paths(workdir);
+    let skill_paths = yode_core::skills::SkillRegistry::default_paths_async(workdir).await;
     let skill_registry = yode_core::skills::SkillRegistry::discover_async(&skill_paths).await;
     use yode_tools::builtin::skill::{SkillContextMode, SkillEntry, SkillStore};
     let mut store = SkillStore::new();
