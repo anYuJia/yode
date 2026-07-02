@@ -92,7 +92,8 @@ impl Tool for LsTool {
             show_hidden,
             &mut entries,
             &mut counts,
-        );
+        )
+        .await;
 
         let metadata = json!({
             "path": path,
@@ -139,7 +140,7 @@ const SKIP_DIRS: &[&str] = &[
     ".cache",
 ];
 
-fn list_dir_with_counts(
+async fn list_dir_with_counts(
     base: &Path,
     dir: &Path,
     recursive: bool,
@@ -147,35 +148,46 @@ fn list_dir_with_counts(
     entries: &mut Vec<String>,
     counts: &mut (usize, usize),
 ) {
-    let mut dir_entries: Vec<_> = match std::fs::read_dir(dir) {
-        Ok(e) => e.flatten().collect(),
-        Err(_) => return,
-    };
+    let mut pending = vec![dir.to_path_buf()];
 
-    dir_entries.sort_by_key(|e| e.file_name());
+    while let Some(current_dir) = pending.pop() {
+        let mut dir_entries = Vec::new();
+        let mut read_dir = match tokio::fs::read_dir(&current_dir).await {
+            Ok(entries) => entries,
+            Err(_) => continue,
+        };
 
-    for entry in dir_entries {
-        let name = entry.file_name();
-        let name_str = name.to_string_lossy();
-
-        // Skip hidden files unless requested
-        if !show_hidden && name_str.starts_with('.') {
-            continue;
+        while let Ok(Some(entry)) = read_dir.next_entry().await {
+            dir_entries.push(entry);
         }
+        dir_entries.sort_by_key(|entry| entry.file_name());
 
-        let path = entry.path();
-        let rel_str = relative_display_slash(&path, base);
+        for entry in dir_entries {
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
 
-        if path.is_dir() {
-            counts.1 += 1;
-            entries.push(format!("{}/", rel_str));
-
-            if recursive && !SKIP_DIRS.contains(&name_str.as_ref()) {
-                list_dir_with_counts(base, &path, recursive, show_hidden, entries, counts);
+            // Skip hidden files unless requested
+            if !show_hidden && name_str.starts_with('.') {
+                continue;
             }
-        } else {
-            counts.0 += 1;
-            entries.push(rel_str);
+
+            let path = entry.path();
+            let rel_str = relative_display_slash(&path, base);
+            let Ok(file_type) = entry.file_type().await else {
+                continue;
+            };
+
+            if file_type.is_dir() {
+                counts.1 += 1;
+                entries.push(format!("{}/", rel_str));
+
+                if recursive && !SKIP_DIRS.contains(&name_str.as_ref()) {
+                    pending.push(path);
+                }
+            } else if file_type.is_file() {
+                counts.0 += 1;
+                entries.push(rel_str);
+            }
         }
     }
 }
