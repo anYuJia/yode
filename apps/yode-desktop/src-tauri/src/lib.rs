@@ -514,11 +514,14 @@ async fn computer_use_settings_apply(
 }
 
 #[tauri::command]
-fn terminal_run(
+async fn terminal_run(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     request: protocol::TerminalRunRequest,
 ) -> Result<protocol::TerminalRunResponse, String> {
-    runtime.terminal_run(request).map_err(|err| err.to_string())
+    runtime
+        .terminal_run(request)
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]

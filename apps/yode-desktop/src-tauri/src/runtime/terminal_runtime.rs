@@ -26,7 +26,7 @@ pub(super) struct PtySessionState {
 }
 
 impl DesktopRuntime {
-    pub fn terminal_run(&self, request: TerminalRunRequest) -> Result<TerminalRunResponse> {
+    pub async fn terminal_run(&self, request: TerminalRunRequest) -> Result<TerminalRunResponse> {
         let trimmed = request.command.trim();
         if trimmed.is_empty() {
             let cwd = self
@@ -49,13 +49,14 @@ impl DesktopRuntime {
         );
         let (shell, shell_args) = terminal_shell_command(&session.env);
 
-        let mut command = std::process::Command::new(&shell);
+        let mut command = tokio::process::Command::new(&shell);
         command.args(shell_args).arg(script);
         let output = command
             .current_dir(&session.cwd)
             .env_clear()
             .envs(&session.env)
             .output()
+            .await
             .with_context(|| {
                 format!(
                     "failed to run terminal command '{}' with shell '{}'",
