@@ -344,10 +344,13 @@ fn mcp_server_test(
 }
 
 #[tauri::command]
-fn mcp_servers_reload(
+async fn mcp_servers_reload(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::DesktopMcpState, String> {
-    runtime.mcp_servers_reload().map_err(|err| err.to_string())
+    runtime
+        .mcp_servers_reload()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]

@@ -40,7 +40,7 @@ impl DesktopRuntime {
             config.clone()
         };
         save_config_to_path_async(&config_to_save, &self.user_config_path()).await?;
-        self.reload_desktop_tooling()?;
+        self.reload_desktop_tooling().await?;
         self.mcp_servers_state()
     }
 
@@ -91,19 +91,19 @@ impl DesktopRuntime {
         })
     }
 
-    pub fn mcp_servers_reload(&self) -> Result<DesktopMcpState> {
-        self.reload_desktop_tooling()?;
+    pub async fn mcp_servers_reload(&self) -> Result<DesktopMcpState> {
+        self.reload_desktop_tooling().await?;
         self.mcp_servers_state()
     }
 
-    fn reload_desktop_tooling(&self) -> Result<()> {
+    async fn reload_desktop_tooling(&self) -> Result<()> {
         let config = self
             .config
             .lock()
             .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
             .clone();
         let (tool_registry, mcp_resource_provider) =
-            setup_desktop_tooling(&config, &self.workspace_path);
+            setup_desktop_tooling(&config, &self.workspace_path).await;
         *self
             .tool_registry
             .lock()
@@ -117,7 +117,7 @@ impl DesktopRuntime {
     }
 }
 
-pub(super) fn setup_desktop_tooling(
+pub(super) async fn setup_desktop_tooling(
     config: &Config,
     workdir: &Path,
 ) -> (Arc<ToolRegistry>, Option<Arc<dyn McpResourceProvider>>) {
@@ -146,7 +146,7 @@ pub(super) fn setup_desktop_tooling(
     }
 
     let skill_paths = yode_core::skills::SkillRegistry::default_paths(workdir);
-    let skill_registry = yode_core::skills::SkillRegistry::discover(&skill_paths);
+    let skill_registry = yode_core::skills::SkillRegistry::discover_async(&skill_paths).await;
     use yode_tools::builtin::skill::{SkillContextMode, SkillEntry, SkillStore};
     let mut store = SkillStore::new();
     for skill in skill_registry.list() {

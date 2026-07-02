@@ -95,7 +95,7 @@ impl DesktopRuntime {
 
         let provider_registry = Mutex::new(bootstrap_providers(&config));
         let (tool_registry, mcp_resource_provider) =
-            setup_desktop_tooling(&config, &workspace_path);
+            setup_desktop_tooling(&config, &workspace_path).await;
         if let Ok(settings) = read_desktop_settings_async().await {
             if let Ok(browser_settings) = browser_settings_from_desktop_settings(&settings) {
                 apply_browser_settings_env(&browser_settings);

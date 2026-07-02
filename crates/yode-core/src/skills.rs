@@ -135,6 +135,15 @@ impl SkillRegistry {
         registry
     }
 
+    /// Discover skills from multiple directories without blocking the async runtime.
+    pub async fn discover_async(paths: &[PathBuf]) -> Self {
+        let mut registry = Self::new();
+        for path in paths {
+            registry.discover_dir_async(path).await;
+        }
+        registry
+    }
+
     /// Discover skills in a single directory.
     fn discover_dir(&mut self, dir: &Path) {
         if !dir.is_dir() {
@@ -185,10 +194,70 @@ impl SkillRegistry {
         }
     }
 
+    /// Discover skills in a single directory without blocking the async runtime.
+    async fn discover_dir_async(&mut self, dir: &Path) {
+        if tokio::fs::metadata(dir)
+            .await
+            .map(|metadata| !metadata.is_dir())
+            .unwrap_or(true)
+        {
+            for skill_path in candidate_skill_files(dir) {
+                if let Some(skill) = Self::parse_skill_file_async(&skill_path).await {
+                    self.push_unique_skill(skill, &skill_path);
+                }
+            }
+            if tokio::fs::metadata(dir).await.is_err() && looks_like_skill_file_reference(dir) {
+                self.diagnostics.push(SkillDiagnostic {
+                    path: dir.to_path_buf(),
+                    message: "referenced skill file is missing".to_string(),
+                });
+            }
+            return;
+        }
+
+        let mut entries = match tokio::fs::read_dir(dir).await {
+            Ok(entries) => entries,
+            Err(_) => return,
+        };
+        let mut paths = Vec::new();
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            paths.push(entry.path());
+        }
+        paths.sort();
+
+        for path in paths {
+            for skill_path in candidate_skill_files(&path) {
+                if let Some(skill) = Self::parse_skill_file_async(&skill_path).await {
+                    self.push_unique_skill(skill, &skill_path);
+                }
+            }
+        }
+    }
+
+    fn push_unique_skill(&mut self, skill: Skill, skill_path: &Path) {
+        if !self.skills.iter().any(|s| s.name == skill.name) {
+            tracing::debug!(
+                name = %skill.name,
+                path = %skill_path.display(),
+                "Discovered skill"
+            );
+            self.skills.push(skill);
+        }
+    }
+
     /// Parse a single SKILL.md file into a Skill.
     fn parse_skill_file(path: &Path) -> Option<Skill> {
         let content = std::fs::read_to_string(path).ok()?;
+        Self::parse_skill_content(path, content)
+    }
 
+    /// Parse a single SKILL.md file into a Skill without blocking the async runtime.
+    async fn parse_skill_file_async(path: &Path) -> Option<Skill> {
+        let content = tokio::fs::read_to_string(path).await.ok()?;
+        Self::parse_skill_content(path, content)
+    }
+
+    fn parse_skill_content(path: &Path, content: String) -> Option<Skill> {
         // Parse YAML frontmatter between --- delimiters
         if !content.starts_with("---") {
             return None;
