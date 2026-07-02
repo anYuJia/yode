@@ -60,7 +60,8 @@ impl OpenAiProvider {
                 "url": self.chat_url(),
                 "body": &body,
             }),
-        );
+        )
+        .await;
 
         let resp = send_with_retry(
             || {
@@ -163,7 +164,8 @@ impl OpenAiProvider {
             serde_json::json!({
                 "events": debug_events,
             }),
-        );
+        )
+        .await;
         finalize_stream(state, &tx).await;
         Ok(())
     }

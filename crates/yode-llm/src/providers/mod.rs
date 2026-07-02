@@ -8,7 +8,6 @@ pub(crate) mod retry;
 pub(crate) mod streaming_shared;
 
 use serde::Serialize;
-use std::path::PathBuf;
 
 pub use anthropic::AnthropicProvider;
 pub use gemini::GeminiProvider;
@@ -18,7 +17,7 @@ pub(crate) fn debug_requests_enabled() -> bool {
     std::env::var("YODE_DEBUG_PROVIDER_REQUESTS").is_ok_and(|value| value == "1")
 }
 
-pub(crate) fn write_debug_artifact(
+pub(crate) async fn write_debug_artifact(
     provider: &str,
     kind: &str,
     payload: impl Serialize,
@@ -40,19 +39,18 @@ pub(crate) fn write_debug_artifact(
         .as_millis();
     let path = debug_dir.join(format!("{timestamp_ms}-{kind}.json"));
     let rendered = serde_json::to_string_pretty(&payload).ok()?;
-    let write_path = path.clone();
-    drop(std::thread::spawn(move || {
-        write_debug_artifact_file(write_path, rendered);
-    }));
+    if !write_debug_artifact_file(&path, rendered).await {
+        return None;
+    }
     Some(path)
 }
 
-fn write_debug_artifact_file(path: PathBuf, rendered: String) -> bool {
+async fn write_debug_artifact_file(path: &std::path::Path, rendered: String) -> bool {
     let Some(debug_dir) = path.parent() else {
         return false;
     };
-    if std::fs::create_dir_all(debug_dir).is_err() {
+    if tokio::fs::create_dir_all(debug_dir).await.is_err() {
         return false;
     }
-    std::fs::write(path, rendered).is_ok()
+    tokio::fs::write(path, rendered).await.is_ok()
 }

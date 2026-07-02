@@ -93,7 +93,8 @@ impl LlmProvider for AnthropicProvider {
                 "url": self.messages_url(),
                 "body": &body,
             }),
-        );
+        )
+        .await;
 
         let resp = send_with_retry(
             || {
@@ -128,7 +129,8 @@ impl LlmProvider for AnthropicProvider {
                 "status": status.as_u16(),
                 "body": &response_text,
             }),
-        );
+        )
+        .await;
         let api_resp: AnthropicResponse =
             serde_json::from_str(&response_text).context("Failed to parse Anthropic response")?;
 

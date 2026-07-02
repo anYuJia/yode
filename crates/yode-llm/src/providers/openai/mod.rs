@@ -200,7 +200,8 @@ impl LlmProvider for OpenAiProvider {
                 "url": self.chat_url(),
                 "body": &body,
             }),
-        );
+        )
+        .await;
 
         let resp = send_with_retry(
             || {
@@ -244,7 +245,8 @@ impl LlmProvider for OpenAiProvider {
                 "content_type": &content_type,
                 "body": &response_text,
             }),
-        );
+        )
+        .await;
         if content_type.contains("text/html") || response_text.trim_start().starts_with("<!") {
             return Err(anyhow!(
                 "模型接口返回了网页内容，不是 OpenAI 兼容 JSON。请检查 base_url 是否指向 API 地址，通常需要以 /v1 结尾。"

@@ -108,7 +108,8 @@ pub(super) async fn stream_response(
         serde_json::json!({
             "events": debug_events,
         }),
-    );
+    )
+    .await;
     let message = assistant_message(full_text, all_tool_calls);
     emit_done_event(&tx, message, final_usage, model, stop_reason).await;
     Ok(())

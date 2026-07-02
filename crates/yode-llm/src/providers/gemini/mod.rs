@@ -116,7 +116,8 @@ impl LlmProvider for GeminiProvider {
                 "url": &url,
                 "body": &body,
             }),
-        );
+        )
+        .await;
 
         let resp = send_with_retry(
             || {
@@ -149,7 +150,8 @@ impl LlmProvider for GeminiProvider {
                 "status": status.as_u16(),
                 "body": &response_text,
             }),
-        );
+        )
+        .await;
         let api_resp: GeminiResponse =
             serde_json::from_str(&response_text).context("Failed to parse Gemini response")?;
         let (message, usage, stop_reason) = parse_response(&api_resp);
@@ -173,7 +175,8 @@ impl LlmProvider for GeminiProvider {
                 "url": &url,
                 "body": &body,
             }),
-        );
+        )
+        .await;
 
         let resp = send_with_retry(
             || {

@@ -56,7 +56,8 @@ impl AnthropicProvider {
                 "url": self.messages_url(),
                 "body": serde_json::from_str::<serde_json::Value>(&body_json).ok(),
             }),
-        );
+        )
+        .await;
 
         let resp = send_with_retry(
             || {
@@ -129,7 +130,8 @@ impl AnthropicProvider {
             serde_json::json!({
                 "events": debug_events,
             }),
-        );
+        )
+        .await;
         finalize_stream(state, &tx).await
     }
 }
