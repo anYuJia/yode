@@ -638,10 +638,13 @@ async fn config_test_provider(
 }
 
 pub fn run() {
-    let runtime = runtime::DesktopRuntime::new().expect("failed to initialize desktop runtime");
-
     tauri::Builder::default()
-        .manage(runtime)
+        .setup(|app| {
+            let runtime = tauri::async_runtime::block_on(runtime::DesktopRuntime::new())
+                .expect("failed to initialize desktop runtime");
+            app.manage(runtime);
+            Ok(())
+        })
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let keep_in_menu_bar = window

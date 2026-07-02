@@ -9,18 +9,6 @@ pub(super) fn desktop_settings_path() -> PathBuf {
         .join("desktop-settings.json")
 }
 
-pub(super) fn read_desktop_settings() -> Result<serde_json::Map<String, serde_json::Value>> {
-    let path = desktop_settings_path();
-    if !path.exists() {
-        return Ok(serde_json::Map::new());
-    }
-    let raw = std::fs::read_to_string(path)?;
-    Ok(serde_json::from_str::<serde_json::Value>(&raw)
-        .ok()
-        .and_then(|value| value.as_object().cloned())
-        .unwrap_or_default())
-}
-
 pub(super) async fn read_desktop_settings_async(
 ) -> Result<serde_json::Map<String, serde_json::Value>> {
     let path = desktop_settings_path();

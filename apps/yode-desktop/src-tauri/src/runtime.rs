@@ -15,7 +15,7 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
 use crate::browser_settings::{apply_browser_settings_env, browser_settings_from_desktop_settings};
-use crate::desktop_settings_store::read_desktop_settings;
+use crate::desktop_settings_store::read_desktop_settings_async;
 use crate::git_settings::{apply_git_settings_env, git_settings_from_desktop_settings};
 use crate::license_notices::read_license_notices;
 use crate::protocol::{
@@ -77,7 +77,7 @@ struct PendingConfirmation {
 }
 
 impl DesktopRuntime {
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let workspace_path = resolve_desktop_workspace_path();
         let db_path = dirs::home_dir()
             .unwrap_or_else(|| workspace_path.clone())
@@ -90,7 +90,7 @@ impl DesktopRuntime {
         let provider_registry = Mutex::new(bootstrap_providers(&config));
         let (tool_registry, mcp_resource_provider) =
             setup_desktop_tooling(&config, &workspace_path);
-        if let Ok(settings) = read_desktop_settings() {
+        if let Ok(settings) = read_desktop_settings_async().await {
             if let Ok(browser_settings) = browser_settings_from_desktop_settings(&settings) {
                 apply_browser_settings_env(&browser_settings);
             }
