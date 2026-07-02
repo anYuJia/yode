@@ -72,6 +72,21 @@ export type ComputerUseSettings = {
   allowedApps: string[];
 };
 
+export type HookEntry = {
+  name: string;
+  events: string[];
+  command: string;
+  timeoutSecs: number;
+  canBlock: boolean;
+  disabled: boolean;
+  toolFilter?: string[];
+};
+
+export type HooksSettings = {
+  enabled: boolean;
+  hooks: HookEntry[];
+};
+
 export const DEFAULT_GIT_SETTINGS: GitSettings = {
   branchPrefix: "yode/",
   mergeMethod: "merge",
@@ -103,6 +118,30 @@ export const DEFAULT_COMPUTER_USE_SETTINGS: ComputerUseSettings = {
   anyAppStatus: "uninstalled",
   chromeStatus: "uninstalled",
   allowedApps: []
+};
+
+export const DEFAULT_HOOKS: HookEntry[] = [
+  {
+    name: "Pre-commit check",
+    events: ["pre_turn"],
+    command: "npm run lint",
+    timeoutSecs: 15,
+    canBlock: true,
+    disabled: false
+  },
+  {
+    name: "Auto-format code",
+    events: ["task_completed"],
+    command: "cargo fmt",
+    timeoutSecs: 10,
+    canBlock: false,
+    disabled: false
+  }
+];
+
+export const DEFAULT_HOOKS_SETTINGS: HooksSettings = {
+  enabled: true,
+  hooks: DEFAULT_HOOKS
 };
 
 const CONFIGURATION_STORAGE_KEYS = {
@@ -150,6 +189,11 @@ const COMPUTER_USE_STORAGE_KEYS = {
   anyAppStatus: "yode-computer-use-anyapp",
   chromeStatus: "yode-computer-use-chrome",
   allowedApps: "yode-computer-use-allowed-apps"
+} as const;
+
+const HOOKS_STORAGE_KEYS = {
+  enabled: "yode-hooks-enabled",
+  hooks: "yode-hooks-list"
 } as const;
 
 export function isTauriRuntime() {
@@ -419,6 +463,63 @@ export function saveComputerUseSettings(settings: ComputerUseSettings): void {
   localStorage.setItem(COMPUTER_USE_STORAGE_KEYS.anyAppStatus, settings.anyAppStatus);
   localStorage.setItem(COMPUTER_USE_STORAGE_KEYS.chromeStatus, settings.chromeStatus);
   localStorage.setItem(COMPUTER_USE_STORAGE_KEYS.allowedApps, JSON.stringify(settings.allowedApps));
+}
+
+export function normalizeHookEntry(raw: unknown): HookEntry | null {
+  if (!raw || typeof raw !== "object") return null;
+  const entry = raw as Record<string, unknown>;
+  const name = String(entry.name || "").trim();
+  const command = String(entry.command || "").trim();
+  const events = Array.isArray(entry.events) ? entry.events.map(String).filter(Boolean) : [];
+  if (!name || !command || events.length === 0) return null;
+  const toolFilterRaw = entry.toolFilter ?? entry.tool_filter;
+  const toolFilter = Array.isArray(toolFilterRaw) ? toolFilterRaw.map(String).filter(Boolean) : undefined;
+  return {
+    name,
+    command,
+    events,
+    timeoutSecs: Number(entry.timeoutSecs ?? entry.timeout_secs) || 10,
+    canBlock: Boolean(entry.canBlock ?? entry.can_block),
+    disabled: Boolean(entry.disabled),
+    toolFilter: toolFilter && toolFilter.length > 0 ? toolFilter : undefined
+  };
+}
+
+export function normalizeHooks(list: unknown): HookEntry[] {
+  if (!Array.isArray(list)) return [];
+  return list.map(normalizeHookEntry).filter((hook): hook is HookEntry => hook !== null);
+}
+
+function loadStoredHooks(): HookEntry[] {
+  try {
+    const raw = localStorage.getItem(HOOKS_STORAGE_KEYS.hooks);
+    if (!raw) return DEFAULT_HOOKS;
+    const hooks = normalizeHooks(JSON.parse(raw));
+    return hooks.length > 0 ? hooks : DEFAULT_HOOKS;
+  } catch {
+    return DEFAULT_HOOKS;
+  }
+}
+
+export function loadHooksSettings(): HooksSettings {
+  return {
+    enabled: localStorage.getItem(HOOKS_STORAGE_KEYS.enabled) !== "false",
+    hooks: loadStoredHooks()
+  };
+}
+
+export async function loadPersistedHooksSettings(fallback = DEFAULT_HOOKS_SETTINGS): Promise<HooksSettings> {
+  const enabled = await loadDesktopSetting(HOOKS_STORAGE_KEYS.enabled, fallback.enabled);
+  const hooks = normalizeHooks(await loadDesktopSetting(HOOKS_STORAGE_KEYS.hooks, fallback.hooks));
+  return {
+    enabled,
+    hooks: hooks.length > 0 ? hooks : DEFAULT_HOOKS
+  };
+}
+
+export function saveHooksSettings(settings: HooksSettings): void {
+  localStorage.setItem(HOOKS_STORAGE_KEYS.enabled, JSON.stringify(settings.enabled));
+  localStorage.setItem(HOOKS_STORAGE_KEYS.hooks, JSON.stringify(normalizeHooks(settings.hooks)));
 }
 
 export function saveGeneralSettingValue(key: string, value: string | boolean) {

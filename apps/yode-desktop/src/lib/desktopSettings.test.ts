@@ -4,10 +4,13 @@ import {
   DEFAULT_BROWSER_SETTINGS,
   DEFAULT_COMPUTER_USE_SETTINGS,
   DEFAULT_GIT_SETTINGS,
+  DEFAULT_HOOKS,
+  DEFAULT_HOOKS_SETTINGS,
   DEFAULT_PERSONALIZATION_SETTINGS,
   loadBrowserSettings,
   loadComputerUseSettings,
   loadGitSettings,
+  loadHooksSettings,
   loadConfigurationSettings,
   loadGeneralSettings,
   loadGeneralSettingsPayload,
@@ -17,6 +20,7 @@ import {
   saveComputerUseSettings,
   saveConfigurationSettings,
   saveGitSettings,
+  saveHooksSettings,
   savePersonalizationSetting,
   savePersonalizationSettings,
   saveWorktreesSetting
@@ -436,6 +440,106 @@ describe("desktop settings helpers", () => {
       "yode-computer-use-anyapp": "installed",
       "yode-computer-use-chrome": "uninstalled",
       "yode-computer-use-allowed-apps": JSON.stringify(["Slack", "Finder"])
+    });
+  });
+
+  it("loads hooks settings defaults from local storage", () => {
+    stubLocalStorage(() => null);
+
+    expect(loadHooksSettings()).toEqual(DEFAULT_HOOKS_SETTINGS);
+  });
+
+  it("loads hooks settings overrides and normalizes snake case fields", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-hooks-enabled": "false",
+        "yode-hooks-list": JSON.stringify([
+          {
+            name: "Run tests",
+            events: ["pre_turn"],
+            command: "pnpm test",
+            timeout_secs: 30,
+            can_block: true,
+            disabled: true,
+            tool_filter: ["bash", ""]
+          },
+          { name: "", events: [], command: "" }
+        ])
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadHooksSettings()).toEqual({
+      enabled: false,
+      hooks: [
+        {
+          name: "Run tests",
+          events: ["pre_turn"],
+          command: "pnpm test",
+          timeoutSecs: 30,
+          canBlock: true,
+          disabled: true,
+          toolFilter: ["bash"]
+        }
+      ]
+    });
+  });
+
+  it("falls back to default hooks on malformed hook storage", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-hooks-list": "{broken"
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadHooksSettings()).toEqual(DEFAULT_HOOKS_SETTINGS);
+  });
+
+  it("saves hooks settings through the shared helper", () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      setItem: (key: string, value: string) => saved.set(key, value)
+    });
+
+    saveHooksSettings({
+      enabled: false,
+      hooks: [
+        {
+          name: "Format",
+          events: ["task_completed"],
+          command: "cargo fmt",
+          timeoutSecs: 10,
+          canBlock: false,
+          disabled: false
+        }
+      ]
+    });
+
+    expect(saved.get("yode-hooks-enabled")).toBe("false");
+    expect(JSON.parse(saved.get("yode-hooks-list") || "[]")).toEqual([
+      {
+        name: "Format",
+        events: ["task_completed"],
+        command: "cargo fmt",
+        timeoutSecs: 10,
+        canBlock: false,
+        disabled: false
+      }
+    ]);
+  });
+
+  it("uses default hooks when stored hook list normalizes empty", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-hooks-list": JSON.stringify([{ name: "", events: [], command: "" }])
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadHooksSettings()).toEqual({
+      enabled: true,
+      hooks: DEFAULT_HOOKS
     });
   });
 });

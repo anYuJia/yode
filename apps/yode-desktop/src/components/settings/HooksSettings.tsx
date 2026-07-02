@@ -1,71 +1,15 @@
 import React, { useState, useEffect } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Plus, Trash2, X, Settings, GitBranch } from "lucide-react";
-import { isTauriRuntime, loadDesktopSetting } from "../../lib/desktopSettings";
-
-interface HookEntry {
-  name: string;
-  events: string[];
-  command: string;
-  timeoutSecs: number;
-  canBlock: boolean;
-  disabled: boolean;
-  toolFilter?: string[];
-}
-
-type HooksSettingsState = {
-  enabled: boolean;
-  hooks: HookEntry[];
-};
-
-const DEFAULT_HOOKS: HookEntry[] = [
-  {
-    name: "Pre-commit check",
-    events: ["pre_turn"],
-    command: "npm run lint",
-    timeoutSecs: 15,
-    canBlock: true,
-    disabled: false
-  },
-  {
-    name: "Auto-format code",
-    events: ["task_completed"],
-    command: "cargo fmt",
-    timeoutSecs: 10,
-    canBlock: false,
-    disabled: false
-  }
-];
-
-function normalizeHookEntry(raw: unknown): HookEntry | null {
-  if (!raw || typeof raw !== "object") return null;
-  const entry = raw as Record<string, unknown>;
-  const name = String(entry.name || "").trim();
-  const command = String(entry.command || "").trim();
-  const events = Array.isArray(entry.events) ? entry.events.map(String).filter(Boolean) : [];
-  if (!name || !command || events.length === 0) return null;
-  const toolFilterRaw = entry.toolFilter ?? entry.tool_filter;
-  const toolFilter = Array.isArray(toolFilterRaw) ? toolFilterRaw.map(String).filter(Boolean) : undefined;
-  return {
-    name,
-    command,
-    events,
-    timeoutSecs: Number(entry.timeoutSecs ?? entry.timeout_secs) || 10,
-    canBlock: Boolean(entry.canBlock ?? entry.can_block),
-    disabled: Boolean(entry.disabled),
-    toolFilter: toolFilter && toolFilter.length > 0 ? toolFilter : undefined
-  };
-}
-
-function normalizeHooks(list: unknown): HookEntry[] {
-  if (!Array.isArray(list)) return [];
-  return list.map(normalizeHookEntry).filter((hook): hook is HookEntry => hook !== null);
-}
-
-function persistHooksFallback(settings: HooksSettingsState) {
-  localStorage.setItem("yode-hooks-enabled", JSON.stringify(settings.enabled));
-  localStorage.setItem("yode-hooks-list", JSON.stringify(settings.hooks));
-}
+import {
+  HookEntry,
+  HooksSettings,
+  isTauriRuntime,
+  loadHooksSettings,
+  loadPersistedHooksSettings,
+  normalizeHooks,
+  saveHooksSettings
+} from "../../lib/desktopSettings";
 
 export function HooksSettingsSettings({
   isZh,
@@ -74,28 +18,16 @@ export function HooksSettingsSettings({
   isZh: boolean;
   t: (zh: string, en: string) => string;
 }) {
-  const [hooksEnabled, setHooksEnabled] = useState(() => {
-    return localStorage.getItem("yode-hooks-enabled") !== "false";
-  });
+  const initialSettings = loadHooksSettings();
+  const [hooksEnabled, setHooksEnabled] = useState(initialSettings.enabled);
   const [statusText, setStatusText] = useState("");
-
-  const [hooksList, setHooksList] = useState<HookEntry[]>(() => {
-    const saved = localStorage.getItem("yode-hooks-list");
-    if (saved) {
-      try {
-        return normalizeHooks(JSON.parse(saved));
-      } catch (e) {
-        // use defaults
-      }
-    }
-    return DEFAULT_HOOKS;
-  });
+  const [hooksList, setHooksList] = useState<HookEntry[]>(initialSettings.hooks);
 
   useEffect(() => {
     const loadSettings = async () => {
       if (isTauriRuntime()) {
         try {
-          const settings = await invoke<HooksSettingsState>("hooks_settings_get");
+          const settings = await invoke<HooksSettings>("hooks_settings_get");
           applySettingsToState({ enabled: settings.enabled, hooks: normalizeHooks(settings.hooks) });
           setStatusText(t("钩子设置已连接到运行时。", "Hook settings are connected to the runtime."));
           return;
@@ -103,31 +35,29 @@ export function HooksSettingsSettings({
           console.error(err);
         }
       }
-      const enabled = await loadDesktopSetting("yode-hooks-enabled", hooksEnabled);
-      const hooks = normalizeHooks(await loadDesktopSetting("yode-hooks-list", hooksList));
-      applySettingsToState({ enabled, hooks: hooks.length > 0 ? hooks : DEFAULT_HOOKS });
+      applySettingsToState(await loadPersistedHooksSettings(initialSettings));
     };
     void loadSettings();
   }, []);
 
-  const currentSettings = (): HooksSettingsState => ({
+  const currentSettings = (): HooksSettings => ({
     enabled: hooksEnabled,
     hooks: hooksList
   });
 
-  const applySettingsToState = (settings: HooksSettingsState) => {
+  const applySettingsToState = (settings: HooksSettings) => {
     setHooksEnabled(settings.enabled);
     setHooksList(normalizeHooks(settings.hooks));
   };
 
-  const applyHooksSettings = async (nextSettings: HooksSettingsState) => {
+  const applyHooksSettings = async (nextSettings: HooksSettings) => {
     const normalized = { enabled: nextSettings.enabled, hooks: normalizeHooks(nextSettings.hooks) };
     try {
       if (isTauriRuntime()) {
-        const applied = await invoke<HooksSettingsState>("hooks_settings_apply", { settings: normalized });
+        const applied = await invoke<HooksSettings>("hooks_settings_apply", { settings: normalized });
         applySettingsToState(applied);
       } else {
-        persistHooksFallback(normalized);
+        saveHooksSettings(normalized);
         applySettingsToState(normalized);
       }
       setStatusText(t("钩子配置已保存。", "Hook configuration saved."));
