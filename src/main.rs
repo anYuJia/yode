@@ -125,8 +125,8 @@ async fn main() -> Result<()> {
         false, // auto_download doesn't matter for apply
     );
 
-    if updater.has_pending_update() {
-        match updater.apply_downloaded_update() {
+    if updater.has_pending_update().await {
+        match updater.apply_downloaded_update().await {
             Ok(true) => {
                 info!("Update applied, restarting...");
                 let args: Vec<String> = std::env::args().collect();

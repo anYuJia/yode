@@ -68,7 +68,7 @@ pub(crate) async fn handle_cli_command(
                             println!("\n发布日志:\n{}", result.release_notes);
                             println!("\n正在下载并安装更新...");
                             match updater.download_update(&result).await {
-                                Ok(_) => match updater.apply_downloaded_update() {
+                                Ok(_) => match updater.apply_downloaded_update().await {
                                     Ok(true) => {
                                         println!(
                                             "✓ 更新已安装完成。新版本: {}",

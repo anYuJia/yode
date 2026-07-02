@@ -266,134 +266,150 @@ impl Updater {
         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Download failed after all retries")))
     }
 
-    pub fn get_downloaded_update_path(&self) -> Option<PathBuf> {
+    pub async fn get_downloaded_update_path(&self) -> Option<PathBuf> {
         let downloads_dir = self.config_dir.join("downloads");
-        if downloads_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(&downloads_dir) {
-                let mut latest: Option<(SystemTime, PathBuf)> = None;
-                for entry in entries.flatten() {
-                    if let Ok(metadata) = entry.metadata() {
-                        if let Ok(modified) = metadata.modified() {
-                            if latest
-                                .as_ref()
-                                .is_none_or(|(latest_modified, _)| modified > *latest_modified)
-                            {
-                                latest = Some((modified, entry.path()));
-                            }
-                        }
+        if !fs::try_exists(&downloads_dir).await.unwrap_or(false) {
+            return None;
+        }
+
+        let mut latest: Option<(SystemTime, PathBuf)> = None;
+        let mut entries = match fs::read_dir(&downloads_dir).await {
+            Ok(entries) => entries,
+            Err(err) => {
+                warn!(
+                    "Failed to read updater downloads dir {:?}: {}",
+                    downloads_dir, err
+                );
+                return None;
+            }
+        };
+
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            if let Ok(metadata) = entry.metadata().await {
+                if let Ok(modified) = metadata.modified() {
+                    if latest
+                        .as_ref()
+                        .is_none_or(|(latest_modified, _)| modified > *latest_modified)
+                    {
+                        latest = Some((modified, entry.path()));
                     }
                 }
-                return latest.map(|(_, path)| path);
             }
         }
-        None
+
+        latest.map(|(_, path)| path)
     }
 
-    pub fn has_pending_update(&self) -> bool {
-        self.get_downloaded_update_path().is_some()
+    pub async fn has_pending_update(&self) -> bool {
+        self.get_downloaded_update_path().await.is_some()
     }
 
-    pub fn apply_downloaded_update(&self) -> Result<bool> {
-        let update_path = match self.get_downloaded_update_path() {
+    pub async fn apply_downloaded_update(&self) -> Result<bool> {
+        let update_path = match self.get_downloaded_update_path().await {
             Some(path) => path,
             None => return Ok(false),
         };
 
-        info!("Applying update from: {:?}", update_path);
+        tokio::task::spawn_blocking(move || apply_downloaded_update_file(update_path))
+            .await
+            .context("Failed to join updater apply task")?
+    }
+}
 
-        let temp_dir = tempfile::Builder::new()
-            .prefix("yode-update")
-            .tempdir()
-            .context("Failed to create temporary directory for update")?;
+fn apply_downloaded_update_file(update_path: PathBuf) -> Result<bool> {
+    info!("Applying update from: {:?}", update_path);
 
-        let file = std::fs::File::open(&update_path)
-            .context(format!("Failed to open update file: {:?}", update_path))?;
+    let temp_dir = tempfile::Builder::new()
+        .prefix("yode-update")
+        .tempdir()
+        .context("Failed to create temporary directory for update")?;
 
-        let gz = flate2::read::GzDecoder::new(file);
-        let mut archive = tar::Archive::new(gz);
+    let file = std::fs::File::open(&update_path)
+        .context(format!("Failed to open update file: {:?}", update_path))?;
 
-        archive.set_unpack_xattrs(false);
-        archive.set_preserve_permissions(true);
+    let gz = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(gz);
 
-        if let Err(e) = archive.unpack(temp_dir.path()) {
-            warn!(
-                "Failed to unpack update archive to {:?}: {}",
-                temp_dir.path(),
-                e
-            );
-            warn!("This is often due to macOS permission restrictions or file format mismatch. Skipping update.");
-            return Ok(false);
+    archive.set_unpack_xattrs(false);
+    archive.set_preserve_permissions(true);
+
+    if let Err(e) = archive.unpack(temp_dir.path()) {
+        warn!(
+            "Failed to unpack update archive to {:?}: {}",
+            temp_dir.path(),
+            e
+        );
+        warn!("This is often due to macOS permission restrictions or file format mismatch. Skipping update.");
+        return Ok(false);
+    }
+
+    let mut new_bin_path = None;
+
+    for entry in std::fs::read_dir(temp_dir.path())? {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if name_str == "yode" || name_str == "yode.exe" {
+            new_bin_path = Some(entry.path());
+            break;
         }
+    }
 
-        let mut new_bin_path = None;
-
-        for entry in std::fs::read_dir(temp_dir.path())? {
-            let entry = entry?;
-            let name = entry.file_name();
-            let name_str = name.to_string_lossy();
-            if name_str == "yode" || name_str == "yode.exe" {
-                new_bin_path = Some(entry.path());
+    let new_bin_path = if let Some(path) = new_bin_path {
+        path
+    } else {
+        let mut found = None;
+        for entry in walkdir::WalkDir::new(temp_dir.path()) {
+            let entry = entry.context("Failed to traverse update contents")?;
+            let name = entry.file_name().to_string_lossy();
+            if (name == "yode" || name == "yode.exe") && entry.file_type().is_file() {
+                found = Some(entry.path().to_path_buf());
                 break;
             }
         }
-
-        let new_bin_path = if let Some(path) = new_bin_path {
-            path
-        } else {
-            let mut found = None;
-            for entry in walkdir::WalkDir::new(temp_dir.path()) {
-                let entry = entry.context("Failed to traverse update contents")?;
-                let name = entry.file_name().to_string_lossy();
-                if (name == "yode" || name == "yode.exe") && entry.file_type().is_file() {
-                    found = Some(entry.path().to_path_buf());
-                    break;
-                }
-            }
-            match found {
-                Some(p) => p,
-                None => anyhow::bail!("Could not find 'yode' binary in update archive"),
-            }
-        };
-
-        info!("Found new binary at: {:?}", new_bin_path);
-
-        let current_exe =
-            std::env::current_exe().context("Failed to get current executable path")?;
-        let old_exe = current_exe.with_extension("old");
-
-        if old_exe.exists() {
-            warn_if_remove_file_failed(&old_exe, "stale updater backup");
+        match found {
+            Some(p) => p,
+            None => anyhow::bail!("Could not find 'yode' binary in update archive"),
         }
+    };
 
-        std::fs::rename(&current_exe, &old_exe)
-            .context("Failed to move current binary to backup path")?;
+    info!("Found new binary at: {:?}", new_bin_path);
 
-        if let Err(e) = std::fs::copy(&new_bin_path, &current_exe) {
-            error!("Failed to copy new binary: {}. Rolling back...", e);
-            if let Err(rollback_err) = std::fs::rename(&old_exe, &current_exe) {
-                error!("Failed to restore updater backup: {}", rollback_err);
-            }
-            return Err(e.into());
-        }
+    let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
+    let old_exe = current_exe.with_extension("old");
 
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(metadata) = std::fs::metadata(&current_exe) {
-                let mut perms = metadata.permissions();
-                perms.set_mode(0o755);
-                if let Err(err) = std::fs::set_permissions(&current_exe, perms) {
-                    warn!("Failed to set executable permissions on update: {}", err);
-                }
-            }
-        }
-
-        warn_if_remove_file_failed(&old_exe, "updater backup");
-        warn_if_remove_file_failed(&update_path, "applied update archive");
-
-        info!("Update applied successfully. Version updated to latest.");
-        Ok(true)
+    if old_exe.exists() {
+        warn_if_remove_file_failed(&old_exe, "stale updater backup");
     }
+
+    std::fs::rename(&current_exe, &old_exe)
+        .context("Failed to move current binary to backup path")?;
+
+    if let Err(e) = std::fs::copy(&new_bin_path, &current_exe) {
+        error!("Failed to copy new binary: {}. Rolling back...", e);
+        if let Err(rollback_err) = std::fs::rename(&old_exe, &current_exe) {
+            error!("Failed to restore updater backup: {}", rollback_err);
+        }
+        return Err(e.into());
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = std::fs::metadata(&current_exe) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o755);
+            if let Err(err) = std::fs::set_permissions(&current_exe, perms) {
+                warn!("Failed to set executable permissions on update: {}", err);
+            }
+        }
+    }
+
+    warn_if_remove_file_failed(&old_exe, "updater backup");
+    warn_if_remove_file_failed(&update_path, "applied update archive");
+
+    info!("Update applied successfully. Version updated to latest.");
+    Ok(true)
 }
 
 async fn verify_download_checksum(
