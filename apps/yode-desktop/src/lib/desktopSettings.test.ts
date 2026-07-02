@@ -1,12 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEFAULT_BROWSER_SETTINGS,
   DEFAULT_GIT_SETTINGS,
+  loadBrowserSettings,
   loadGitSettings,
   loadConfigurationSettings,
   loadGeneralSettings,
   loadGeneralSettingsPayload,
   loadWorktreesSettings,
+  saveBrowserSettings,
   saveConfigurationSettings,
   saveGitSettings,
   saveWorktreesSetting
@@ -243,6 +246,68 @@ describe("desktop settings helpers", () => {
       "yode-git-auto-delete-limit": "7",
       "yode-git-commit-instructions": "Use conventional commits",
       "yode-git-pr-instructions": "Include screenshots"
+    });
+  });
+
+  it("loads browser settings defaults from local storage", () => {
+    stubLocalStorage(() => null);
+
+    expect(loadBrowserSettings()).toEqual(DEFAULT_BROWSER_SETTINGS);
+  });
+
+  it("loads browser settings overrides and filters invalid domain entries", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-browser-enabled": "false",
+        "yode-browser-annotation-screenshots": "Ask each time",
+        "yode-browser-approval": "Always allow",
+        "yode-browser-blocked-domains": JSON.stringify(["blocked.example", 123, null]),
+        "yode-browser-allowed-domains": JSON.stringify(["allowed.example"])
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadBrowserSettings()).toEqual({
+      enabled: false,
+      annotationScreenshots: "Ask each time",
+      approvalPolicy: "Always allow",
+      blockedDomains: ["blocked.example"],
+      allowedDomains: ["allowed.example"]
+    });
+  });
+
+  it("falls back to empty browser domain lists on malformed storage", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-browser-blocked-domains": "{broken",
+        "yode-browser-allowed-domains": JSON.stringify({ domain: "example.com" })
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadBrowserSettings()).toEqual(DEFAULT_BROWSER_SETTINGS);
+  });
+
+  it("saves browser settings through the shared helper", () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      setItem: (key: string, value: string) => saved.set(key, value)
+    });
+
+    saveBrowserSettings({
+      enabled: false,
+      annotationScreenshots: "Never include",
+      approvalPolicy: "Never allow",
+      blockedDomains: ["blocked.example"],
+      allowedDomains: ["allowed.example"]
+    });
+
+    expect(Object.fromEntries(saved)).toEqual({
+      "yode-browser-enabled": "false",
+      "yode-browser-annotation-screenshots": "Never include",
+      "yode-browser-approval": "Never allow",
+      "yode-browser-blocked-domains": JSON.stringify(["blocked.example"]),
+      "yode-browser-allowed-domains": JSON.stringify(["allowed.example"])
     });
   });
 });

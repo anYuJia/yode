@@ -49,6 +49,14 @@ export type GitSettings = {
   prInstructions: string;
 };
 
+export type BrowserSettings = {
+  enabled: boolean;
+  annotationScreenshots: string;
+  approvalPolicy: string;
+  blockedDomains: string[];
+  allowedDomains: string[];
+};
+
 export const DEFAULT_GIT_SETTINGS: GitSettings = {
   branchPrefix: "yode/",
   mergeMethod: "merge",
@@ -59,6 +67,14 @@ export const DEFAULT_GIT_SETTINGS: GitSettings = {
   autoDeleteLimit: 15,
   commitInstructions: "",
   prInstructions: ""
+};
+
+export const DEFAULT_BROWSER_SETTINGS: BrowserSettings = {
+  enabled: true,
+  annotationScreenshots: "Always include",
+  approvalPolicy: "Always ask",
+  blockedDomains: [],
+  allowedDomains: []
 };
 
 const CONFIGURATION_STORAGE_KEYS = {
@@ -85,6 +101,14 @@ const GIT_STORAGE_KEYS = {
   autoDeleteLimit: "yode-git-auto-delete-limit",
   commitInstructions: "yode-git-commit-instructions",
   prInstructions: "yode-git-pr-instructions"
+} as const;
+
+const BROWSER_STORAGE_KEYS = {
+  enabled: "yode-browser-enabled",
+  annotationScreenshots: "yode-browser-annotation-screenshots",
+  approvalPolicy: "yode-browser-approval",
+  blockedDomains: "yode-browser-blocked-domains",
+  allowedDomains: "yode-browser-allowed-domains"
 } as const;
 
 export function isTauriRuntime() {
@@ -241,6 +265,49 @@ export function saveGitSettings(settings: GitSettings): void {
   localStorage.setItem(GIT_STORAGE_KEYS.autoDeleteLimit, JSON.stringify(settings.autoDeleteLimit));
   localStorage.setItem(GIT_STORAGE_KEYS.commitInstructions, settings.commitInstructions);
   localStorage.setItem(GIT_STORAGE_KEYS.prInstructions, settings.prInstructions);
+}
+
+function loadStoredStringArray(key: string): string[] {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+export function loadBrowserSettings(): BrowserSettings {
+  return {
+    enabled: localStorage.getItem(BROWSER_STORAGE_KEYS.enabled) !== "false",
+    annotationScreenshots:
+      localStorage.getItem(BROWSER_STORAGE_KEYS.annotationScreenshots) || DEFAULT_BROWSER_SETTINGS.annotationScreenshots,
+    approvalPolicy: localStorage.getItem(BROWSER_STORAGE_KEYS.approvalPolicy) || DEFAULT_BROWSER_SETTINGS.approvalPolicy,
+    blockedDomains: loadStoredStringArray(BROWSER_STORAGE_KEYS.blockedDomains),
+    allowedDomains: loadStoredStringArray(BROWSER_STORAGE_KEYS.allowedDomains)
+  };
+}
+
+export async function loadPersistedBrowserSettings(fallback = DEFAULT_BROWSER_SETTINGS): Promise<BrowserSettings> {
+  return {
+    enabled: await loadDesktopSetting(BROWSER_STORAGE_KEYS.enabled, fallback.enabled),
+    annotationScreenshots: await loadDesktopSetting(
+      BROWSER_STORAGE_KEYS.annotationScreenshots,
+      fallback.annotationScreenshots
+    ),
+    approvalPolicy: await loadDesktopSetting(BROWSER_STORAGE_KEYS.approvalPolicy, fallback.approvalPolicy),
+    blockedDomains: await loadDesktopSetting(BROWSER_STORAGE_KEYS.blockedDomains, fallback.blockedDomains),
+    allowedDomains: await loadDesktopSetting(BROWSER_STORAGE_KEYS.allowedDomains, fallback.allowedDomains)
+  };
+}
+
+export function saveBrowserSettings(settings: BrowserSettings): void {
+  localStorage.setItem(BROWSER_STORAGE_KEYS.enabled, JSON.stringify(settings.enabled));
+  localStorage.setItem(BROWSER_STORAGE_KEYS.annotationScreenshots, settings.annotationScreenshots);
+  localStorage.setItem(BROWSER_STORAGE_KEYS.approvalPolicy, settings.approvalPolicy);
+  localStorage.setItem(BROWSER_STORAGE_KEYS.blockedDomains, JSON.stringify(settings.blockedDomains));
+  localStorage.setItem(BROWSER_STORAGE_KEYS.allowedDomains, JSON.stringify(settings.allowedDomains));
 }
 
 export function saveGeneralSettingValue(key: string, value: string | boolean) {

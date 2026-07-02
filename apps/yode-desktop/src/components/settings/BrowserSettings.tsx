@@ -2,31 +2,14 @@ import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Plus, Trash2, X, Globe } from "lucide-react";
 import { CustomSelect } from "../CustomSelect";
-import { isTauriRuntime, loadDesktopSetting } from "../../lib/desktopSettings";
-
-type BrowserSettingsState = {
-  enabled: boolean;
-  annotationScreenshots: string;
-  approvalPolicy: string;
-  blockedDomains: string[];
-  allowedDomains: string[];
-};
-
-const DEFAULT_BROWSER_SETTINGS: BrowserSettingsState = {
-  enabled: true,
-  annotationScreenshots: "Always include",
-  approvalPolicy: "Always ask",
-  blockedDomains: [],
-  allowedDomains: []
-};
-
-function persistBrowserSettingsFallback(settings: BrowserSettingsState) {
-  localStorage.setItem("yode-browser-enabled", JSON.stringify(settings.enabled));
-  localStorage.setItem("yode-browser-annotation-screenshots", settings.annotationScreenshots);
-  localStorage.setItem("yode-browser-approval", settings.approvalPolicy);
-  localStorage.setItem("yode-browser-blocked-domains", JSON.stringify(settings.blockedDomains));
-  localStorage.setItem("yode-browser-allowed-domains", JSON.stringify(settings.allowedDomains));
-}
+import {
+  BrowserSettings,
+  DEFAULT_BROWSER_SETTINGS,
+  isTauriRuntime,
+  loadBrowserSettings,
+  loadPersistedBrowserSettings,
+  saveBrowserSettings
+} from "../../lib/desktopSettings";
 
 function normalizeDomainInput(value: string): string | null {
   const domain = value
@@ -47,31 +30,12 @@ export function BrowserSettingsSettings({
   isZh: boolean;
   t: (zh: string, en: string) => string;
 }) {
-  const [browserEnabled, setBrowserEnabled] = useState(() => {
-    return localStorage.getItem("yode-browser-enabled") !== "false";
-  });
-  const [annotationScreenshots, setAnnotationScreenshots] = useState(() => {
-    return localStorage.getItem("yode-browser-annotation-screenshots") || "Always include";
-  });
-  const [approvalPolicy, setApprovalPolicy] = useState(() => {
-    return localStorage.getItem("yode-browser-approval") || "Always ask";
-  });
-  const [blockedDomains, setBlockedDomains] = useState<string[]>(() => {
-    const saved = localStorage.getItem("yode-browser-blocked-domains");
-    try {
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
-  const [allowedDomains, setAllowedDomains] = useState<string[]>(() => {
-    const saved = localStorage.getItem("yode-browser-allowed-domains");
-    try {
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
+  const initialSettings = loadBrowserSettings();
+  const [browserEnabled, setBrowserEnabled] = useState(initialSettings.enabled);
+  const [annotationScreenshots, setAnnotationScreenshots] = useState(initialSettings.annotationScreenshots);
+  const [approvalPolicy, setApprovalPolicy] = useState(initialSettings.approvalPolicy);
+  const [blockedDomains, setBlockedDomains] = useState<string[]>(initialSettings.blockedDomains);
+  const [allowedDomains, setAllowedDomains] = useState<string[]>(initialSettings.allowedDomains);
 
   const [domainModalType, setDomainModalType] = useState<"blocked" | "allowed" | null>(null);
   const [newDomainInput, setNewDomainInput] = useState("");
@@ -82,7 +46,7 @@ export function BrowserSettingsSettings({
     const loadSettings = async () => {
       if (isTauriRuntime()) {
         try {
-          const settings = await invoke<BrowserSettingsState>("browser_settings_get");
+          const settings = await invoke<BrowserSettings>("browser_settings_get");
           applySettingsToState(settings);
           setStatusText(t("浏览器设置已连接到运行时。", "Browser settings are connected to the runtime."));
           return;
@@ -91,22 +55,12 @@ export function BrowserSettingsSettings({
         }
       }
 
-      const fallback = {
-        enabled: await loadDesktopSetting("yode-browser-enabled", DEFAULT_BROWSER_SETTINGS.enabled),
-        annotationScreenshots: await loadDesktopSetting(
-          "yode-browser-annotation-screenshots",
-          DEFAULT_BROWSER_SETTINGS.annotationScreenshots
-        ),
-        approvalPolicy: await loadDesktopSetting("yode-browser-approval", DEFAULT_BROWSER_SETTINGS.approvalPolicy),
-        blockedDomains: await loadDesktopSetting("yode-browser-blocked-domains", DEFAULT_BROWSER_SETTINGS.blockedDomains),
-        allowedDomains: await loadDesktopSetting("yode-browser-allowed-domains", DEFAULT_BROWSER_SETTINGS.allowedDomains)
-      };
-      applySettingsToState(fallback);
+      applySettingsToState(await loadPersistedBrowserSettings(DEFAULT_BROWSER_SETTINGS));
     };
     void loadSettings();
   }, []);
 
-  const currentSettings = (): BrowserSettingsState => ({
+  const currentSettings = (): BrowserSettings => ({
     enabled: browserEnabled,
     annotationScreenshots,
     approvalPolicy,
@@ -114,7 +68,7 @@ export function BrowserSettingsSettings({
     allowedDomains
   });
 
-  const applySettingsToState = (settings: BrowserSettingsState) => {
+  const applySettingsToState = (settings: BrowserSettings) => {
     setBrowserEnabled(settings.enabled);
     setAnnotationScreenshots(settings.annotationScreenshots);
     setApprovalPolicy(settings.approvalPolicy);
@@ -122,13 +76,13 @@ export function BrowserSettingsSettings({
     setAllowedDomains(settings.allowedDomains);
   };
 
-  const applyBrowserSettings = async (nextSettings: BrowserSettingsState) => {
+  const applyBrowserSettings = async (nextSettings: BrowserSettings) => {
     try {
       if (isTauriRuntime()) {
-        const applied = await invoke<BrowserSettingsState>("browser_settings_apply", { settings: nextSettings });
+        const applied = await invoke<BrowserSettings>("browser_settings_apply", { settings: nextSettings });
         applySettingsToState(applied);
       } else {
-        persistBrowserSettingsFallback(nextSettings);
+        saveBrowserSettings(nextSettings);
         applySettingsToState(nextSettings);
       }
       setStatusText(t("浏览器设置已应用。", "Browser settings applied."));
