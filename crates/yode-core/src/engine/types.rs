@@ -469,6 +469,67 @@ pub(super) fn latest_transcript_runtime_state(
     ))
 }
 
+pub(in crate::engine) async fn latest_transcript_runtime_state_async(
+    project_root: &std::path::Path,
+) -> Option<(std::path::PathBuf, TranscriptArtifactRuntimeState)> {
+    let dir = project_root.join(".yode").join("transcripts");
+    let mut entries = tokio::fs::read_dir(&dir).await.ok()?;
+    let mut paths = Vec::new();
+    while let Ok(Some(entry)) = entries.next_entry().await {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+            paths.push(path);
+        }
+    }
+    paths.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    let path = paths.into_iter().next()?;
+    let content = tokio::fs::read_to_string(&path).await.ok()?;
+
+    let mut mode = None;
+    let mut timestamp = None;
+    let mut session_memory_path = None;
+    for line in content.lines().take(16) {
+        if let Some(value) = line.strip_prefix("- Mode: ") {
+            mode = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("- Timestamp: ") {
+            timestamp = Some(value.to_string());
+        } else if let Some(value) = line.strip_prefix("- Session memory path: ") {
+            session_memory_path = Some(value.to_string());
+        }
+    }
+
+    let summary_excerpt = content
+        .find("## Summary Anchor")
+        .and_then(|start| content[start..].find("```text").map(|fence| (start, fence)))
+        .and_then(|(start, fence)| {
+            let block = &content[start..];
+            let after_fence = &block[fence + "```text".len()..];
+            after_fence.find("```").map(|end| after_fence[..end].trim())
+        })
+        .filter(|summary| !summary.is_empty())
+        .map(|summary| {
+            let excerpt: String = summary.chars().take(160).collect();
+            if summary.chars().count() > 160 {
+                format!("{}...", excerpt)
+            } else {
+                excerpt
+            }
+        });
+
+    let compact_boundary = parse_compact_boundary_record(&content);
+
+    Some((
+        path,
+        TranscriptArtifactRuntimeState {
+            mode,
+            timestamp,
+            summary_excerpt,
+            session_memory_path,
+            compact_boundary,
+        },
+    ))
+}
+
 fn parse_compact_boundary_record(content: &str) -> Option<CompactBoundaryRuntimeState> {
     let start = content.find("## Compact Boundary")?;
     let block = &content[start..];

@@ -98,6 +98,15 @@ fn load_prompt_cache_state_artifact(
     serde_json::from_str::<PromptCacheArtifactState>(&std::fs::read_to_string(path).ok()?).ok()
 }
 
+async fn load_prompt_cache_state_artifact_async(
+    project_root: &std::path::Path,
+    session_id: &str,
+) -> Option<PromptCacheArtifactState> {
+    let path = prompt_cache_state_artifact_path(project_root, session_id);
+    let content = tokio::fs::read_to_string(path).await.ok()?;
+    serde_json::from_str::<PromptCacheArtifactState>(&content).ok()
+}
+
 impl AgentEngine {
     /// Save a message to the database if available.
     pub(in crate::engine) fn persist_message(
@@ -249,6 +258,132 @@ impl AgentEngine {
 
         if let Some(cache) =
             load_prompt_cache_state_artifact(&project_root, &self.context.session_id)
+        {
+            self.pending_cache_edit_refs = cache.pending_cache_edit_ref_values;
+            self.pending_cache_edit_refs.sort();
+            self.pending_cache_edit_refs.dedup();
+
+            self.pinned_cache_edit_refs = cache.pinned_cache_edit_ref_values;
+            self.pinned_cache_edit_refs.sort();
+            self.pinned_cache_edit_refs.dedup();
+            self.pinned_cache_edit_refs
+                .retain(|cache_ref| !self.pending_cache_edit_refs.contains(cache_ref));
+
+            self.prompt_cache_runtime.last_turn_prompt_tokens = cache.last_turn_prompt_tokens;
+            self.prompt_cache_runtime.last_turn_completion_tokens =
+                cache.last_turn_completion_tokens;
+            self.prompt_cache_runtime.last_turn_cache_write_tokens =
+                cache.last_turn_cache_write_tokens;
+            self.prompt_cache_runtime.last_turn_cache_read_tokens =
+                cache.last_turn_cache_read_tokens;
+            self.prompt_cache_runtime.last_turn_cache_edit_deletions =
+                cache.last_turn_cache_edit_deletions;
+            self.prompt_cache_runtime.last_turn_cache_deleted_tokens =
+                cache.last_turn_cache_deleted_tokens;
+            self.prompt_cache_runtime.pending_cache_edit_refs =
+                if self.pending_cache_edit_refs.is_empty() {
+                    cache.pending_cache_edit_refs
+                } else {
+                    self.pending_cache_edit_refs.len() as u32
+                };
+            self.prompt_cache_runtime.pinned_cache_edit_refs =
+                if self.pinned_cache_edit_refs.is_empty() {
+                    cache.pinned_cache_edit_refs
+                } else {
+                    self.pinned_cache_edit_refs.len() as u32
+                };
+            self.prompt_cache_runtime.prompt_cache_break_count = cache.prompt_cache_break_count;
+            self.prompt_cache_runtime.last_prompt_cache_break_reason =
+                cache.last_prompt_cache_break_reason;
+            self.prompt_cache_runtime.last_prompt_cache_break_at = cache.last_prompt_cache_break_at;
+            self.prompt_cache_runtime
+                .last_prompt_cache_expected_drop_reason =
+                cache.last_prompt_cache_expected_drop_reason;
+            self.prompt_cache_runtime.last_prompt_cache_change_summary =
+                cache.last_prompt_cache_change_summary;
+            self.prompt_cache_runtime.last_prompt_cache_transition_kind =
+                cache.last_prompt_cache_transition_kind;
+            self.prompt_cache_runtime
+                .last_prompt_cache_transition_reason = cache.last_prompt_cache_transition_reason;
+            self.prompt_cache_runtime
+                .last_prompt_cache_diff_artifact_path =
+                cache.last_prompt_cache_diff_artifact_path.or_else(|| {
+                    let path =
+                        prompt_cache_diff_artifact_path(&project_root, &self.context.session_id);
+                    path.exists().then(|| path.display().to_string())
+                });
+            self.prompt_cache_runtime.last_prompt_cache_diff_summary =
+                cache.last_prompt_cache_diff_summary;
+            self.prompt_cache_runtime.reported_turns = cache.reported_turns;
+            self.prompt_cache_runtime.cache_write_turns = cache.cache_write_turns;
+            self.prompt_cache_runtime.cache_read_turns = cache.cache_read_turns;
+            self.prompt_cache_runtime.cache_edit_turns = cache.cache_edit_turns;
+            self.prompt_cache_runtime.cache_write_tokens_total = cache.cache_write_tokens_total;
+            self.prompt_cache_runtime.cache_read_tokens_total = cache.cache_read_tokens_total;
+            self.prompt_cache_runtime.cache_edit_deletions_total = cache.cache_edit_deletions_total;
+            self.prompt_cache_runtime.cache_deleted_tokens_total = cache.cache_deleted_tokens_total;
+
+            self.last_prompt_cache_prefix_hash = cache.last_prompt_cache_prefix_hash;
+            self.last_prompt_cache_system_hash = cache.last_prompt_cache_system_hash;
+            self.last_prompt_cache_restore_hash = cache.last_prompt_cache_restore_hash;
+            self.last_prompt_cache_tool_hash = cache.last_prompt_cache_tool_hash;
+            self.last_prompt_cache_message_hash = cache.last_prompt_cache_message_hash;
+        }
+
+        if let Some(reason) = self.forced_prompt_cache_expected_drop_reason.clone() {
+            self.prompt_cache_runtime
+                .last_prompt_cache_expected_drop_reason = Some(reason);
+        }
+    }
+
+    pub(in crate::engine) async fn rebuild_runtime_artifact_state_from_disk_async(&mut self) {
+        let project_root = self.context.working_dir_compat();
+        self.last_compaction_mode = None;
+        self.last_compaction_at = None;
+        self.last_compaction_summary_excerpt = None;
+        self.last_compaction_session_memory_path = None;
+        self.last_compaction_transcript_path = None;
+        self.last_compact_boundary = None;
+
+        if let Some((path, state)) = latest_transcript_runtime_state_async(&project_root).await {
+            self.last_compaction_mode = state.mode;
+            self.last_compaction_at = state.timestamp;
+            self.last_compaction_summary_excerpt = state.summary_excerpt;
+            self.last_compaction_session_memory_path = match state.session_memory_path {
+                Some(path) => Some(path),
+                None => {
+                    let session_path = crate::session_memory::session_memory_path(&project_root);
+                    tokio::fs::try_exists(&session_path)
+                        .await
+                        .unwrap_or(false)
+                        .then(|| session_path.display().to_string())
+                }
+            };
+            self.last_compaction_transcript_path = Some(path.display().to_string());
+            self.last_compact_boundary = state.compact_boundary;
+        } else {
+            let session_path = crate::session_memory::session_memory_path(&project_root);
+            if tokio::fs::try_exists(&session_path).await.unwrap_or(false) {
+                self.last_compaction_session_memory_path = Some(session_path.display().to_string());
+            }
+        }
+
+        let live_path = crate::session_memory::live_session_memory_path(&project_root);
+        if let Ok(metadata) = tokio::fs::metadata(&live_path).await {
+            let updated_at = metadata.modified().ok().map(|modified| {
+                chrono::DateTime::<chrono::Local>::from(modified)
+                    .format("%Y-%m-%d %H:%M:%S")
+                    .to_string()
+            });
+            if let Ok(mut state) = self.shared_memory_status.try_lock() {
+                state.last_session_memory_update_at = updated_at;
+                state.last_session_memory_update_path = Some(live_path.display().to_string());
+                state.last_session_memory_generated_summary = false;
+            }
+        }
+
+        if let Some(cache) =
+            load_prompt_cache_state_artifact_async(&project_root, &self.context.session_id).await
         {
             self.pending_cache_edit_refs = cache.pending_cache_edit_ref_values;
             self.pending_cache_edit_refs.sort();

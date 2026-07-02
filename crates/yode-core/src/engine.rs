@@ -90,8 +90,9 @@ use tool_result::{
     set_tool_runtime_truncation_metadata, truncate_tool_result,
 };
 use types::{
-    latest_transcript_runtime_state, CostRuntimeState, ProjectKind, RecoveryState,
-    SharedMemoryStatus, SystemPromptBuild, ToolExecutionOutcome, ToolExecutionTrace,
+    latest_transcript_runtime_state, latest_transcript_runtime_state_async, CostRuntimeState,
+    ProjectKind, RecoveryState, SharedMemoryStatus, SystemPromptBuild, ToolExecutionOutcome,
+    ToolExecutionTrace,
 };
 pub use types::{
     CompactBoundaryRuntimeState, ConfirmResponse, ContextCollapseRuntimeState, EngineEvent,
