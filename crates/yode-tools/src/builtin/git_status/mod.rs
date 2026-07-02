@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::process::Command;
+use tokio::process::Command;
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
@@ -85,6 +85,7 @@ Git workflow reminder:
 
         let output = cmd
             .output()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to run git: {}", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -119,6 +120,7 @@ Git workflow reminder:
                 .args(["status", "--porcelain=v2", "--branch"])
                 .current_dir(working_dir)
                 .output()
+                .await
             {
                 let p_stdout = String::from_utf8_lossy(&p_out.stdout);
                 for line in p_stdout.lines() {
@@ -166,6 +168,7 @@ Git workflow reminder:
 mod tests {
     use super::*;
     use crate::tool::ToolContext;
+    use std::process::Command;
 
     fn ctx_with_dir(dir: &std::path::Path) -> ToolContext {
         let mut ctx = ToolContext::empty();

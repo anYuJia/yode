@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::process::Command;
+use tokio::process::Command;
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
@@ -117,6 +117,7 @@ After committing, the tool returns the commit output. Use git_status to verify t
             }
             let add_output = add_cmd
                 .output()
+                .await
                 .map_err(|e| anyhow::anyhow!("Failed to run git add: {}", e))?;
 
             if !add_output.status.success() {
@@ -142,6 +143,7 @@ After committing, the tool returns the commit output. Use git_status to verify t
 
         let output = cmd
             .output()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to run git commit: {}", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -161,6 +163,7 @@ After committing, the tool returns the commit output. Use git_status to verify t
             .args(["rev-parse", "HEAD"])
             .current_dir(working_dir)
             .output()
+            .await
         {
             String::from_utf8_lossy(&h_out.stdout).trim().to_string()
         } else {
@@ -183,6 +186,7 @@ After committing, the tool returns the commit output. Use git_status to verify t
 mod tests {
     use super::*;
     use crate::tool::ToolContext;
+    use std::process::Command;
 
     fn ctx_with_dir(dir: &std::path::Path) -> ToolContext {
         let mut ctx = ToolContext::empty();

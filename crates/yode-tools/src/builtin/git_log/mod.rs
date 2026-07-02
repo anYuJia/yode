@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::process::Command;
+use tokio::process::Command;
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
@@ -129,6 +129,7 @@ Common patterns:
 
         let output = cmd
             .output()
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to run git: {}", e))?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -173,6 +174,7 @@ Common patterns:
 mod tests {
     use super::*;
     use crate::tool::ToolContext;
+    use std::process::Command;
 
     fn ctx_with_dir(dir: &std::path::Path) -> ToolContext {
         let mut ctx = ToolContext::empty();
