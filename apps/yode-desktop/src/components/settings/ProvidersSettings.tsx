@@ -19,7 +19,8 @@ import {
 import { CustomSelect } from "../CustomSelect";
 import { Bootstrap, DefaultLlm } from "../../lib/desktopTypes";
 import {
-  loadStoredProvidersRaw,
+  dispatchDefaultLlmChange,
+  loadStoredProviderValues,
   saveLastModelForProvider,
   saveStoredProviders
 } from "../../lib/llmProviderStorage";
@@ -410,21 +411,7 @@ export function ProvidersSettings({
     if ("__TAURI_INTERNALS__" in window) {
       return [];
     }
-    const saved = loadStoredProvidersRaw();
-    if (saved) {
-      try {
-        const data = JSON.parse(saved);
-        if (Array.isArray(data)) {
-          return data.map(normalizeProvider);
-        }
-        if (data && typeof data === "object") {
-          return Object.entries(data).map(([id, value]) => normalizeProvider({ id, ...(value as object) }));
-        }
-      } catch {
-        // keep defaults
-      }
-    }
-    return [];
+    return loadStoredProviderValues().map(normalizeProvider);
   });
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -661,14 +648,14 @@ export function ProvidersSettings({
       try {
         const saved = await invoke<DefaultLlm>("config_set_default_llm", nextDefault);
         setDefaultLlm(saved);
-        window.dispatchEvent(new CustomEvent("yode-default-llm-change", { detail: saved }));
+        dispatchDefaultLlmChange(saved);
       } catch (err) {
         console.error(err);
         setToastMessage(String(err || t("设置默认模型失败。", "Failed to set default model.")));
         return;
       }
     } else {
-      window.dispatchEvent(new CustomEvent("yode-default-llm-change", { detail: nextDefault }));
+      dispatchDefaultLlmChange(nextDefault);
     }
     setToastMessage(t("已设为新对话默认模型。", "Default model for new chats updated."));
   };

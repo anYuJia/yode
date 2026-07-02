@@ -1,4 +1,6 @@
 export const LLM_PROVIDERS_STORAGE_KEY = "yode-llm-providers";
+export const LLM_PROVIDERS_CHANGE_EVENT = "yode-llm-providers-change";
+export const DEFAULT_LLM_CHANGE_EVENT = "yode-default-llm-change";
 
 export type ProviderModelsMeta = {
   id: string;
@@ -23,7 +25,7 @@ export function loadStoredProvidersRaw() {
 export function saveStoredProviders(providers: unknown[]) {
   localStorage.setItem(LLM_PROVIDERS_STORAGE_KEY, JSON.stringify(providers));
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new Event("yode-llm-providers-change"));
+    window.dispatchEvent(new Event(LLM_PROVIDERS_CHANGE_EVENT));
   }
 }
 
@@ -53,6 +55,37 @@ export function parseStoredProviders(raw: string | null): StoredProvider[] {
       });
   } catch {
     return [];
+  }
+}
+
+export function parseStoredProviderValues(raw: string | null): unknown[] {
+  if (!raw) return [];
+  try {
+    const data: unknown = JSON.parse(raw);
+    if (Array.isArray(data)) {
+      return data;
+    }
+    if (!data || typeof data !== "object") {
+      return [];
+    }
+    return Object.entries(data).map(([id, value]) => {
+      if (value && typeof value === "object") {
+        return { id, ...value };
+      }
+      return { id };
+    });
+  } catch {
+    return [];
+  }
+}
+
+export function loadStoredProviderValues() {
+  return parseStoredProviderValues(loadStoredProvidersRaw());
+}
+
+export function dispatchDefaultLlmChange(detail: unknown) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(DEFAULT_LLM_CHANGE_EVENT, { detail }));
   }
 }
 

@@ -1,11 +1,16 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEFAULT_LLM_CHANGE_EVENT,
+  dispatchDefaultLlmChange,
   lastModelStorageKey,
   loadLastModelForProvider,
+  loadStoredProviderValues,
   loadStoredProvidersRaw,
   LLM_PROVIDERS_STORAGE_KEY,
+  LLM_PROVIDERS_CHANGE_EVENT,
   modelsForProvider,
+  parseStoredProviderValues,
   parseStoredProviders,
   providerDisplayName,
   providerOptionsFromStorage,
@@ -44,6 +49,19 @@ describe("llm provider storage helpers", () => {
     });
 
     expect(modelsForProvider("openai", raw, meta)).toEqual(["stored"]);
+  });
+
+  it("parses full provider values without leaking JSON parsing into views", () => {
+    const raw = JSON.stringify({
+      openai: { name: "OpenAI Custom", apiKey: "sk-test", models: ["stored"] },
+      broken: null
+    });
+
+    expect(parseStoredProviderValues(raw)).toEqual([
+      { id: "openai", name: "OpenAI Custom", apiKey: "sk-test", models: ["stored"] },
+      { id: "broken" }
+    ]);
+    expect(parseStoredProviderValues("not-json")).toEqual([]);
   });
 
   it("falls back to provider metadata models", () => {
@@ -88,7 +106,21 @@ describe("llm provider storage helpers", () => {
     expect(loadStoredProvidersRaw()).toBe(localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY));
     expect(loadLastModelForProvider("openai")).toBe("stored");
     expect(preferredModelFromStorage("openai", meta)).toBe("stored");
-    expect(dispatchEvent).toHaveBeenCalledWith(expect.any(Event));
+    expect(loadStoredProviderValues()).toEqual([{ id: "openai", models: ["stored"], enabled: true }]);
+    expect(dispatchEvent).toHaveBeenCalledWith(expect.objectContaining({ type: LLM_PROVIDERS_CHANGE_EVENT }));
+  });
+
+  it("dispatches default llm changes through one shared helper", () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+
+    dispatchDefaultLlmChange({ provider: "openai", model: "stored" });
+
+    expect(dispatchEvent).toHaveBeenCalledTimes(1);
+    expect(dispatchEvent.mock.calls[0]?.[0]).toMatchObject({
+      type: DEFAULT_LLM_CHANGE_EVENT,
+      detail: { provider: "openai", model: "stored" }
+    });
   });
 });
 
