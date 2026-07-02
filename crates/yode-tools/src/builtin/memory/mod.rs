@@ -137,9 +137,9 @@ impl Tool for MemoryTool {
                 let safe_name = Self::sanitize_name(name);
                 let file_path = dir.join(format!("{}.md", safe_name));
                 if let Some(parent) = file_path.parent() {
-                    std::fs::create_dir_all(parent)?;
+                    tokio::fs::create_dir_all(parent).await?;
                 }
-                std::fs::write(&file_path, content)?;
+                tokio::fs::write(&file_path, content).await?;
                 let metadata =
                     serde_json::json!({ "action": "save", "name": name, "scope": scope });
                 Ok(ToolResult::success_with_metadata(
@@ -156,7 +156,7 @@ impl Tool for MemoryTool {
                 let dir = Self::memory_dir(ctx, scope)?;
                 let safe_name = Self::sanitize_name(name);
                 let file_path = dir.join(format!("{}.md", safe_name));
-                match std::fs::read_to_string(&file_path) {
+                match tokio::fs::read_to_string(&file_path).await {
                     Ok(content) => {
                         let metadata =
                             serde_json::json!({ "action": "read", "name": name, "scope": scope });
@@ -167,7 +167,7 @@ impl Tool for MemoryTool {
             }
             "list" => {
                 let dir = Self::memory_dir(ctx, scope)?;
-                if !dir.exists() {
+                if !tokio::fs::try_exists(&dir).await? {
                     let metadata =
                         serde_json::json!({ "action": "list", "scope": scope, "count": 0 });
                     return Ok(ToolResult::success_with_metadata(
@@ -176,7 +176,7 @@ impl Tool for MemoryTool {
                     ));
                 }
                 let mut entries = Vec::new();
-                collect_memory_files(&dir, &dir, &mut entries)?;
+                collect_memory_files(&dir, &dir, &mut entries).await?;
                 let metadata =
                     serde_json::json!({ "action": "list", "scope": scope, "count": entries.len() });
                 if entries.is_empty() {
@@ -201,8 +201,8 @@ impl Tool for MemoryTool {
                 let dir = Self::memory_dir(ctx, scope)?;
                 let safe_name = Self::sanitize_name(name);
                 let file_path = dir.join(format!("{}.md", safe_name));
-                if file_path.exists() {
-                    std::fs::remove_file(&file_path)?;
+                if tokio::fs::try_exists(&file_path).await? {
+                    tokio::fs::remove_file(&file_path).await?;
                     let metadata =
                         serde_json::json!({ "action": "delete", "name": name, "scope": scope });
                     Ok(ToolResult::success_with_metadata(
@@ -222,19 +222,24 @@ impl Tool for MemoryTool {
 }
 
 /// Recursively collect .md files relative to the base directory.
-fn collect_memory_files(dir: &Path, base: &Path, entries: &mut Vec<String>) -> Result<()> {
-    if !dir.is_dir() {
+async fn collect_memory_files(dir: &Path, base: &Path, entries: &mut Vec<String>) -> Result<()> {
+    if !tokio::fs::try_exists(dir).await? {
         return Ok(());
     }
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        if path.is_dir() {
-            collect_memory_files(&path, base, entries)?;
-        } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
-            if let Ok(rel) = path.strip_prefix(base) {
-                let name = display_slash(&rel.with_extension(""));
-                entries.push(name);
+
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current_dir) = stack.pop() {
+        let mut dir_entries = tokio::fs::read_dir(&current_dir).await?;
+        while let Some(entry) = dir_entries.next_entry().await? {
+            let path = entry.path();
+            let file_type = entry.file_type().await?;
+            if file_type.is_dir() {
+                stack.push(path);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
+                if let Ok(rel) = path.strip_prefix(base) {
+                    let name = display_slash(&rel.with_extension(""));
+                    entries.push(name);
+                }
             }
         }
     }
