@@ -1,15 +1,15 @@
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{Context, Result};
 
 use crate::protocol::{DesktopActionResult, DesktopWorktree};
 
-pub(super) fn current_git_branch(workspace_path: &Path) -> Result<Option<String>> {
-    let output = Command::new("git")
+pub(super) async fn current_git_branch(workspace_path: &Path) -> Result<Option<String>> {
+    let output = tokio::process::Command::new("git")
         .args(["branch", "--show-current"])
         .current_dir(workspace_path)
         .output()
+        .await
         .context("无法读取当前 git 分支")?;
     if !output.status.success() {
         return Ok(None);
@@ -21,11 +21,12 @@ pub(super) fn current_git_branch(workspace_path: &Path) -> Result<Option<String>
     Ok(Some(branch))
 }
 
-pub(super) fn list_git_worktrees(workspace_path: &Path) -> Result<Vec<DesktopWorktree>> {
-    let output = Command::new("git")
+pub(super) async fn list_git_worktrees(workspace_path: &Path) -> Result<Vec<DesktopWorktree>> {
+    let output = tokio::process::Command::new("git")
         .args(["worktree", "list", "--porcelain"])
         .current_dir(workspace_path)
         .output()
+        .await
         .context("无法读取 git worktree 列表")?;
     if !output.status.success() {
         return Ok(Vec::new());
@@ -38,12 +39,15 @@ pub(super) fn list_git_worktrees(workspace_path: &Path) -> Result<Vec<DesktopWor
     for line in text.lines().chain(std::iter::once("")) {
         if let Some(path) = line.strip_prefix("worktree ") {
             if let Some(previous_path) = current_path.take() {
-                result.push(worktree_record(
-                    previous_path,
-                    current_branch.take(),
-                    detached,
-                    workspace_path,
-                ));
+                result.push(
+                    worktree_record(
+                        previous_path,
+                        current_branch.take(),
+                        detached,
+                        workspace_path,
+                    )
+                    .await,
+                );
                 detached = false;
             }
             current_path = Some(path.to_string());
@@ -53,12 +57,15 @@ pub(super) fn list_git_worktrees(workspace_path: &Path) -> Result<Vec<DesktopWor
             detached = true;
         } else if line.is_empty() {
             if let Some(previous_path) = current_path.take() {
-                result.push(worktree_record(
-                    previous_path,
-                    current_branch.take(),
-                    detached,
-                    workspace_path,
-                ));
+                result.push(
+                    worktree_record(
+                        previous_path,
+                        current_branch.take(),
+                        detached,
+                        workspace_path,
+                    )
+                    .await,
+                );
                 detached = false;
             }
         }
@@ -66,11 +73,12 @@ pub(super) fn list_git_worktrees(workspace_path: &Path) -> Result<Vec<DesktopWor
     Ok(result)
 }
 
-pub(super) fn prune_idle_worktrees(workspace_path: &Path) -> Result<DesktopActionResult> {
-    let output = Command::new("git")
+pub(super) async fn prune_idle_worktrees(workspace_path: &Path) -> Result<DesktopActionResult> {
+    let output = tokio::process::Command::new("git")
         .args(["worktree", "prune", "--verbose"])
         .current_dir(workspace_path)
         .output()
+        .await
         .context("无法执行 git worktree prune")?;
     Ok(DesktopActionResult {
         ok: output.status.success(),
@@ -88,11 +96,15 @@ pub(super) fn prune_idle_worktrees(workspace_path: &Path) -> Result<DesktopActio
     })
 }
 
-pub(super) fn delete_worktree(workspace_path: &Path, path: String) -> Result<DesktopActionResult> {
-    let output = Command::new("git")
+pub(super) async fn delete_worktree(
+    workspace_path: &Path,
+    path: String,
+) -> Result<DesktopActionResult> {
+    let output = tokio::process::Command::new("git")
         .args(["worktree", "remove", "--force", &path])
         .current_dir(workspace_path)
         .output()
+        .await
         .with_context(|| format!("无法删除工作树 {}", path))?;
     Ok(DesktopActionResult {
         ok: output.status.success(),
@@ -105,7 +117,7 @@ pub(super) fn delete_worktree(workspace_path: &Path, path: String) -> Result<Des
     })
 }
 
-fn worktree_record(
+async fn worktree_record(
     path: String,
     branch: Option<String>,
     detached: bool,
@@ -125,26 +137,26 @@ fn worktree_record(
                 "unknown".to_string()
             }
         }),
-        size: human_size(directory_size(Path::new(&path)).unwrap_or(0)),
+        size: human_size(directory_size(Path::new(&path)).await.unwrap_or(0)),
         path,
         status: status.to_string(),
     }
 }
 
-fn directory_size(path: &Path) -> Result<u64> {
+async fn directory_size(path: &Path) -> Result<u64> {
     let mut total = 0u64;
     let mut stack = vec![path.to_path_buf()];
     while let Some(path) = stack.pop() {
-        let Ok(metadata) = std::fs::symlink_metadata(&path) else {
+        let Ok(metadata) = tokio::fs::symlink_metadata(&path).await else {
             continue;
         };
         if metadata.is_file() {
             total = total.saturating_add(metadata.len());
         } else if metadata.is_dir() {
-            let Ok(entries) = std::fs::read_dir(&path) else {
+            let Ok(mut entries) = tokio::fs::read_dir(&path).await else {
                 continue;
             };
-            for entry in entries.flatten() {
+            while let Ok(Some(entry)) = entries.next_entry().await {
                 stack.push(entry.path());
             }
         }
