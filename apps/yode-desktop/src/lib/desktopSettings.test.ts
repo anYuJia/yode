@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadConfigurationSettings, loadGeneralSettings, loadGeneralSettingsPayload, saveConfigurationSettings } from "./desktopSettings";
+import {
+  loadConfigurationSettings,
+  loadGeneralSettings,
+  loadGeneralSettingsPayload,
+  loadWorktreesSettings,
+  saveConfigurationSettings,
+  saveWorktreesSetting
+} from "./desktopSettings";
 
 describe("desktop settings helpers", () => {
   afterEach(() => {
@@ -117,6 +124,56 @@ describe("desktop settings helpers", () => {
       "yode-config-approval": "Always auto-approve",
       "yode-config-sandbox": "Restricted",
       "yode-expose-deps": "false"
+    });
+  });
+
+  it("loads worktrees settings defaults from local storage", () => {
+    stubLocalStorage(() => null);
+
+    expect(loadWorktreesSettings()).toEqual({
+      baseDir: "~/.yode/worktrees",
+      autoDeleteOnSessionEnd: true,
+      preserveUncommitted: true,
+      cleanUnusedCache: false
+    });
+  });
+
+  it("loads worktrees settings overrides", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-worktrees-base-dir": "/tmp/yode-worktrees",
+        "yode-worktrees-auto-delete-session-end": "false",
+        "yode-worktrees-preserve-uncommitted": "false",
+        "yode-worktrees-clean-unused-cache": "true"
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadWorktreesSettings()).toEqual({
+      baseDir: "/tmp/yode-worktrees",
+      autoDeleteOnSessionEnd: false,
+      preserveUncommitted: false,
+      cleanUnusedCache: true
+    });
+  });
+
+  it("saves worktrees settings through mapped keys", async () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("localStorage", {
+      setItem: (key: string, value: string) => saved.set(key, value)
+    });
+
+    await saveWorktreesSetting("baseDir", "/tmp/yode-worktrees");
+    await saveWorktreesSetting("autoDeleteOnSessionEnd", false);
+    await saveWorktreesSetting("preserveUncommitted", false);
+    await saveWorktreesSetting("cleanUnusedCache", true);
+
+    expect(Object.fromEntries(saved)).toEqual({
+      "yode-worktrees-base-dir": "/tmp/yode-worktrees",
+      "yode-worktrees-auto-delete-session-end": "false",
+      "yode-worktrees-preserve-uncommitted": "false",
+      "yode-worktrees-clean-unused-cache": "true"
     });
   });
 });

@@ -30,11 +30,25 @@ export type ConfigurationSettings = {
   exposeDependencies: boolean;
 };
 
+export type WorktreesSettings = {
+  baseDir: string;
+  autoDeleteOnSessionEnd: boolean;
+  preserveUncommitted: boolean;
+  cleanUnusedCache: boolean;
+};
+
 const CONFIGURATION_STORAGE_KEYS = {
   scope: "yode-config-scope",
   approvalPolicy: "yode-config-approval",
   sandboxSettings: "yode-config-sandbox",
   exposeDependencies: "yode-expose-deps"
+} as const;
+
+const WORKTREES_STORAGE_KEYS = {
+  baseDir: "yode-worktrees-base-dir",
+  autoDeleteOnSessionEnd: "yode-worktrees-auto-delete-session-end",
+  preserveUncommitted: "yode-worktrees-preserve-uncommitted",
+  cleanUnusedCache: "yode-worktrees-clean-unused-cache"
 } as const;
 
 export function isTauriRuntime() {
@@ -120,6 +134,37 @@ export function saveConfigurationSettings(settings: ConfigurationSettings): void
   localStorage.setItem(CONFIGURATION_STORAGE_KEYS.approvalPolicy, settings.approvalPolicy);
   localStorage.setItem(CONFIGURATION_STORAGE_KEYS.sandboxSettings, settings.sandboxSettings);
   localStorage.setItem(CONFIGURATION_STORAGE_KEYS.exposeDependencies, String(settings.exposeDependencies));
+}
+
+export function loadWorktreesSettings(): WorktreesSettings {
+  return {
+    baseDir: localStorage.getItem(WORKTREES_STORAGE_KEYS.baseDir) || "~/.yode/worktrees",
+    autoDeleteOnSessionEnd: localStorage.getItem(WORKTREES_STORAGE_KEYS.autoDeleteOnSessionEnd) !== "false",
+    preserveUncommitted: localStorage.getItem(WORKTREES_STORAGE_KEYS.preserveUncommitted) !== "false",
+    cleanUnusedCache: localStorage.getItem(WORKTREES_STORAGE_KEYS.cleanUnusedCache) === "true"
+  };
+}
+
+export async function loadPersistedWorktreesSettings(fallback = loadWorktreesSettings()): Promise<WorktreesSettings> {
+  return {
+    baseDir: await loadDesktopSetting(WORKTREES_STORAGE_KEYS.baseDir, fallback.baseDir),
+    autoDeleteOnSessionEnd: await loadDesktopSetting(
+      WORKTREES_STORAGE_KEYS.autoDeleteOnSessionEnd,
+      fallback.autoDeleteOnSessionEnd
+    ),
+    preserveUncommitted: await loadDesktopSetting(
+      WORKTREES_STORAGE_KEYS.preserveUncommitted,
+      fallback.preserveUncommitted
+    ),
+    cleanUnusedCache: await loadDesktopSetting(WORKTREES_STORAGE_KEYS.cleanUnusedCache, fallback.cleanUnusedCache)
+  };
+}
+
+export function saveWorktreesSetting<K extends keyof WorktreesSettings>(
+  key: K,
+  value: WorktreesSettings[K]
+): Promise<void> {
+  return saveDesktopSetting(WORKTREES_STORAGE_KEYS[key], value);
 }
 
 export function saveGeneralSettingValue(key: string, value: string | boolean) {

@@ -1,7 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Database, FolderGit2, HardDrive, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
-import { isTauriRuntime, loadDesktopSetting, saveDesktopSetting } from "../../lib/desktopSettings";
+import {
+  isTauriRuntime,
+  loadPersistedWorktreesSettings,
+  loadWorktreesSettings,
+  saveWorktreesSetting
+} from "../../lib/desktopSettings";
 
 interface WorktreeInfo {
   id: string;
@@ -18,31 +23,22 @@ export function WorktreesSettingsSettings({
   isZh: boolean;
   t: (zh: string, en: string) => string;
 }) {
-  const [baseDir, setBaseDir] = useState(() => {
-    return localStorage.getItem("yode-worktrees-base-dir") || "~/.yode/worktrees";
-  });
-  const [autoDeleteOnSessionEnd, setAutoDeleteOnSessionEnd] = useState(() => {
-    return localStorage.getItem("yode-worktrees-auto-delete-session-end") !== "false";
-  });
-  const [preserveUncommitted, setPreserveUncommitted] = useState(() => {
-    return localStorage.getItem("yode-worktrees-preserve-uncommitted") !== "false";
-  });
-  const [cleanUnusedCache, setCleanUnusedCache] = useState(() => {
-    return localStorage.getItem("yode-worktrees-clean-unused-cache") === "true";
-  });
+  const initialSettings = loadWorktreesSettings();
+  const [baseDir, setBaseDir] = useState(initialSettings.baseDir);
+  const [autoDeleteOnSessionEnd, setAutoDeleteOnSessionEnd] = useState(initialSettings.autoDeleteOnSessionEnd);
+  const [preserveUncommitted, setPreserveUncommitted] = useState(initialSettings.preserveUncommitted);
+  const [cleanUnusedCache, setCleanUnusedCache] = useState(initialSettings.cleanUnusedCache);
   const [statusText, setStatusText] = useState("");
 
   const [worktrees, setWorktrees] = useState<WorktreeInfo[]>([]);
 
-  const updateVal = (key: string, val: unknown) => {
-    void saveDesktopSetting(key, val);
-  };
-
   useEffect(() => {
-    void loadDesktopSetting("yode-worktrees-base-dir", baseDir).then(setBaseDir);
-    void loadDesktopSetting("yode-worktrees-auto-delete-session-end", autoDeleteOnSessionEnd).then(setAutoDeleteOnSessionEnd);
-    void loadDesktopSetting("yode-worktrees-preserve-uncommitted", preserveUncommitted).then(setPreserveUncommitted);
-    void loadDesktopSetting("yode-worktrees-clean-unused-cache", cleanUnusedCache).then(setCleanUnusedCache);
+    void loadPersistedWorktreesSettings(initialSettings).then((settings) => {
+      setBaseDir(settings.baseDir);
+      setAutoDeleteOnSessionEnd(settings.autoDeleteOnSessionEnd);
+      setPreserveUncommitted(settings.preserveUncommitted);
+      setCleanUnusedCache(settings.cleanUnusedCache);
+    });
     if (isTauriRuntime()) {
       invoke<WorktreeInfo[]>("worktrees_list")
         .then(setWorktrees)
@@ -144,7 +140,7 @@ export function WorktreesSettingsSettings({
             value={baseDir}
             onChange={(e) => {
               setBaseDir(e.target.value);
-              updateVal("yode-worktrees-base-dir", e.target.value);
+              void saveWorktreesSetting("baseDir", e.target.value);
             }}
             placeholder="~/.yode/worktrees"
           />
@@ -171,7 +167,7 @@ export function WorktreesSettingsSettings({
                 checked={autoDeleteOnSessionEnd}
                 onChange={(e) => {
                   setAutoDeleteOnSessionEnd(e.target.checked);
-                  updateVal("yode-worktrees-auto-delete-session-end", e.target.checked);
+                  void saveWorktreesSetting("autoDeleteOnSessionEnd", e.target.checked);
                 }}
               />
               <span className="switch-slider" />
@@ -192,7 +188,7 @@ export function WorktreesSettingsSettings({
                 checked={preserveUncommitted}
                 onChange={(e) => {
                   setPreserveUncommitted(e.target.checked);
-                  updateVal("yode-worktrees-preserve-uncommitted", e.target.checked);
+                  void saveWorktreesSetting("preserveUncommitted", e.target.checked);
                 }}
               />
               <span className="switch-slider" />
@@ -213,7 +209,7 @@ export function WorktreesSettingsSettings({
                 checked={cleanUnusedCache}
                 onChange={(e) => {
                   setCleanUnusedCache(e.target.checked);
-                  updateVal("yode-worktrees-clean-unused-cache", e.target.checked);
+                  void saveWorktreesSetting("cleanUnusedCache", e.target.checked);
                 }}
               />
               <span className="switch-slider" />
