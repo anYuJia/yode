@@ -15,7 +15,7 @@ use crate::computer_use_settings::{
     application_display_name, computer_use_settings_from_desktop_settings,
     normalize_computer_use_settings, validate_computer_use_settings,
 };
-use crate::desktop_settings_store::{read_desktop_settings, write_desktop_settings_async};
+use crate::desktop_settings_store::{read_desktop_settings_async, write_desktop_settings_async};
 use crate::git_settings::{
     apply_git_settings_env, git_settings_from_desktop_settings, normalize_git_settings,
     validate_git_settings,
@@ -82,8 +82,8 @@ impl DesktopRuntime {
         open_with_destination(&target, &path)
     }
 
-    pub fn desktop_setting_get(&self, key: String) -> Result<DesktopSettingValue> {
-        let settings = read_desktop_settings()?;
+    pub async fn desktop_setting_get(&self, key: String) -> Result<DesktopSettingValue> {
+        let settings = read_desktop_settings_async().await?;
         Ok(DesktopSettingValue {
             value: settings.get(&key).cloned(),
             key,
@@ -94,7 +94,7 @@ impl DesktopRuntime {
         &self,
         request: DesktopSettingSetRequest,
     ) -> Result<DesktopSettingValue> {
-        let mut settings = read_desktop_settings()?;
+        let mut settings = read_desktop_settings_async().await?;
         settings.insert(request.key.clone(), request.value.clone());
         write_desktop_settings_async(&settings).await?;
         Ok(DesktopSettingValue {
@@ -129,8 +129,8 @@ impl DesktopRuntime {
         })
     }
 
-    pub fn browser_settings_get(&self) -> Result<BrowserSettings> {
-        browser_settings_from_desktop_settings(&read_desktop_settings()?)
+    pub async fn browser_settings_get(&self) -> Result<BrowserSettings> {
+        browser_settings_from_desktop_settings(&read_desktop_settings_async().await?)
     }
 
     pub async fn browser_settings_apply(
@@ -139,7 +139,7 @@ impl DesktopRuntime {
     ) -> Result<BrowserSettings> {
         validate_browser_settings(&settings)?;
         let normalized = normalize_browser_settings(settings);
-        let mut desktop_settings = read_desktop_settings()?;
+        let mut desktop_settings = read_desktop_settings_async().await?;
         desktop_settings.insert(
             "yode-browser-enabled".to_string(),
             json!(normalized.enabled),
@@ -165,28 +165,28 @@ impl DesktopRuntime {
         Ok(normalized)
     }
 
-    pub fn hooks_settings_get(&self) -> Result<HooksSettings> {
-        hooks_settings_from_desktop_settings(&read_desktop_settings()?)
+    pub async fn hooks_settings_get(&self) -> Result<HooksSettings> {
+        hooks_settings_from_desktop_settings(&read_desktop_settings_async().await?)
     }
 
     pub async fn hooks_settings_apply(&self, settings: HooksSettings) -> Result<HooksSettings> {
         let normalized = normalize_hooks_settings(settings);
         validate_hooks_settings(&normalized)?;
-        let mut desktop_settings = read_desktop_settings()?;
+        let mut desktop_settings = read_desktop_settings_async().await?;
         desktop_settings.insert("yode-hooks-enabled".to_string(), json!(normalized.enabled));
         desktop_settings.insert("yode-hooks-list".to_string(), json!(normalized.hooks));
         write_desktop_settings_async(&desktop_settings).await?;
         Ok(normalized)
     }
 
-    pub fn git_settings_get(&self) -> Result<GitSettings> {
-        git_settings_from_desktop_settings(&read_desktop_settings()?)
+    pub async fn git_settings_get(&self) -> Result<GitSettings> {
+        git_settings_from_desktop_settings(&read_desktop_settings_async().await?)
     }
 
     pub async fn git_settings_apply(&self, settings: GitSettings) -> Result<GitSettings> {
         let normalized = normalize_git_settings(settings);
         validate_git_settings(&normalized)?;
-        let mut desktop_settings = read_desktop_settings()?;
+        let mut desktop_settings = read_desktop_settings_async().await?;
         desktop_settings.insert(
             "yode-git-branch-prefix".to_string(),
             json!(normalized.branch_prefix),
@@ -290,8 +290,8 @@ impl DesktopRuntime {
         })
     }
 
-    pub fn computer_use_settings_get(&self) -> Result<ComputerUseSettings> {
-        computer_use_settings_from_desktop_settings(&read_desktop_settings()?)
+    pub async fn computer_use_settings_get(&self) -> Result<ComputerUseSettings> {
+        computer_use_settings_from_desktop_settings(&read_desktop_settings_async().await?)
     }
 
     pub async fn computer_use_settings_apply(
@@ -300,7 +300,7 @@ impl DesktopRuntime {
     ) -> Result<ComputerUseSettings> {
         validate_computer_use_settings(&settings)?;
         let normalized = normalize_computer_use_settings(settings);
-        let mut desktop_settings = read_desktop_settings()?;
+        let mut desktop_settings = read_desktop_settings_async().await?;
         desktop_settings.insert(
             "yode-computer-use-anyapp".to_string(),
             json!(normalized.any_app_status),

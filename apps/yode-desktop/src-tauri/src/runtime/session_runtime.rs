@@ -247,7 +247,7 @@ impl DesktopRuntime {
             session.provider.clone(),
             session.model.clone(),
         );
-        let personalization = self.personalization_state()?;
+        let personalization = self.personalization_state().await?;
         context.project_memory_enabled = personalization.enable_memories
             && session
                 .project_root
@@ -263,7 +263,7 @@ impl DesktopRuntime {
             .into_iter()
             .filter_map(stored_message_to_message)
             .collect();
-        let hook_manager = build_desktop_hook_manager(&self.workspace_path)?;
+        let hook_manager = build_desktop_hook_manager(&self.workspace_path).await?;
         let db = Database::open(&self.db_path)?;
         let mut engine = AgentEngine::new(provider, tools, permissions, context);
         engine.set_database(db);

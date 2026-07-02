@@ -21,6 +21,19 @@ pub(super) fn read_desktop_settings() -> Result<serde_json::Map<String, serde_js
         .unwrap_or_default())
 }
 
+pub(super) async fn read_desktop_settings_async(
+) -> Result<serde_json::Map<String, serde_json::Value>> {
+    let path = desktop_settings_path();
+    if !tokio::fs::try_exists(&path).await? {
+        return Ok(serde_json::Map::new());
+    }
+    let raw = tokio::fs::read_to_string(path).await?;
+    Ok(serde_json::from_str::<serde_json::Value>(&raw)
+        .ok()
+        .and_then(|value| value.as_object().cloned())
+        .unwrap_or_default())
+}
+
 pub(super) async fn write_desktop_settings_async(
     settings: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<()> {

@@ -25,7 +25,7 @@ use crate::protocol::{DesktopEvent, SendMessageRequest, TurnAccepted};
 use crate::session_helpers::{stored_message_to_message, title_from_content_or_images};
 
 impl DesktopRuntime {
-    pub fn turn_send_message(
+    pub async fn turn_send_message(
         &self,
         app: AppHandle,
         request: SendMessageRequest,
@@ -33,7 +33,8 @@ impl DesktopRuntime {
         let config = self
             .config
             .lock()
-            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
+            .clone();
         let content = request.content.trim().to_string();
         let images = request
             .images
@@ -148,7 +149,7 @@ impl DesktopRuntime {
             session.provider.clone(),
             session.model.clone(),
         );
-        let personalization = self.personalization_state()?;
+        let personalization = self.personalization_state().await?;
         context.project_memory_enabled = personalization.enable_memories
             && session
                 .project_root
@@ -174,9 +175,8 @@ impl DesktopRuntime {
             .lock()
             .map_err(|_| anyhow::anyhow!("mcp resource provider lock poisoned"))?
             .clone();
-        let config = config.clone();
         let db_path_clone = self.db_path.clone();
-        let hook_manager = build_desktop_hook_manager(&self.workspace_path)?;
+        let hook_manager = build_desktop_hook_manager(&self.workspace_path).await?;
 
         let (confirm_tx, confirm_rx) = unbounded_channel::<ConfirmResponse>();
         {

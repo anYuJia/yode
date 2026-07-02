@@ -125,13 +125,14 @@ async fn edit_diff_artifact_read(
 }
 
 #[tauri::command]
-fn turn_send_message(
+async fn turn_send_message(
     app: tauri::AppHandle,
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     request: protocol::SendMessageRequest,
 ) -> Result<protocol::TurnAccepted, String> {
     runtime
         .turn_send_message(app, request)
+        .await
         .map_err(|err| err.to_string())
 }
 
@@ -273,12 +274,13 @@ async fn workspace_reinstall(
 }
 
 #[tauri::command]
-fn desktop_setting_get(
+async fn desktop_setting_get(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     key: String,
 ) -> Result<protocol::DesktopSettingValue, String> {
     runtime
         .desktop_setting_get(key)
+        .await
         .map_err(|err| err.to_string())
 }
 
@@ -294,11 +296,12 @@ async fn desktop_setting_set(
 }
 
 #[tauri::command]
-fn personalization_state_get(
+async fn personalization_state_get(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::PersonalizationState, String> {
     runtime
         .personalization_state()
+        .await
         .map_err(|err| err.to_string())
 }
 
@@ -358,11 +361,12 @@ async fn browser_clear_data(
 }
 
 #[tauri::command]
-fn browser_settings_get(
+async fn browser_settings_get(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::BrowserSettings, String> {
     runtime
         .browser_settings_get()
+        .await
         .map_err(|err| err.to_string())
 }
 
@@ -378,10 +382,13 @@ async fn browser_settings_apply(
 }
 
 #[tauri::command]
-fn hooks_settings_get(
+async fn hooks_settings_get(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::HooksSettings, String> {
-    runtime.hooks_settings_get().map_err(|err| err.to_string())
+    runtime
+        .hooks_settings_get()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -396,10 +403,13 @@ async fn hooks_settings_apply(
 }
 
 #[tauri::command]
-fn git_settings_get(
+async fn git_settings_get(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::GitSettings, String> {
-    runtime.git_settings_get().map_err(|err| err.to_string())
+    runtime
+        .git_settings_get()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -483,11 +493,12 @@ fn computer_use_pick_application(
 }
 
 #[tauri::command]
-fn computer_use_settings_get(
+async fn computer_use_settings_get(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::ComputerUseSettings, String> {
     runtime
         .computer_use_settings_get()
+        .await
         .map_err(|err| err.to_string())
 }
 

@@ -4,7 +4,7 @@ use std::path::Path;
 use anyhow::Result;
 use yode_core::hooks::{HookDefinition, HookManager};
 
-use crate::desktop_settings_store::{desktop_bool_setting, read_desktop_settings};
+use crate::desktop_settings_store::{desktop_bool_setting, read_desktop_settings_async};
 use crate::protocol::{DesktopHookEntry, HooksSettings};
 
 pub(super) fn hooks_settings_from_desktop_settings(
@@ -43,8 +43,10 @@ pub(super) fn validate_hooks_settings(settings: &HooksSettings) -> Result<()> {
     Ok(())
 }
 
-pub(super) fn build_desktop_hook_manager(workspace_path: &Path) -> Result<Option<HookManager>> {
-    let settings = read_desktop_settings()?;
+pub(super) async fn build_desktop_hook_manager(
+    workspace_path: &Path,
+) -> Result<Option<HookManager>> {
+    let settings = read_desktop_settings_async().await?;
     let hooks_settings = hooks_settings_from_desktop_settings(&settings)?;
     if !hooks_settings.enabled {
         return Ok(None);
