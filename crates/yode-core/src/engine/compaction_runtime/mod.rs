@@ -558,7 +558,8 @@ impl AgentEngine {
             &cwd,
             &read_files,
             &preserved_read_files,
-        );
+        )
+        .await;
         if !file_excerpts.is_empty() {
             file_lines.push("- Recent file excerpts:".to_string());
             file_lines.extend(file_excerpts);

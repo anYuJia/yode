@@ -136,7 +136,7 @@ fn empty_restore_label(value: &str) -> &str {
     }
 }
 
-fn resolve_post_compact_file_path(
+async fn resolve_post_compact_file_path(
     project_root: &Path,
     cwd: &str,
     file_path: &str,
@@ -146,7 +146,7 @@ fn resolve_post_compact_file_path(
         return None;
     }
 
-    let canonical_root = std::fs::canonicalize(project_root).ok()?;
+    let canonical_root = tokio::fs::canonicalize(project_root).await.ok()?;
     let raw_path = Path::new(file_path);
     let candidates = if raw_path.is_absolute() {
         vec![raw_path.to_path_buf()]
@@ -160,14 +160,17 @@ fn resolve_post_compact_file_path(
         vec![base.join(raw_path), project_root.join(raw_path)]
     };
 
-    candidates.into_iter().find_map(|candidate| {
-        let canonical = std::fs::canonicalize(candidate).ok()?;
-        canonical.starts_with(&canonical_root).then_some(canonical)
-    })
+    for candidate in candidates {
+        let canonical = tokio::fs::canonicalize(candidate).await.ok()?;
+        if canonical.starts_with(&canonical_root) {
+            return Some(canonical);
+        }
+    }
+    None
 }
 
-fn read_post_compact_file_excerpt(path: &Path) -> Option<String> {
-    let content = std::fs::read_to_string(path).ok()?;
+async fn read_post_compact_file_excerpt(path: &Path) -> Option<String> {
+    let content = tokio::fs::read_to_string(path).await.ok()?;
     let normalized = content.replace("\r\n", "\n");
     let mut excerpt = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
     excerpt = excerpt
@@ -180,27 +183,35 @@ fn read_post_compact_file_excerpt(path: &Path) -> Option<String> {
     Some(excerpt.trim_end().to_string()).filter(|value| !value.trim().is_empty())
 }
 
-pub(super) fn render_post_compact_file_excerpts(
+pub(super) async fn render_post_compact_file_excerpts(
     project_root: &Path,
     cwd: &str,
     read_files: &[String],
     preserved_read_files: &HashSet<String>,
 ) -> Vec<String> {
-    read_files
+    let mut excerpts = Vec::new();
+    for file_path in read_files
         .iter()
         .filter(|file_path| !preserved_read_files.contains(*file_path))
-        .cloned()
-        .filter_map(|file_path| {
-            let resolved = resolve_post_compact_file_path(project_root, cwd, &file_path)?;
-            let excerpt = read_post_compact_file_excerpt(&resolved)?;
-            let display_path = resolved
-                .strip_prefix(project_root)
-                .map(|path| path.display().to_string())
-                .unwrap_or_else(|_| file_path.clone());
-            Some(format!("- Excerpt from {}: {}", display_path, excerpt))
-        })
-        .take(POST_COMPACT_FILE_EXCERPT_MAX_FILES)
-        .collect()
+    {
+        if excerpts.len() >= POST_COMPACT_FILE_EXCERPT_MAX_FILES {
+            break;
+        }
+
+        let Some(resolved) = resolve_post_compact_file_path(project_root, cwd, file_path).await
+        else {
+            continue;
+        };
+        let Some(excerpt) = read_post_compact_file_excerpt(&resolved).await else {
+            continue;
+        };
+        let display_path = resolved
+            .strip_prefix(project_root)
+            .map(|path| path.display().to_string())
+            .unwrap_or_else(|_| file_path.clone());
+        excerpts.push(format!("- Excerpt from {}: {}", display_path, excerpt));
+    }
+    excerpts
 }
 
 pub(super) fn collect_preserved_read_file_paths(messages: &[Message]) -> HashSet<String> {
