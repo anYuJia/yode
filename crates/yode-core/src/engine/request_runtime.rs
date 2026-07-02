@@ -1,4 +1,5 @@
 use super::*;
+use std::path::PathBuf;
 use yode_llm::types::{AnthropicRequestHints, ProviderRequestHints};
 
 impl AgentEngine {
@@ -19,16 +20,34 @@ impl AgentEngine {
     }
 
     fn write_chat_request_debug_artifact(&self, request: &ChatRequest) {
+        let Some((path, rendered)) = self.render_chat_request_debug_artifact(request) else {
+            return;
+        };
+
+        match tokio::runtime::Handle::try_current() {
+            Ok(handle) => {
+                drop(handle.spawn_blocking(move || {
+                    write_chat_request_debug_artifact_file(path, rendered);
+                }));
+            }
+            Err(_) => {
+                drop(std::thread::spawn(move || {
+                    write_chat_request_debug_artifact_file(path, rendered);
+                }));
+            }
+        }
+    }
+
+    fn render_chat_request_debug_artifact(
+        &self,
+        request: &ChatRequest,
+    ) -> Option<(PathBuf, String)> {
         let debug_dir = self
             .context
             .working_dir_compat()
             .join(".yode")
             .join("debug")
             .join("chat-requests");
-        if let Err(err) = std::fs::create_dir_all(&debug_dir) {
-            warn!("Failed to create chat request debug dir: {}", err);
-            return;
-        }
 
         let timestamp_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -83,14 +102,11 @@ impl AgentEngine {
         });
 
         match serde_json::to_string_pretty(&payload) {
-            Ok(rendered) => {
-                if let Err(err) = std::fs::write(&path, rendered) {
-                    warn!("Failed to write chat request debug artifact: {}", err);
-                } else {
-                    info!("Wrote chat request debug artifact: {}", path.display());
-                }
+            Ok(rendered) => Some((path, rendered)),
+            Err(err) => {
+                warn!("Failed to serialize chat request debug artifact: {}", err);
+                None
             }
-            Err(err) => warn!("Failed to serialize chat request debug artifact: {}", err),
         }
     }
 
@@ -181,5 +197,26 @@ impl AgentEngine {
             }
             .normalized(),
         )
+    }
+}
+
+fn write_chat_request_debug_artifact_file(path: PathBuf, rendered: String) {
+    let Some(debug_dir) = path.parent() else {
+        warn!(
+            "Failed to resolve chat request debug dir for {}",
+            path.display()
+        );
+        return;
+    };
+
+    if let Err(err) = std::fs::create_dir_all(debug_dir) {
+        warn!("Failed to create chat request debug dir: {}", err);
+        return;
+    }
+
+    if let Err(err) = std::fs::write(&path, rendered) {
+        warn!("Failed to write chat request debug artifact: {}", err);
+    } else {
+        info!("Wrote chat request debug artifact: {}", path.display());
     }
 }

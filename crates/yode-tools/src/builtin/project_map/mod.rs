@@ -1,8 +1,9 @@
 mod analysis;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use std::path::Path;
 
 use crate::path_format::relative_display_slash;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
@@ -72,68 +73,77 @@ impl Tool for ProjectMapTool {
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
 
-        let mut output = String::new();
-
-        let project_type = detect_project_type(working_dir);
-        output.push_str("## Project Overview\n");
-        output.push_str(&format!("- Type: {}\n", project_type.display_name()));
-
-        let stats = scan_project_stats(working_dir);
-        output.push_str(&format!(
-            "- Scale: {} files, ~{}K lines\n",
-            stats.file_count,
-            stats.total_lines / 1000
-        ));
-        for (lang, count) in &stats.lines_by_language {
-            output.push_str(&format!("  - {}: {} lines\n", lang, count));
-        }
-
-        let entries = find_entry_points(working_dir, &project_type);
-        if !entries.is_empty() {
-            output.push_str("\n## Entry Points\n");
-            for entry in &entries {
-                let rel = relative_display_slash(entry, working_dir);
-                output.push_str(&format!("- {}\n", rel));
-            }
-        }
-
-        let tree = build_module_tree(working_dir, depth);
-        if !tree.is_empty() {
-            output.push_str("\n## Module Map\n");
-            output.push_str(&tree);
-        }
-
-        if include_deps {
-            let deps = analyze_dependencies(working_dir, &project_type);
-            if !deps.is_empty() {
-                output.push_str("\n## Dependencies\n");
-                for (module, dep_list) in &deps {
-                    output.push_str(&format!(
-                        "- {} → depends on: {}\n",
-                        module,
-                        dep_list.join(", ")
-                    ));
-                }
-            }
-        }
-
-        let configs = find_config_files(working_dir);
-        if !configs.is_empty() {
-            output.push_str("\n## Config Files\n");
-            for cfg in &configs {
-                let rel = relative_display_slash(cfg, working_dir);
-                output.push_str(&format!("- {}\n", rel));
-            }
-        }
-
-        let metadata = json!({
-            "project_type": project_type.display_name(),
-            "file_count": stats.file_count,
-            "total_lines": stats.total_lines,
-        });
-
-        Ok(ToolResult::success_with_metadata(output, metadata))
+        let working_dir = working_dir.to_path_buf();
+        tokio::task::spawn_blocking(move || {
+            build_project_map_result(&working_dir, depth, include_deps)
+        })
+        .await
+        .context("project_map blocking analysis task failed")
     }
+}
+
+fn build_project_map_result(working_dir: &Path, depth: usize, include_deps: bool) -> ToolResult {
+    let mut output = String::new();
+
+    let project_type = detect_project_type(working_dir);
+    output.push_str("## Project Overview\n");
+    output.push_str(&format!("- Type: {}\n", project_type.display_name()));
+
+    let stats = scan_project_stats(working_dir);
+    output.push_str(&format!(
+        "- Scale: {} files, ~{}K lines\n",
+        stats.file_count,
+        stats.total_lines / 1000
+    ));
+    for (lang, count) in &stats.lines_by_language {
+        output.push_str(&format!("  - {}: {} lines\n", lang, count));
+    }
+
+    let entries = find_entry_points(working_dir, &project_type);
+    if !entries.is_empty() {
+        output.push_str("\n## Entry Points\n");
+        for entry in &entries {
+            let rel = relative_display_slash(entry, working_dir);
+            output.push_str(&format!("- {}\n", rel));
+        }
+    }
+
+    let tree = build_module_tree(working_dir, depth);
+    if !tree.is_empty() {
+        output.push_str("\n## Module Map\n");
+        output.push_str(&tree);
+    }
+
+    if include_deps {
+        let deps = analyze_dependencies(working_dir, &project_type);
+        if !deps.is_empty() {
+            output.push_str("\n## Dependencies\n");
+            for (module, dep_list) in &deps {
+                output.push_str(&format!(
+                    "- {} → depends on: {}\n",
+                    module,
+                    dep_list.join(", ")
+                ));
+            }
+        }
+    }
+
+    let configs = find_config_files(working_dir);
+    if !configs.is_empty() {
+        output.push_str("\n## Config Files\n");
+        for cfg in &configs {
+            let rel = relative_display_slash(cfg, working_dir);
+            output.push_str(&format!("- {}\n", rel));
+        }
+    }
+
+    let metadata = json!({
+        "project_type": project_type.display_name(),
+        "file_count": stats.file_count,
+        "total_lines": stats.total_lines,
+    });
+
+    ToolResult::success_with_metadata(output, metadata)
 }
 
 #[cfg(test)]
