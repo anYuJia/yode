@@ -78,7 +78,7 @@ struct PendingConfirmation {
 
 impl DesktopRuntime {
     pub async fn new() -> Result<Self> {
-        let workspace_path = resolve_desktop_workspace_path();
+        let workspace_path = resolve_desktop_workspace_path().await;
         let db_path = dirs::home_dir()
             .unwrap_or_else(|| workspace_path.clone())
             .join(".yode")
@@ -223,22 +223,29 @@ impl DesktopRuntime {
     }
 }
 
-fn resolve_desktop_workspace_path() -> PathBuf {
+async fn resolve_desktop_workspace_path() -> PathBuf {
     let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    find_workspace_root(&current_dir).unwrap_or(current_dir)
+    find_workspace_root(&current_dir)
+        .await
+        .unwrap_or(current_dir)
 }
 
-fn find_workspace_root(start: &std::path::Path) -> Option<PathBuf> {
+async fn find_workspace_root(start: &std::path::Path) -> Option<PathBuf> {
     for ancestor in start.ancestors() {
-        if ancestor.join(".git").is_dir() || is_cargo_workspace_root(ancestor) {
+        let git_dir_exists = tokio::fs::metadata(ancestor.join(".git"))
+            .await
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or(false);
+        if git_dir_exists || is_cargo_workspace_root(ancestor).await {
             return Some(ancestor.to_path_buf());
         }
     }
     None
 }
 
-fn is_cargo_workspace_root(path: &std::path::Path) -> bool {
-    std::fs::read_to_string(path.join("Cargo.toml"))
+async fn is_cargo_workspace_root(path: &std::path::Path) -> bool {
+    tokio::fs::read_to_string(path.join("Cargo.toml"))
+        .await
         .map(|content| content.contains("[workspace]"))
         .unwrap_or(false)
 }
@@ -294,8 +301,8 @@ mod tests {
         std::env::temp_dir().join(format!("yode-{name}-{nonce}"))
     }
 
-    #[test]
-    fn workspace_root_detection_climbs_out_of_src_tauri() {
+    #[tokio::test]
+    async fn workspace_root_detection_climbs_out_of_src_tauri() {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../..")
             .canonicalize()
@@ -303,7 +310,7 @@ mod tests {
         let src_tauri = root.join("apps/yode-desktop/src-tauri");
 
         assert_eq!(
-            find_workspace_root(&src_tauri).as_deref(),
+            find_workspace_root(&src_tauri).await.as_deref(),
             Some(root.as_path())
         );
     }
