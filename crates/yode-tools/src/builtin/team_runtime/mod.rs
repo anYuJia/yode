@@ -435,7 +435,7 @@ pub struct TeamReceiveTool;
 pub struct TeamMonitorTool;
 pub struct TeamRunReadyTool;
 
-async fn run_team_disk_io<T, F>(operation: &'static str, work: F) -> Result<T>
+pub(crate) async fn run_team_disk_io<T, F>(operation: &'static str, work: F) -> Result<T>
 where
     T: Send + 'static,
     F: FnOnce() -> Result<T> + Send + 'static,

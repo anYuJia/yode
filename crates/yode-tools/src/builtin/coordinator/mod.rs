@@ -12,7 +12,7 @@ use crate::builtin::orchestration_common::{
 };
 use crate::builtin::team_runtime::{
     hydrate_agent_team_manager, persist_agent_team_runtime, persist_agent_team_snapshot,
-    update_agent_team_member, AgentTeamMemberState,
+    run_team_disk_io, update_agent_team_member, AgentTeamMemberState,
 };
 use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolResult};
 
@@ -236,31 +236,41 @@ impl Tool for CoordinateAgentsTool {
                     team_members,
                 )
             };
+            let working_dir = dir.to_path_buf();
             record_team_runtime_result(
                 &mut persistence_errors,
                 "persist_agent_team_snapshot",
-                persist_agent_team_snapshot(
-                    dir,
-                    &yode_agent::AgentTeamSnapshot {
-                        state: Some(state),
-                        messages: Vec::new(),
-                    },
-                ),
+                run_team_disk_io("persist_agent_team_snapshot", move || {
+                    persist_agent_team_snapshot(
+                        &working_dir,
+                        &yode_agent::AgentTeamSnapshot {
+                            state: Some(state),
+                            messages: Vec::new(),
+                        },
+                    )
+                })
+                .await,
             )
-        } else {
-            ctx.working_dir.as_deref().and_then(|dir| {
-                record_team_runtime_result(
-                    &mut persistence_errors,
-                    "persist_agent_team_runtime",
+        } else if let Some(dir) = ctx.working_dir.as_deref() {
+            let working_dir = dir.to_path_buf();
+            let goal_for_runtime = goal.clone();
+            let team_id_for_runtime = team_id.clone();
+            record_team_runtime_result(
+                &mut persistence_errors,
+                "persist_agent_team_runtime",
+                run_team_disk_io("persist_agent_team_runtime", move || {
                     persist_agent_team_runtime(
-                        dir,
-                        &goal,
-                        Some(&team_id),
+                        &working_dir,
+                        &goal_for_runtime,
+                        Some(&team_id_for_runtime),
                         if dry_run { "dry_run" } else { "coordinate" },
                         team_members,
-                    ),
-                )
-            })
+                    )
+                })
+                .await,
+            )
+        } else {
+            None
         };
 
         if dry_run {
@@ -345,31 +355,27 @@ impl Tool for CoordinateAgentsTool {
 
         for (phase_index, phase_workstreams) in phases.iter().enumerate() {
             for (batch_index, batch) in phase_workstreams.chunks(max_parallel).enumerate() {
+                let mut mailbox_snapshots = Vec::new();
                 let futures = batch.iter().map(|workstream| {
-                    let mailbox_context = ctx
-                        .team_runtime
-                        .as_ref()
-                        .and_then(|manager| {
-                            let mut manager = manager.try_lock().ok()?;
-                            let messages =
-                                manager.consume_message_context(&team_id, &workstream.id, 6);
-                            if !messages.is_empty() {
-                                if let (Some(dir), Some(snapshot)) =
-                                    (ctx.working_dir.as_deref(), manager.snapshot(&team_id))
-                                {
-                                    let result = persist_agent_team_snapshot(dir, &snapshot);
-                                    if let Err(err) = result {
-                                        warn!(
-                                            operation = "persist_agent_team_snapshot",
-                                            error = %err,
-                                            "agent team runtime operation failed"
-                                        );
+                    let mailbox_context = if let Some(manager) = ctx.team_runtime.as_ref() {
+                        match manager.try_lock() {
+                            Ok(mut manager) => {
+                                let messages =
+                                    manager.consume_message_context(&team_id, &workstream.id, 6);
+                                if !messages.is_empty() {
+                                    if let (Some(dir), Some(snapshot)) =
+                                        (ctx.working_dir.as_deref(), manager.snapshot(&team_id))
+                                    {
+                                        mailbox_snapshots.push((dir.to_path_buf(), snapshot));
                                     }
                                 }
+                                messages
                             }
-                            Some(messages)
-                        })
-                        .unwrap_or_default();
+                            Err(_) => Vec::new(),
+                        }
+                    } else {
+                        Vec::new()
+                    };
                     let prerequisite_summary = if workstream.depends_on.is_empty() {
                         "No prerequisite workstreams.".to_string()
                     } else {
@@ -425,6 +431,23 @@ impl Tool for CoordinateAgentsTool {
                     )
                 });
 
+                let futures = futures.collect::<Vec<_>>();
+
+                for (working_dir, snapshot) in mailbox_snapshots {
+                    if let Err(err) =
+                        run_team_disk_io("persist_agent_team_snapshot_after_mailbox", move || {
+                            persist_agent_team_snapshot(&working_dir, &snapshot)
+                        })
+                        .await
+                    {
+                        warn!(
+                            operation = "persist_agent_team_snapshot_after_mailbox",
+                            error = %err,
+                            "agent team runtime operation failed"
+                        );
+                    }
+                }
+
                 let results = join_all(futures).await;
                 for (workstream, result) in batch.iter().zip(results) {
                     match result {
@@ -459,29 +482,46 @@ impl Tool for CoordinateAgentsTool {
                                     manager.snapshot(&team_id)
                                 };
                                 if let Some(snapshot) = snapshot.as_ref() {
+                                    let working_dir = dir.to_path_buf();
+                                    let snapshot = snapshot.clone();
                                     record_team_runtime_result(
                                         &mut persistence_errors,
                                         "persist_agent_team_snapshot",
-                                        persist_agent_team_snapshot(dir, snapshot),
+                                        run_team_disk_io(
+                                            "persist_agent_team_snapshot",
+                                            move || {
+                                                persist_agent_team_snapshot(&working_dir, &snapshot)
+                                            },
+                                        )
+                                        .await,
                                     );
                                 }
                             } else if let Some(dir) = ctx.working_dir.as_deref() {
+                                let working_dir = dir.to_path_buf();
+                                let team_id = team_id.clone();
+                                let member_id = workstream.id.clone();
+                                let status = if workstream.run_in_background.unwrap_or(true) {
+                                    "running".to_string()
+                                } else {
+                                    "completed".to_string()
+                                };
+                                let task_id = parse_team_task_id(&output);
+                                let result_preview = Some(output.clone());
                                 record_team_runtime_result(
                                     &mut persistence_errors,
                                     "update_agent_team_member",
-                                    update_agent_team_member(
-                                        dir,
-                                        &team_id,
-                                        &workstream.id,
-                                        if workstream.run_in_background.unwrap_or(true) {
-                                            "running"
-                                        } else {
-                                            "completed"
-                                        },
-                                        parse_team_task_id(&output),
-                                        Some(output.clone()),
-                                        None,
-                                    ),
+                                    run_team_disk_io("update_agent_team_member", move || {
+                                        update_agent_team_member(
+                                            &working_dir,
+                                            &team_id,
+                                            &member_id,
+                                            &status,
+                                            task_id,
+                                            result_preview,
+                                            None,
+                                        )
+                                    })
+                                    .await,
                                 );
                             }
                             rendered.push(json!({
@@ -519,25 +559,40 @@ impl Tool for CoordinateAgentsTool {
                                     manager.snapshot(&team_id)
                                 };
                                 if let Some(snapshot) = snapshot.as_ref() {
+                                    let working_dir = dir.to_path_buf();
+                                    let snapshot = snapshot.clone();
                                     record_team_runtime_result(
                                         &mut persistence_errors,
                                         "persist_agent_team_snapshot",
-                                        persist_agent_team_snapshot(dir, snapshot),
+                                        run_team_disk_io(
+                                            "persist_agent_team_snapshot",
+                                            move || {
+                                                persist_agent_team_snapshot(&working_dir, &snapshot)
+                                            },
+                                        )
+                                        .await,
                                     );
                                 }
                             } else if let Some(dir) = ctx.working_dir.as_deref() {
+                                let working_dir = dir.to_path_buf();
+                                let team_id = team_id.clone();
+                                let member_id = workstream.id.clone();
+                                let result_preview = Some(format!("{}", err));
                                 record_team_runtime_result(
                                     &mut persistence_errors,
                                     "update_agent_team_member",
-                                    update_agent_team_member(
-                                        dir,
-                                        &team_id,
-                                        &workstream.id,
-                                        "failed",
-                                        None,
-                                        Some(format!("{}", err)),
-                                        None,
-                                    ),
+                                    run_team_disk_io("update_agent_team_member", move || {
+                                        update_agent_team_member(
+                                            &working_dir,
+                                            &team_id,
+                                            &member_id,
+                                            "failed",
+                                            None,
+                                            result_preview,
+                                            None,
+                                        )
+                                    })
+                                    .await,
                                 );
                             }
                             rendered.push(json!({

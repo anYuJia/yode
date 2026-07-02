@@ -7,7 +7,7 @@ use tracing::warn;
 
 use crate::builtin::team_runtime::{
     hydrate_agent_team_manager, persist_agent_team_runtime, persist_agent_team_snapshot,
-    update_agent_team_member, AgentTeamMemberState,
+    run_team_disk_io, update_agent_team_member, AgentTeamMemberState,
 };
 use crate::path_format::display_slash;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
@@ -219,10 +219,15 @@ impl Tool for AgentTool {
                     if let (Some(working_dir), Some(snapshot)) =
                         (ctx.working_dir.as_deref(), manager.snapshot(team_id))
                     {
-                        let result = persist_agent_team_snapshot(working_dir, &snapshot);
-                        if let Err(err) = result {
+                        let working_dir = working_dir.to_path_buf();
+                        if let Err(err) = run_team_disk_io(
+                            "persist_agent_team_snapshot_after_mailbox",
+                            move || persist_agent_team_snapshot(&working_dir, &snapshot),
+                        )
+                        .await
+                        {
                             warn!(
-                                operation = "persist_agent_team_snapshot",
+                                operation = "persist_agent_team_snapshot_after_mailbox",
                                 error = %err,
                                 "agent runtime operation failed"
                             );
@@ -340,74 +345,94 @@ impl Tool for AgentTool {
                             );
                             manager.snapshot(team_id)
                         };
-                        snapshot.as_ref().and_then(|snapshot| {
+                        if let Some(snapshot) = snapshot {
+                            let working_dir = working_dir.to_path_buf();
                             record_agent_runtime_result(
                                 &mut persistence_errors,
                                 "persist_agent_team_snapshot",
-                                persist_agent_team_snapshot(working_dir, snapshot),
+                                run_team_disk_io("persist_agent_team_snapshot", move || {
+                                    persist_agent_team_snapshot(&working_dir, &snapshot)
+                                })
+                                .await,
                             )
-                        })
+                        } else {
+                            None
+                        }
                     } else {
+                        let member = AgentTeamMemberState {
+                            member_id: member_id.clone().unwrap_or_else(|| "member-1".to_string()),
+                            description: description.clone(),
+                            subagent_type: subagent_type_clone.clone(),
+                            model: model_clone.clone(),
+                            run_in_background,
+                            allowed_tools: allowed_tools_clone.clone(),
+                            permission_inheritance: if allowed_tools_clone.is_empty() {
+                                "parent_tool_pool".to_string()
+                            } else {
+                                "explicit_allowlist".to_string()
+                            },
+                            status: if run_in_background {
+                                "running".to_string()
+                            } else {
+                                "completed".to_string()
+                            },
+                            runtime_task_id: parse_background_task_id(&result),
+                            last_result_preview: Some(result.chars().take(240).collect()),
+                            result_artifact_path: artifact_path.clone(),
+                            last_updated_at: Some(
+                                chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+                            ),
+                            pending_message_count: 0,
+                            last_message_at: None,
+                        };
+                        let working_dir_for_runtime = working_dir.to_path_buf();
+                        let description_for_runtime = description.clone();
+                        let team_id_for_runtime = team_id.to_string();
                         let artifacts = record_agent_runtime_result(
                             &mut persistence_errors,
                             "persist_agent_team_runtime",
-                            persist_agent_team_runtime(
-                                working_dir,
-                                &description,
-                                Some(team_id),
-                                if run_in_background {
-                                    "background"
-                                } else {
-                                    "foreground"
-                                },
-                                vec![AgentTeamMemberState {
-                                    member_id: member_id
-                                        .clone()
-                                        .unwrap_or_else(|| "member-1".to_string()),
-                                    description: description.clone(),
-                                    subagent_type: subagent_type_clone.clone(),
-                                    model: model_clone.clone(),
-                                    run_in_background,
-                                    allowed_tools: allowed_tools_clone.clone(),
-                                    permission_inheritance: if allowed_tools_clone.is_empty() {
-                                        "parent_tool_pool".to_string()
+                            run_team_disk_io("persist_agent_team_runtime", move || {
+                                persist_agent_team_runtime(
+                                    &working_dir_for_runtime,
+                                    &description_for_runtime,
+                                    Some(&team_id_for_runtime),
+                                    if run_in_background {
+                                        "background"
                                     } else {
-                                        "explicit_allowlist".to_string()
+                                        "foreground"
                                     },
-                                    status: if run_in_background {
-                                        "running".to_string()
-                                    } else {
-                                        "completed".to_string()
-                                    },
-                                    runtime_task_id: parse_background_task_id(&result),
-                                    last_result_preview: Some(result.chars().take(240).collect()),
-                                    result_artifact_path: artifact_path.clone(),
-                                    last_updated_at: Some(
-                                        chrono::Local::now()
-                                            .format("%Y-%m-%d %H:%M:%S")
-                                            .to_string(),
-                                    ),
-                                    pending_message_count: 0,
-                                    last_message_at: None,
-                                }],
-                            ),
+                                    vec![member],
+                                )
+                            })
+                            .await,
                         );
+                        let working_dir_for_update = working_dir.to_path_buf();
+                        let team_id_for_update = team_id.to_string();
+                        let member_id_for_update =
+                            member_id.clone().unwrap_or_else(|| "member-1".to_string());
+                        let status = if run_in_background {
+                            "running".to_string()
+                        } else {
+                            "completed".to_string()
+                        };
+                        let task_id = parse_background_task_id(&result);
+                        let result_preview = Some(result.clone());
+                        let artifact_path_for_update = artifact_path.clone();
                         record_agent_runtime_result(
                             &mut persistence_errors,
                             "update_agent_team_member",
-                            update_agent_team_member(
-                                working_dir,
-                                team_id,
-                                member_id.as_deref().unwrap_or("member-1"),
-                                if run_in_background {
-                                    "running"
-                                } else {
-                                    "completed"
-                                },
-                                parse_background_task_id(&result),
-                                Some(result.clone()),
-                                artifact_path.clone(),
-                            ),
+                            run_team_disk_io("update_agent_team_member", move || {
+                                update_agent_team_member(
+                                    &working_dir_for_update,
+                                    &team_id_for_update,
+                                    &member_id_for_update,
+                                    &status,
+                                    task_id,
+                                    result_preview,
+                                    artifact_path_for_update,
+                                )
+                            })
+                            .await,
                         );
                         artifacts
                     }
