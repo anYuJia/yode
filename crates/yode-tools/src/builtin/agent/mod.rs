@@ -14,11 +14,16 @@ use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct AgentTool;
 
-fn warn_if_agent_runtime_failed<T>(operation: &str, result: anyhow::Result<T>) -> Option<T> {
+fn record_agent_runtime_result<T>(
+    persistence_errors: &mut Vec<String>,
+    operation: &str,
+    result: anyhow::Result<T>,
+) -> Option<T> {
     match result {
         Ok(value) => Some(value),
         Err(err) => {
             warn!(operation, error = %err, "agent runtime operation failed");
+            persistence_errors.push(format!("{operation}: {err}"));
             None
         }
     }
@@ -183,6 +188,7 @@ impl Tool for AgentTool {
         let allowed_tools_clone = allowed_tools.clone();
         let subagent_type_clone = subagent_type.clone();
         let model_clone = model.clone();
+        let mut persistence_errors = Vec::new();
 
         let runner = ctx
             .sub_agent_runner
@@ -213,10 +219,14 @@ impl Tool for AgentTool {
                     if let (Some(working_dir), Some(snapshot)) =
                         (ctx.working_dir.as_deref(), manager.snapshot(team_id))
                     {
-                        warn_if_agent_runtime_failed(
-                            "persist_agent_team_snapshot",
-                            persist_agent_team_snapshot(working_dir, &snapshot),
-                        );
+                        let result = persist_agent_team_snapshot(working_dir, &snapshot);
+                        if let Err(err) = result {
+                            warn!(
+                                operation = "persist_agent_team_snapshot",
+                                error = %err,
+                                "agent runtime operation failed"
+                            );
+                        }
                     }
                 }
                 mailbox
@@ -244,7 +254,8 @@ impl Tool for AgentTool {
             Ok(result) => {
                 let artifact_path = if !run_in_background {
                     match ctx.working_dir.as_deref() {
-                        Some(dir) => warn_if_agent_runtime_failed(
+                        Some(dir) => record_agent_runtime_result(
+                            &mut persistence_errors,
                             "persist_sub_agent_artifact",
                             persist_sub_agent_artifact_async(dir, &description, &result).await,
                         )
@@ -260,8 +271,13 @@ impl Tool for AgentTool {
                     if let Some(manager) = ctx.team_runtime.as_ref() {
                         let snapshot = {
                             let mut manager = manager.lock().await;
-                            if hydrate_agent_team_manager(working_dir, &mut manager, team_id)?
-                                .is_none()
+                            if record_agent_runtime_result(
+                                &mut persistence_errors,
+                                "hydrate_agent_team_manager",
+                                hydrate_agent_team_manager(working_dir, &mut manager, team_id),
+                            )
+                            .flatten()
+                            .is_none()
                             {
                                 let state = manager.ensure_team(
                                     &description,
@@ -306,28 +322,34 @@ impl Tool for AgentTool {
                                 );
                                 manager.upsert_snapshot(state, Vec::new());
                             }
-                            let _ = manager.update_member(
-                                team_id,
-                                member_id.as_deref().unwrap_or("member-1"),
-                                if run_in_background {
-                                    "running"
-                                } else {
-                                    "completed"
-                                },
-                                parse_background_task_id(&result),
-                                Some(result.clone()),
-                                artifact_path.clone(),
+                            record_agent_runtime_result(
+                                &mut persistence_errors,
+                                "update_agent_team_member_in_memory",
+                                manager.update_member(
+                                    team_id,
+                                    member_id.as_deref().unwrap_or("member-1"),
+                                    if run_in_background {
+                                        "running"
+                                    } else {
+                                        "completed"
+                                    },
+                                    parse_background_task_id(&result),
+                                    Some(result.clone()),
+                                    artifact_path.clone(),
+                                ),
                             );
                             manager.snapshot(team_id)
                         };
                         snapshot.as_ref().and_then(|snapshot| {
-                            warn_if_agent_runtime_failed(
+                            record_agent_runtime_result(
+                                &mut persistence_errors,
                                 "persist_agent_team_snapshot",
                                 persist_agent_team_snapshot(working_dir, snapshot),
                             )
                         })
                     } else {
-                        warn_if_agent_runtime_failed(
+                        let artifacts = record_agent_runtime_result(
+                            &mut persistence_errors,
                             "persist_agent_team_runtime",
                             persist_agent_team_runtime(
                                 working_dir,
@@ -370,7 +392,8 @@ impl Tool for AgentTool {
                                 }],
                             ),
                         );
-                        warn_if_agent_runtime_failed(
+                        record_agent_runtime_result(
+                            &mut persistence_errors,
                             "update_agent_team_member",
                             update_agent_team_member(
                                 working_dir,
@@ -385,7 +408,8 @@ impl Tool for AgentTool {
                                 Some(result.clone()),
                                 artifact_path.clone(),
                             ),
-                        )
+                        );
+                        artifacts
                     }
                 } else {
                     None
@@ -413,6 +437,7 @@ impl Tool for AgentTool {
                             .as_ref()
                             .and_then(|set| set.monitor_path.as_ref())
                             .map(|path| display_slash(path)),
+                        "persistence_errors": persistence_errors,
                         "team_id": team_id,
                         "member_id": member_id,
                     }),
