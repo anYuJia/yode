@@ -97,6 +97,7 @@ import {
   preferredModelForProvider
 } from "./lib/llmProviderStorage";
 import { useAppUiStore } from "./lib/appUiStore";
+import { applyStoredAppearanceSettings, applyTranslucentSidebarSetting } from "./lib/appearanceSettings";
 
 function imageToRequestPayload(image: ImageAttachment) {
   return {
@@ -440,162 +441,12 @@ export function App() {
     };
   }, [reloadProjectStorage]);
 
-  // Load theme & settings on startup to avoid styling flashes
   useEffect(() => {
-    const root = document.documentElement;
-
-    // Mode
-    const themeMode = localStorage.getItem("yode-theme-mode") || "dark";
-    root.classList.remove("light", "dark");
-    if (themeMode === "light") {
-      root.classList.add("light");
-      root.style.setProperty("color-scheme", "light");
-    } else if (themeMode === "dark") {
-      root.classList.add("dark");
-      root.style.setProperty("color-scheme", "dark");
-    } else {
-      const isSystemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-      root.classList.add(isSystemDark ? "dark" : "light");
-      root.style.setProperty("color-scheme", isSystemDark ? "dark" : "light");
-    }
-
-    // Colors & Fonts
-    const accentColor = localStorage.getItem("yode-accent-color") || "#FF79C6";
-    const backgroundColor = localStorage.getItem("yode-bg-color") || "#282A36";
-    const foregroundColor = localStorage.getItem("yode-fg-color") || "#F8F8F2";
-    const uiFont = localStorage.getItem("yode-ui-font") || "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif";
-    const codeFont = localStorage.getItem("yode-code-font") || "ui-monospace, \"SF Mono\", SFMono-Regular, Menlo, Monaco, Consolas, monospace";
-    const readNumber = (key: string, fallback: number) => {
-      const raw = localStorage.getItem(key);
-      if (raw === null) return fallback;
-      const parsed = Number(raw);
-      return Number.isFinite(parsed) ? parsed : fallback;
-    };
-    const appScale = readNumber("yode-app-scale", 100) / 100;
-    const uiFontSize = readNumber("yode-ui-font-size", 13);
-    const chatFontSize = readNumber("yode-chat-font-size", 13.25);
-    const sidebarFontSize = readNumber("yode-sidebar-font-size", 13);
-    const settingsFontSize = readNumber("yode-settings-font-size", 13);
-    const codeFontSize = readNumber("yode-code-font-size", 12);
-    const terminalFontSize = readNumber("yode-terminal-font-size", 12);
-    const inspectorFontSize = readNumber("yode-inspector-font-size", 12);
-    const contrast = localStorage.getItem("yode-contrast") || "48";
-    const scaledPx = (value: number) => `${Number((value * appScale).toFixed(2))}px`;
-
-    root.style.setProperty("--accent", accentColor);
-    root.style.setProperty("--bg", backgroundColor);
-    root.style.setProperty("--text", foregroundColor);
-    root.style.setProperty("--font-ui", uiFont);
-    root.style.setProperty("--font-code", codeFont);
-    root.style.setProperty("--ui-font-size", scaledPx(uiFontSize));
-    root.style.setProperty("--chat-font-size", scaledPx(chatFontSize));
-    root.style.setProperty("--sidebar-font-size", scaledPx(sidebarFontSize));
-    root.style.setProperty("--settings-font-size", scaledPx(settingsFontSize));
-    root.style.setProperty("--code-font-size", scaledPx(codeFontSize));
-    root.style.setProperty("--terminal-font-size", scaledPx(terminalFontSize));
-    root.style.setProperty("--inspector-font-size", scaledPx(inspectorFontSize));
-    root.style.setProperty("--app-scale", String(appScale));
-    root.style.setProperty("--contrast-val", contrast);
-    root.style.fontSize = scaledPx(uiFontSize);
-
-    // Deriving colors based on background color lightness
-    const hexToRgb = (hex: string) => {
-      const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
-      const fullHex = hex.replace(shorthandRegex, (_, r, g, b) => r + r + g + g + b + b);
-      const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(fullHex);
-      return result ? {
-        r: parseInt(result[1], 16),
-        g: parseInt(result[2], 16),
-        b: parseInt(result[3], 16)
-      } : null;
-    };
-    const rgbToHex = (r: number, g: number, b: number) => {
-      const toHex = (c: number) => {
-        const hex = Math.max(0, Math.min(255, c)).toString(16);
-        return hex.length === 1 ? "0" + hex : hex;
-      };
-      return "#" + toHex(r) + toHex(g) + toHex(b);
-    };
-    const isLightColor = (hex: string) => {
-      const rgb = hexToRgb(hex);
-      if (!rgb) return false;
-      const luminance = 0.299 * rgb.r + 0.587 * rgb.g + 0.114 * rgb.b;
-      return luminance > 128;
-    };
-    const adjustBrightness = (hex: string, percent: number) => {
-      const rgb = hexToRgb(hex);
-      if (!rgb) return hex;
-      const factor = 1 + (percent / 100);
-      const r = Math.max(0, Math.min(255, Math.round(rgb.r * factor)));
-      const g = Math.max(0, Math.min(255, Math.round(rgb.g * factor)));
-      const b = Math.max(0, Math.min(255, Math.round(rgb.b * factor)));
-      return rgbToHex(r, g, b);
-    };
-
-    const light = isLightColor(backgroundColor);
-    const bgPercentMod = light ? -5 : 5;
-    const bgDoubleMod = light ? -10 : 10;
-    const bgTripleMod = light ? -15 : 15;
-    const borderMod = light ? -18 : 18;
-    const borderSoftMod = light ? -10 : 10;
-
-    const chromeColor = adjustBrightness(backgroundColor, bgPercentMod);
-    const panelColor = adjustBrightness(backgroundColor, bgDoubleMod);
-    const panelRaised = adjustBrightness(backgroundColor, bgTripleMod);
-    const fieldColor = adjustBrightness(backgroundColor, bgPercentMod);
-    const lineColor = adjustBrightness(backgroundColor, borderMod);
-    const lineSoftColor = adjustBrightness(backgroundColor, borderSoftMod);
-
-    const rgbAccent = hexToRgb(accentColor);
-    const accentMuted = rgbAccent ? `rgba(${rgbAccent.r}, ${rgbAccent.g}, ${rgbAccent.b}, 0.2)` : "rgba(255, 255, 255, 0.1)";
-
-    root.style.setProperty("--chrome", chromeColor);
-    root.style.setProperty("--panel", panelColor);
-    root.style.setProperty("--panel-raised", panelRaised);
-    root.style.setProperty("--field", fieldColor);
-    root.style.setProperty("--line", lineColor);
-    root.style.setProperty("--line-soft", lineSoftColor);
-    root.style.setProperty("--accent-muted", accentMuted);
-
-    // Pointer cursors
-    if (localStorage.getItem("yode-use-pointers") === "true") {
-      document.body.classList.add("use-pointers");
-    }
-
-    // Reduce Motion
-    const reduceMotion = localStorage.getItem("yode-reduce-motion") || "system";
-    if (reduceMotion === "on") {
-      document.body.classList.add("reduce-motion");
-    } else if (reduceMotion === "system") {
-      const prefersReduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-      if (prefersReduced) {
-        document.body.classList.add("reduce-motion");
-      }
-    }
-
-    // Font Smoothing
-    const fontSmoothing = localStorage.getItem("yode-font-smoothing");
-    if (fontSmoothing === null || fontSmoothing === "true") {
-      document.body.classList.add("font-smoothing");
-    } else {
-      document.body.classList.add("no-font-smoothing");
-    }
+    applyStoredAppearanceSettings();
   }, []);
 
   useEffect(() => {
-    // Sync translucent class to app-shell based on saved value
-    const val = localStorage.getItem("yode-translucent-sidebar");
-    const isTranslucent = val === null ? true : val === "true";
-    const shells = document.querySelectorAll(".app-shell");
-    shells.forEach(shell => {
-      if (isTranslucent) {
-        shell.classList.add("translucent-sidebar");
-        shell.classList.remove("translucent-sidebar-disabled");
-      } else {
-        shell.classList.remove("translucent-sidebar");
-        shell.classList.add("translucent-sidebar-disabled");
-      }
-    });
+    applyTranslucentSidebarSetting();
   }, [viewMode]);
 
   const loadBootstrap = () => {
