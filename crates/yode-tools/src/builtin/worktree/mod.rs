@@ -93,7 +93,7 @@ impl Tool for EnterWorktreeTool {
         let branch_name = format!("{branch_prefix}{name}");
         let worktree_dir = working_dir.join(".yode").join("worktrees").join(&name);
 
-        std::fs::create_dir_all(working_dir.join(".yode").join("worktrees"))?;
+        tokio::fs::create_dir_all(working_dir.join(".yode").join("worktrees")).await?;
 
         let output = std::process::Command::new("git")
             .arg("worktree")

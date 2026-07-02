@@ -119,7 +119,7 @@ Examples:
         }
 
         let mut matches: Vec<(String, SystemTime)> = Vec::new();
-        walk_dir(&base, &base, &glob_set, &mut matches);
+        walk_dir(&base, &base, &glob_set, &mut matches).await;
 
         // Sort by modification time (newest first)
         matches.sort_by_key(|b| std::cmp::Reverse(b.1));
@@ -160,35 +160,44 @@ fn resolve_path(path: &str, working_dir: Option<&Path>) -> PathBuf {
     }
 }
 
-fn walk_dir(
+async fn walk_dir(
     base: &Path,
     dir: &Path,
     glob_set: &globset::GlobSet,
     matches: &mut Vec<(String, SystemTime)>,
 ) {
-    let entries = match std::fs::read_dir(dir) {
-        Ok(e) => e,
-        Err(_) => return,
-    };
+    let mut pending = vec![dir.to_path_buf()];
 
-    for entry in entries.flatten() {
-        let path = entry.path();
-        let file_name = entry.file_name();
-        let name = file_name.to_string_lossy();
+    while let Some(current_dir) = pending.pop() {
+        let mut entries = match tokio::fs::read_dir(&current_dir).await {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
 
-        if path.is_dir() {
-            if SKIP_DIRS.contains(&name.as_ref()) {
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            let path = entry.path();
+            let file_name = entry.file_name();
+            let name = file_name.to_string_lossy();
+
+            let Ok(file_type) = entry.file_type().await else {
                 continue;
-            }
-            walk_dir(base, &path, glob_set, matches);
-        } else {
-            let rel_str = relative_display_slash(&path, base);
-            if glob_set.is_match(Path::new(&rel_str)) {
-                let mtime = entry
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .unwrap_or(SystemTime::UNIX_EPOCH);
-                matches.push((rel_str, mtime));
+            };
+
+            if file_type.is_dir() {
+                if SKIP_DIRS.contains(&name.as_ref()) {
+                    continue;
+                }
+                pending.push(path);
+            } else if file_type.is_file() {
+                let rel_str = relative_display_slash(&path, base);
+                if glob_set.is_match(Path::new(&rel_str)) {
+                    let mtime = entry
+                        .metadata()
+                        .await
+                        .and_then(|m| m.modified())
+                        .unwrap_or(SystemTime::UNIX_EPOCH);
+                    matches.push((rel_str, mtime));
+                }
             }
         }
     }

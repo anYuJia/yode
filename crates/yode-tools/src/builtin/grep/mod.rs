@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -199,7 +198,8 @@ Usage:
                     output_mode,
                     working_dir,
                     glob_matcher.as_ref(),
-                );
+                )
+                .await;
                 return render_grep_stdout(
                     stdout,
                     pattern,
@@ -340,7 +340,7 @@ fn regex_from_params(pattern: &str, params: &Value) -> std::result::Result<Regex
         .build()
 }
 
-fn fallback_grep_stdout(
+async fn fallback_grep_stdout(
     matcher: &Regex,
     search_path: &str,
     output_mode: &str,
@@ -353,11 +353,11 @@ fn fallback_grep_stdout(
         working_dir.join(search_path)
     };
     let mut files = Vec::new();
-    collect_search_files(&root, working_dir, glob_matcher, &mut files);
+    collect_search_files(&root, working_dir, glob_matcher, &mut files).await;
 
     let mut lines = Vec::new();
     for file in files {
-        let Ok(content) = fs::read_to_string(&file) else {
+        let Ok(content) = tokio::fs::read_to_string(&file).await else {
             continue;
         };
         let rel = file
@@ -386,26 +386,41 @@ fn fallback_grep_stdout(
     lines.join("\n")
 }
 
-fn collect_search_files(
+async fn collect_search_files(
     path: &Path,
     working_dir: &Path,
     glob_matcher: Option<&GlobMatcher>,
     output: &mut Vec<PathBuf>,
 ) {
-    if path.is_file() {
-        if glob_matcher
-            .map(|glob| glob.is_match(path.strip_prefix(working_dir).unwrap_or(path)))
-            .unwrap_or(true)
-        {
-            output.push(path.to_path_buf());
+    let mut pending = vec![path.to_path_buf()];
+
+    while let Some(candidate) = pending.pop() {
+        let Ok(metadata) = tokio::fs::metadata(&candidate).await else {
+            continue;
+        };
+
+        if metadata.is_file() {
+            if glob_matcher
+                .map(|glob| {
+                    glob.is_match(candidate.strip_prefix(working_dir).unwrap_or(&candidate))
+                })
+                .unwrap_or(true)
+            {
+                output.push(candidate);
+            }
+            continue;
         }
-        return;
-    }
-    let Ok(entries) = fs::read_dir(path) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        collect_search_files(&entry.path(), working_dir, glob_matcher, output);
+
+        if !metadata.is_dir() {
+            continue;
+        }
+
+        let Ok(mut entries) = tokio::fs::read_dir(&candidate).await else {
+            continue;
+        };
+        while let Ok(Some(entry)) = entries.next_entry().await {
+            pending.push(entry.path());
+        }
     }
 }
 
@@ -476,19 +491,19 @@ mod tests {
         assert!(result.content.contains("Invalid regex pattern"));
     }
 
-    #[test]
-    fn fallback_grep_supports_content_and_count_modes() {
+    #[tokio::test]
+    async fn fallback_grep_supports_content_and_count_modes() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("a.txt"), "alpha\nbeta\nAlpha\n").unwrap();
         std::fs::write(dir.path().join("b.log"), "alpha\n").unwrap();
         let matcher = regex_from_params("alpha", &json!({"case_insensitive": true})).unwrap();
 
-        let content = fallback_grep_stdout(&matcher, ".", "content", dir.path(), None);
+        let content = fallback_grep_stdout(&matcher, ".", "content", dir.path(), None).await;
         assert!(content.contains("a.txt:1:alpha"));
         assert!(content.contains("a.txt:3:Alpha"));
         assert!(content.contains("b.log:1:alpha"));
 
-        let count = fallback_grep_stdout(&matcher, ".", "count", dir.path(), None);
+        let count = fallback_grep_stdout(&matcher, ".", "count", dir.path(), None).await;
         assert!(count.contains("a.txt:2"));
         assert!(count.contains("b.log:1"));
     }
