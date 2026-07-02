@@ -23,6 +23,20 @@ export type GeneralSettingsPayload = GeneralSettings & {
   preventSleep: boolean;
 };
 
+export type ConfigurationSettings = {
+  scope: string;
+  approvalPolicy: string;
+  sandboxSettings: string;
+  exposeDependencies: boolean;
+};
+
+const CONFIGURATION_STORAGE_KEYS = {
+  scope: "yode-config-scope",
+  approvalPolicy: "yode-config-approval",
+  sandboxSettings: "yode-config-sandbox",
+  exposeDependencies: "yode-expose-deps"
+} as const;
+
 export function isTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
 }
@@ -90,6 +104,22 @@ export function loadGeneralSettingsPayload(): GeneralSettingsPayload {
     permissionNotification: localStorage.getItem("yode-perm-notif") !== "false",
     questionNotification: localStorage.getItem("yode-question-notif") !== "false"
   };
+}
+
+export function loadConfigurationSettings(): ConfigurationSettings {
+  return {
+    scope: localStorage.getItem(CONFIGURATION_STORAGE_KEYS.scope) || "User config",
+    approvalPolicy: localStorage.getItem(CONFIGURATION_STORAGE_KEYS.approvalPolicy) || "On request",
+    sandboxSettings: localStorage.getItem(CONFIGURATION_STORAGE_KEYS.sandboxSettings) || "Read only",
+    exposeDependencies: localStorage.getItem(CONFIGURATION_STORAGE_KEYS.exposeDependencies) !== "false"
+  };
+}
+
+export function saveConfigurationSettings(settings: ConfigurationSettings): void {
+  localStorage.setItem(CONFIGURATION_STORAGE_KEYS.scope, settings.scope);
+  localStorage.setItem(CONFIGURATION_STORAGE_KEYS.approvalPolicy, settings.approvalPolicy);
+  localStorage.setItem(CONFIGURATION_STORAGE_KEYS.sandboxSettings, settings.sandboxSettings);
+  localStorage.setItem(CONFIGURATION_STORAGE_KEYS.exposeDependencies, String(settings.exposeDependencies));
 }
 
 export function saveGeneralSettingValue(key: string, value: string | boolean) {

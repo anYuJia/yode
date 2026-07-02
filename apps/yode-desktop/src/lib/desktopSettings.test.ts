@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadGeneralSettings, loadGeneralSettingsPayload } from "./desktopSettings";
+import { loadConfigurationSettings, loadGeneralSettings, loadGeneralSettingsPayload, saveConfigurationSettings } from "./desktopSettings";
 
 describe("desktop settings helpers", () => {
   afterEach(() => {
@@ -66,6 +66,57 @@ describe("desktop settings helpers", () => {
       completionNotification: "Never",
       permissionNotification: false,
       questionNotification: false
+    });
+  });
+
+  it("loads configuration settings defaults from local storage", () => {
+    stubLocalStorage(() => null);
+
+    expect(loadConfigurationSettings()).toEqual({
+      scope: "User config",
+      approvalPolicy: "On request",
+      sandboxSettings: "Read only",
+      exposeDependencies: true
+    });
+  });
+
+  it("loads configuration settings overrides", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-config-scope": "Project config",
+        "yode-config-approval": "Never approve",
+        "yode-config-sandbox": "Full write access",
+        "yode-expose-deps": "false"
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadConfigurationSettings()).toEqual({
+      scope: "Project config",
+      approvalPolicy: "Never approve",
+      sandboxSettings: "Full write access",
+      exposeDependencies: false
+    });
+  });
+
+  it("saves configuration settings through the shared helper", () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      setItem: (key: string, value: string) => saved.set(key, value)
+    });
+
+    saveConfigurationSettings({
+      scope: "Project config",
+      approvalPolicy: "Always auto-approve",
+      sandboxSettings: "Restricted",
+      exposeDependencies: false
+    });
+
+    expect(Object.fromEntries(saved)).toEqual({
+      "yode-config-scope": "Project config",
+      "yode-config-approval": "Always auto-approve",
+      "yode-config-sandbox": "Restricted",
+      "yode-expose-deps": "false"
     });
   });
 });

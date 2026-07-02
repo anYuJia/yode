@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Search, Download } from "lucide-react";
 import { CustomSelect } from "../../CustomSelect";
 import { Bootstrap } from "../../../lib/desktopTypes";
+import { loadConfigurationSettings, saveConfigurationSettings } from "../../../lib/desktopSettings";
 
 type ConfigurationState = {
   scope: string;
@@ -25,17 +26,16 @@ type WorkspaceDiagnosticsResult = {
 };
 
 export function ConfigurationSettings({ bootstrap, isZh, t }: { bootstrap: Bootstrap; isZh: boolean; t: (zh: string, en: string) => string }) {
-  const [configScope, setConfigScope] = useState(() => localStorage.getItem("yode-config-scope") || "User config");
-  const [approvalPolicy, setApprovalPolicy] = useState(() => localStorage.getItem("yode-config-approval") || "On request");
-  const [sandboxSettings, setSandboxSettings] = useState(() => localStorage.getItem("yode-config-sandbox") || "Read only");
-  const [exposeDeps, setExposeDeps] = useState(() => localStorage.getItem("yode-expose-deps") !== "false");
+  const initialConfiguration = loadConfigurationSettings();
+  const [configScope, setConfigScope] = useState(initialConfiguration.scope);
+  const [approvalPolicy, setApprovalPolicy] = useState(initialConfiguration.approvalPolicy);
+  const [sandboxSettings, setSandboxSettings] = useState(initialConfiguration.sandboxSettings);
+  const [exposeDeps, setExposeDeps] = useState(initialConfiguration.exposeDependencies);
   const [configPath, setConfigPath] = useState("");
   const [projectConfigPath, setProjectConfigPath] = useState("");
   const [statusText, setStatusText] = useState("");
   const [diagnostics, setDiagnostics] = useState<WorkspaceDiagnosticsResult | null>(null);
   const [busy, setBusy] = useState<"diagnose" | "reinstall" | "save" | null>(null);
-
-  const saveVal = (key: string, val: unknown) => localStorage.setItem(key, String(val));
 
   const applyConfiguration = async (next?: Partial<ConfigurationState>) => {
     const request = {
@@ -44,10 +44,7 @@ export function ConfigurationSettings({ bootstrap, isZh, t }: { bootstrap: Boots
       sandboxSettings: next?.sandboxSettings ?? sandboxSettings,
       exposeDependencies: next?.exposeDependencies ?? exposeDeps
     };
-    saveVal("yode-config-scope", request.scope);
-    saveVal("yode-config-approval", request.approvalPolicy);
-    saveVal("yode-config-sandbox", request.sandboxSettings);
-    saveVal("yode-expose-deps", request.exposeDependencies);
+    saveConfigurationSettings(request);
     if (!("__TAURI_INTERNALS__" in window)) return;
     setBusy("save");
     try {
@@ -73,10 +70,7 @@ export function ConfigurationSettings({ bootstrap, isZh, t }: { bootstrap: Boots
         setExposeDeps(state.exposeDependencies);
         setConfigPath(state.configPath);
         setProjectConfigPath(state.projectConfigPath);
-        saveVal("yode-config-scope", state.scope);
-        saveVal("yode-config-approval", state.approvalPolicy);
-        saveVal("yode-config-sandbox", state.sandboxSettings);
-        saveVal("yode-expose-deps", state.exposeDependencies);
+        saveConfigurationSettings(state);
       })
       .catch(console.error);
   }, []);
@@ -116,7 +110,12 @@ export function ConfigurationSettings({ bootstrap, isZh, t }: { bootstrap: Boots
       const result = await invoke<WorkspaceDiagnosticsResult>("workspace_reinstall");
       setDiagnostics(result);
       setExposeDeps(true);
-      saveVal("yode-expose-deps", true);
+      saveConfigurationSettings({
+        scope: configScope,
+        approvalPolicy,
+        sandboxSettings,
+        exposeDependencies: true
+      });
       setStatusText(t(`工作区已重装：${result.reportPath}`, `Workspace reinstalled: ${result.reportPath}`));
     } catch (err) {
       console.error(err);
