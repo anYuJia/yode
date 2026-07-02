@@ -3,7 +3,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 
-pub fn persist_review_artifact(
+#[cfg(test)]
+fn persist_review_artifact(
     working_dir: &Path,
     kind: &str,
     title: &str,
@@ -67,6 +68,7 @@ pub async fn persist_review_artifact_async(
     Ok(path)
 }
 
+#[cfg(test)]
 fn capture_diff_artifact(working_dir: &Path, diff_path: &Path) -> Result<PathBuf> {
     let output = std::process::Command::new("git")
         .arg("-C")
@@ -117,7 +119,8 @@ pub struct ReviewStatusSnapshot {
     pub artifact_path: Option<String>,
 }
 
-pub fn persist_review_status(
+#[cfg(test)]
+fn persist_review_status(
     working_dir: &Path,
     kind: &str,
     title: &str,

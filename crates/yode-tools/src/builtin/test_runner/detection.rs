@@ -9,7 +9,10 @@ pub(super) struct DetectedFramework {
 }
 
 /// Detect the test framework from project files.
-pub(super) fn detect_framework(dir: &Path, filter: Option<&str>) -> Option<DetectedFramework> {
+pub(super) async fn detect_framework(
+    dir: &Path,
+    filter: Option<&str>,
+) -> Option<DetectedFramework> {
     if dir.join("Cargo.toml").exists() {
         let mut args = vec!["test".to_string()];
         if let Some(filter) = filter {
@@ -25,7 +28,7 @@ pub(super) fn detect_framework(dir: &Path, filter: Option<&str>) -> Option<Detec
     }
 
     if dir.join("package.json").exists() {
-        if let Ok(content) = std::fs::read_to_string(dir.join("package.json")) {
+        if let Ok(content) = tokio::fs::read_to_string(dir.join("package.json")).await {
             if let Ok(package) = serde_json::from_str::<Value>(&content) {
                 let has_vitest = package
                     .get("devDependencies")
@@ -115,11 +118,14 @@ pub(super) fn detect_framework(dir: &Path, filter: Option<&str>) -> Option<Detec
 mod tests {
     use super::detect_framework;
 
-    #[test]
-    fn detects_frameworks_by_ecosystem() {
+    #[tokio::test]
+    async fn detects_frameworks_by_ecosystem() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
-        assert_eq!(detect_framework(dir.path(), None).unwrap().name, "cargo");
+        assert_eq!(
+            detect_framework(dir.path(), None).await.unwrap().name,
+            "cargo"
+        );
 
         let node = tempfile::tempdir().unwrap();
         std::fs::write(
@@ -127,14 +133,20 @@ mod tests {
             r#"{"devDependencies":{"vitest":"1.0.0"}}"#,
         )
         .unwrap();
-        assert_eq!(detect_framework(node.path(), None).unwrap().name, "vitest");
+        assert_eq!(
+            detect_framework(node.path(), None).await.unwrap().name,
+            "vitest"
+        );
 
         let py = tempfile::tempdir().unwrap();
         std::fs::write(py.path().join("pytest.ini"), "[pytest]").unwrap();
-        assert_eq!(detect_framework(py.path(), None).unwrap().name, "pytest");
+        assert_eq!(
+            detect_framework(py.path(), None).await.unwrap().name,
+            "pytest"
+        );
 
         let go = tempfile::tempdir().unwrap();
         std::fs::write(go.path().join("go.mod"), "module example.com/x").unwrap();
-        assert_eq!(detect_framework(go.path(), None).unwrap().name, "go");
+        assert_eq!(detect_framework(go.path(), None).await.unwrap().name, "go");
     }
 }

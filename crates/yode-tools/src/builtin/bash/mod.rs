@@ -244,6 +244,7 @@ While the bash tool can do similar things, it's better to use the built-in tools
                     Vec::new()
                 };
                 self.format_output(command, working_dir, output, modified_files)
+                    .await
             }
             watchdog::StallResult::Stalled(partial_output) => {
                 let _ = child.kill().await;

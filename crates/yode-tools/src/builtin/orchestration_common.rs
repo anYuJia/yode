@@ -35,7 +35,8 @@ pub struct CoordinatorRuntimeArtifactRequest<'a> {
     pub results: &'a [Value],
 }
 
-pub fn persist_workflow_runtime_artifacts(
+#[cfg(test)]
+fn persist_workflow_runtime_artifacts(
     request: WorkflowRuntimeArtifactRequest<'_>,
 ) -> anyhow::Result<OrchestrationArtifactSet> {
     let dir = ensure_status_dir(request.working_dir)?;
@@ -149,7 +150,8 @@ pub async fn persist_workflow_runtime_artifacts_async(
     })
 }
 
-pub fn persist_coordinator_runtime_artifacts(
+#[cfg(test)]
+fn persist_coordinator_runtime_artifacts(
     request: CoordinatorRuntimeArtifactRequest<'_>,
 ) -> anyhow::Result<OrchestrationArtifactSet> {
     let dir = ensure_status_dir(request.working_dir)?;
@@ -275,6 +277,7 @@ pub async fn persist_coordinator_runtime_artifacts_async(
     })
 }
 
+#[cfg(test)]
 fn ensure_status_dir(working_dir: &Path) -> anyhow::Result<PathBuf> {
     let dir = working_dir.join(".yode").join("status");
     std::fs::create_dir_all(&dir)?;

@@ -87,7 +87,7 @@ impl Tool for TestRunnerTool {
             let args = parts[1..].iter().map(|part| part.to_string()).collect();
             ("custom", command, args)
         } else {
-            match detect_framework(&working_dir, filter) {
+            match detect_framework(&working_dir, filter).await {
                 Some(framework) => (framework.name, framework.command, framework.args),
                 None => {
                     return Ok(ToolResult::error(

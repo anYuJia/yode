@@ -1,7 +1,7 @@
 use super::*;
 
 impl BashTool {
-    pub(super) fn format_output(
+    pub(super) async fn format_output(
         &self,
         command: &str,
         working_dir: &Path,
@@ -93,7 +93,7 @@ impl BashTool {
             metadata["modified_files"] = json!(changed_files);
             if let Some(first_file) = changed_files.first() {
                 metadata["file_path"] = json!(first_file);
-                if let Some(diff_preview) = file_added_preview(first_file) {
+                if let Some(diff_preview) = file_added_preview(first_file).await {
                     metadata["diff_preview"] = diff_preview;
                 }
             }
@@ -139,8 +139,8 @@ fn redirection_targets(command: &str, working_dir: &Path) -> Vec<std::path::Path
         .collect()
 }
 
-fn file_added_preview(file_path: &str) -> Option<serde_json::Value> {
-    let content = std::fs::read_to_string(file_path).ok()?;
+async fn file_added_preview(file_path: &str) -> Option<serde_json::Value> {
+    let content = tokio::fs::read_to_string(file_path).await.ok()?;
     let lines = content.lines().map(str::to_string).collect::<Vec<_>>();
     let line_count = lines.len();
     let preview = lines.into_iter().take(8).collect::<Vec<_>>();

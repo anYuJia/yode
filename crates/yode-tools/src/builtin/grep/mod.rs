@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -185,10 +184,11 @@ Usage:
         let working_dir = ctx.working_dir.as_deref().unwrap_or_else(|| Path::new("."));
 
         // Execute ripgrep
-        let output = match Command::new("rg")
+        let output = match tokio::process::Command::new("rg")
             .args(&args)
             .current_dir(working_dir)
             .output()
+            .await
         {
             Ok(o) => o,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
