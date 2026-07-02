@@ -21,3 +21,22 @@ pub(super) fn write_string_with_retry(path: &Path, content: &str) -> Result<()> 
         .map(Into::into)
         .unwrap_or_else(|| anyhow::anyhow!("transcript write failed without an I/O error")))
 }
+
+pub(super) async fn write_string_with_retry_async(path: &Path, content: &str) -> Result<()> {
+    let mut last_error = None;
+    for attempt in 0..TRANSCRIPT_WRITE_RETRIES {
+        match tokio::fs::write(path, content).await {
+            Ok(()) => return Ok(()),
+            Err(error) => {
+                last_error = Some(error);
+                if attempt + 1 < TRANSCRIPT_WRITE_RETRIES {
+                    tokio::time::sleep(std::time::Duration::from_millis(25 * (attempt as u64 + 1)))
+                        .await;
+                }
+            }
+        }
+    }
+    Err(last_error
+        .map(Into::into)
+        .unwrap_or_else(|| anyhow::anyhow!("transcript write failed without an I/O error")))
+}

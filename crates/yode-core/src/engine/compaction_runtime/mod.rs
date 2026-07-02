@@ -839,7 +839,7 @@ impl AgentEngine {
             session_memory_path.as_deref(),
         );
 
-        match write_compaction_transcript(
+        match write_compaction_transcript_async(
             &project_root,
             &self.context.session_id,
             &pre_compact_messages,
@@ -850,7 +850,9 @@ impl AgentEngine {
             &self.files_read,
             &self.files_modified,
             Some(&compact_boundary),
-        ) {
+        )
+        .await
+        {
             Ok(path) => {
                 push_artifact_path(&mut compact_boundary.artifact_paths, Some(&path));
                 transcript_path = Some(path);

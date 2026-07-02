@@ -78,7 +78,7 @@ use crate::session_memory::{
     persist_live_session_memory_async, persist_live_session_memory_summary_async,
     render_live_session_memory_prompt,
 };
-use crate::transcript::write_compaction_transcript;
+use crate::transcript::write_compaction_transcript_async;
 use retry::{
     classify_error, max_retries_for, retry_delay, summarize_retry_error_message,
     total_attempts_for, ErrorKind,
