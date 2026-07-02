@@ -8,7 +8,7 @@ use serde_json::{json, Value};
 use tracing::warn;
 
 use crate::builtin::orchestration_common::{
-    persist_coordinator_runtime_artifacts, CoordinatorRuntimeArtifactRequest,
+    persist_coordinator_runtime_artifacts_async, CoordinatorRuntimeArtifactRequest,
 };
 use crate::builtin::team_runtime::{
     hydrate_agent_team_manager, persist_agent_team_runtime, persist_agent_team_snapshot,
@@ -268,9 +268,9 @@ impl Tool for CoordinateAgentsTool {
         if dry_run {
             let plan = render_phase_plan(&phases, max_parallel);
             let timeline = render_phase_timeline(&phases, max_parallel);
-            let artifacts = ctx.working_dir.as_deref().and_then(|dir| {
+            let artifacts = if let Some(dir) = ctx.working_dir.as_deref() {
                 let max_parallel = max_parallel_label(max_parallel).to_string();
-                persist_coordinator_runtime_artifacts(CoordinatorRuntimeArtifactRequest {
+                persist_coordinator_runtime_artifacts_async(CoordinatorRuntimeArtifactRequest {
                     working_dir: dir,
                     goal: &goal,
                     dry_run: true,
@@ -281,6 +281,7 @@ impl Tool for CoordinateAgentsTool {
                     plan: &plan,
                     results: &[],
                 })
+                .await
                 .inspect_err(|err| {
                     warn!(
                         operation = "persist_coordinator_runtime_artifacts",
@@ -289,7 +290,9 @@ impl Tool for CoordinateAgentsTool {
                     );
                 })
                 .ok()
-            });
+            } else {
+                None
+            };
             return Ok(ToolResult::success_with_metadata(
                 format!(
                     "Coordinator phase timeline\n{}\n\nJSON plan\n{}\n",
@@ -544,9 +547,9 @@ impl Tool for CoordinateAgentsTool {
         let rendered_text = serde_json::to_string_pretty(&rendered)?;
         let timeline = render_phase_timeline(&phases, max_parallel);
         let plan = render_phase_plan(&phases, max_parallel);
-        let artifacts = ctx.working_dir.as_deref().and_then(|dir| {
+        let artifacts = if let Some(dir) = ctx.working_dir.as_deref() {
             let max_parallel = max_parallel_label(max_parallel).to_string();
-            persist_coordinator_runtime_artifacts(CoordinatorRuntimeArtifactRequest {
+            persist_coordinator_runtime_artifacts_async(CoordinatorRuntimeArtifactRequest {
                 working_dir: dir,
                 goal: &goal,
                 dry_run: false,
@@ -557,6 +560,7 @@ impl Tool for CoordinateAgentsTool {
                 plan: &plan,
                 results: &rendered,
             })
+            .await
             .inspect_err(|err| {
                 warn!(
                     operation = "persist_coordinator_runtime_artifacts",
@@ -565,7 +569,9 @@ impl Tool for CoordinateAgentsTool {
                 );
             })
             .ok()
-        });
+        } else {
+            None
+        };
 
         Ok(ToolResult::success_with_metadata(
             rendered_text,

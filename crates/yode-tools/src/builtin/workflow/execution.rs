@@ -9,7 +9,7 @@ use super::rendering::{render_approval_checkpoint, render_workflow_dry_run, work
 use super::variables::{apply_variables, workflow_variables_from_params};
 use super::WorkflowExecutionMode;
 use crate::builtin::orchestration_common::{
-    persist_workflow_runtime_artifacts, WorkflowRuntimeArtifactRequest,
+    persist_workflow_runtime_artifacts_async, WorkflowRuntimeArtifactRequest,
 };
 use crate::tool::{ToolCapabilities, ToolContext, ToolResult};
 
@@ -115,8 +115,8 @@ pub(super) async fn execute_workflow(
                 })
             })
             .collect::<Vec<_>>();
-        let artifacts = ctx.working_dir.as_deref().and_then(|dir| {
-            persist_workflow_runtime_artifacts(WorkflowRuntimeArtifactRequest {
+        let artifacts = if let Some(dir) = ctx.working_dir.as_deref() {
+            persist_workflow_runtime_artifacts_async(WorkflowRuntimeArtifactRequest {
                 working_dir: dir,
                 workflow_path: &workflow_path,
                 workflow_name: workflow.name.as_deref(),
@@ -127,8 +127,11 @@ pub(super) async fn execute_workflow(
                 steps: &plan,
                 write_steps: &write_steps,
             })
+            .await
             .ok()
-        });
+        } else {
+            None
+        };
         return Ok(ToolResult::success_with_metadata(
             render_workflow_dry_run(
                 &workflow_path,
@@ -217,9 +220,9 @@ pub(super) async fn execute_workflow(
         }
     }
 
-    let artifacts = ctx.working_dir.as_deref().and_then(|dir| {
+    let artifacts = if let Some(dir) = ctx.working_dir.as_deref() {
         let write_steps = workflow_write_checkpoints(&workflow.steps);
-        persist_workflow_runtime_artifacts(WorkflowRuntimeArtifactRequest {
+        persist_workflow_runtime_artifacts_async(WorkflowRuntimeArtifactRequest {
             working_dir: dir,
             workflow_path: &workflow_path,
             workflow_name: workflow.name.as_deref(),
@@ -230,8 +233,11 @@ pub(super) async fn execute_workflow(
             steps: &step_outputs,
             write_steps: &write_steps,
         })
+        .await
         .ok()
-    });
+    } else {
+        None
+    };
 
     Ok(ToolResult::success_with_metadata(
         serde_json::to_string_pretty(&step_outputs)?,

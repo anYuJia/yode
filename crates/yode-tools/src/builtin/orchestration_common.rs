@@ -92,6 +92,63 @@ pub fn persist_workflow_runtime_artifacts(
     })
 }
 
+pub async fn persist_workflow_runtime_artifacts_async(
+    request: WorkflowRuntimeArtifactRequest<'_>,
+) -> anyhow::Result<OrchestrationArtifactSet> {
+    let dir = ensure_status_dir_async(request.working_dir).await?;
+    let stamp = timestamp_stamp();
+    let workflow_name = request.workflow_name.unwrap_or("workflow");
+    let description = request.description.unwrap_or("none");
+    let slug = slugify(workflow_name);
+    let summary_path = dir.join(format!("{}-{}-workflow-execution.md", stamp, slug));
+    let state_path = dir.join(format!("{}-{}-workflow-runtime-state.json", stamp, slug));
+    let timeline_path = dir.join(format!(
+        "{}-{}-runtime-orchestration-timeline.md",
+        stamp, slug
+    ));
+
+    let state = json!({
+        "kind": "workflow",
+        "name": workflow_name,
+        "description": description,
+        "workflow_path": request.workflow_path.display().to_string(),
+        "mode": request.mode,
+        "dry_run": request.dry_run,
+        "step_count": request.steps.len(),
+        "write_steps": request.write_steps,
+        "variables": request.variables,
+        "steps": request.steps,
+        "summary_artifact": summary_path.display().to_string(),
+        "timeline_artifact": timeline_path.display().to_string(),
+        "timestamp": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    });
+    tokio::fs::write(&state_path, serde_json::to_string_pretty(&state)?).await?;
+
+    let summary = render_workflow_summary(&request, &state_path, &timeline_path);
+    tokio::fs::write(&summary_path, summary).await?;
+
+    let timeline = render_orchestration_timeline(
+        "workflow",
+        workflow_name,
+        if request.dry_run {
+            "dry-run planned"
+        } else if request.steps.iter().any(step_is_error) {
+            "execution finished with errors"
+        } else {
+            "execution finished"
+        },
+        &[("summary", &summary_path), ("state", &state_path)],
+        request.steps,
+    );
+    tokio::fs::write(&timeline_path, timeline).await?;
+
+    Ok(OrchestrationArtifactSet {
+        summary_path: Some(summary_path),
+        state_path: Some(state_path),
+        timeline_path: Some(timeline_path),
+    })
+}
+
 pub fn persist_coordinator_runtime_artifacts(
     request: CoordinatorRuntimeArtifactRequest<'_>,
 ) -> anyhow::Result<OrchestrationArtifactSet> {
@@ -155,9 +212,78 @@ pub fn persist_coordinator_runtime_artifacts(
     })
 }
 
+pub async fn persist_coordinator_runtime_artifacts_async(
+    request: CoordinatorRuntimeArtifactRequest<'_>,
+) -> anyhow::Result<OrchestrationArtifactSet> {
+    let dir = ensure_status_dir_async(request.working_dir).await?;
+    let stamp = timestamp_stamp();
+    let slug = slugify(request.goal);
+    let summary_suffix = if request.dry_run {
+        "coordinate-dry-run.md"
+    } else {
+        "coordinate-summary.md"
+    };
+    let summary_path = dir.join(format!("{}-{}-{}", stamp, slug, summary_suffix));
+    let state_path = dir.join(format!("{}-{}-coordinate-runtime-state.json", stamp, slug));
+    let timeline_path = dir.join(format!(
+        "{}-{}-runtime-orchestration-timeline.md",
+        stamp, slug
+    ));
+
+    let state = json!({
+        "kind": "coordinator",
+        "goal": request.goal,
+        "dry_run": request.dry_run,
+        "phase_count": request.phase_count,
+        "workstream_count": request.workstream_count,
+        "max_parallel": request.max_parallel,
+        "timeline": request.timeline,
+        "plan": request.plan,
+        "results": request.results,
+        "summary_artifact": summary_path.display().to_string(),
+        "timeline_artifact": timeline_path.display().to_string(),
+        "timestamp": chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+    });
+    tokio::fs::write(&state_path, serde_json::to_string_pretty(&state)?).await?;
+
+    let summary = render_coordinator_summary(&request, &state_path, &timeline_path);
+    tokio::fs::write(&summary_path, summary).await?;
+
+    let timeline_body = render_orchestration_timeline(
+        "coordinator",
+        request.goal,
+        if request.dry_run {
+            "dry-run planned"
+        } else if request.results.iter().any(step_is_error) {
+            "execution finished with errors"
+        } else {
+            "execution finished"
+        },
+        &[("summary", &summary_path), ("state", &state_path)],
+        if request.dry_run {
+            request.plan
+        } else {
+            request.results
+        },
+    );
+    tokio::fs::write(&timeline_path, timeline_body).await?;
+
+    Ok(OrchestrationArtifactSet {
+        summary_path: Some(summary_path),
+        state_path: Some(state_path),
+        timeline_path: Some(timeline_path),
+    })
+}
+
 fn ensure_status_dir(working_dir: &Path) -> anyhow::Result<PathBuf> {
     let dir = working_dir.join(".yode").join("status");
     std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+async fn ensure_status_dir_async(working_dir: &Path) -> anyhow::Result<PathBuf> {
+    let dir = working_dir.join(".yode").join("status");
+    tokio::fs::create_dir_all(&dir).await?;
     Ok(dir)
 }
 
