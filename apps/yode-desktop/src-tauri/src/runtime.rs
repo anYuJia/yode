@@ -185,8 +185,8 @@ impl DesktopRuntime {
         Ok(())
     }
 
-    pub fn license_notices(&self) -> Result<Vec<LicenseNotice>> {
-        Ok(read_license_notices(&self.workspace_path))
+    pub async fn license_notices(&self) -> Result<Vec<LicenseNotice>> {
+        Ok(read_license_notices(&self.workspace_path).await)
     }
 
     pub async fn git_current_branch(

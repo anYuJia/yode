@@ -1,9 +1,7 @@
-use std::path::{Path, PathBuf};
-use std::process::Command;
-
 use anyhow::Result;
 use chrono::Utc;
 use serde_json::json;
+use std::path::{Path, PathBuf};
 
 use yode_core::config::Config;
 
@@ -13,7 +11,7 @@ use crate::protocol::{
 };
 
 impl DesktopRuntime {
-    pub fn configuration_state(&self) -> Result<ConfigurationState> {
+    pub async fn configuration_state(&self) -> Result<ConfigurationState> {
         let project_config_path = self.project_config_path();
         let mode = self
             .permission_mode
@@ -30,7 +28,7 @@ impl DesktopRuntime {
             },
             approval_policy: approval_policy_from_permission_mode(mode),
             sandbox_settings: sandbox_settings_from_permission_mode(mode),
-            expose_dependencies: load_workspace_dependency_state(),
+            expose_dependencies: load_workspace_dependency_state_async().await,
             config_path: self.user_config_path().display().to_string(),
             project_config_path: project_config_path.display().to_string(),
         })
@@ -103,7 +101,7 @@ impl DesktopRuntime {
             "diagnostics-{}.md",
             Utc::now().format("%Y%m%d-%H%M%S")
         ));
-        let checks = workspace_diagnostic_checks(self)?;
+        let checks = workspace_diagnostic_checks(self).await?;
         let mut report = String::from("# Yode 工作区诊断\n\n");
         for check in &checks {
             report.push_str(&format!(
@@ -212,9 +210,9 @@ fn workspace_dependency_state_path() -> PathBuf {
         .join("desktop-workspace-deps.json")
 }
 
-fn load_workspace_dependency_state() -> bool {
+async fn load_workspace_dependency_state_async() -> bool {
     let path = workspace_dependency_state_path();
-    let Ok(raw) = std::fs::read_to_string(path) else {
+    let Ok(raw) = tokio::fs::read_to_string(path).await else {
         return true;
     };
     serde_json::from_str::<serde_json::Value>(&raw)
@@ -243,16 +241,16 @@ async fn set_workspace_dependency_state_async(expose: bool) -> Result<()> {
     Ok(())
 }
 
-fn workspace_diagnostic_checks(runtime: &DesktopRuntime) -> Result<Vec<DiagnosticCheck>> {
+async fn workspace_diagnostic_checks(runtime: &DesktopRuntime) -> Result<Vec<DiagnosticCheck>> {
     let mut checks = Vec::new();
     let user_config = runtime.user_config_path();
     let project_config = runtime.project_config_path();
     checks.push(path_check("用户配置", &user_config, true));
     checks.push(path_check("项目配置", &project_config, false));
     checks.push(path_check("会话数据库", &runtime.db_path, true));
-    checks.push(command_check("Node.js", "node", &["--version"]));
-    checks.push(command_check("Python", "python3", &["--version"]));
-    checks.push(command_check("Cargo", "cargo", &["--version"]));
+    checks.push(command_check("Node.js", "node", &["--version"]).await);
+    checks.push(command_check("Python", "python3", &["--version"]).await);
+    checks.push(command_check("Cargo", "cargo", &["--version"]).await);
     checks.push(path_check(
         "桌面端 package.json",
         &runtime
@@ -262,15 +260,11 @@ fn workspace_diagnostic_checks(runtime: &DesktopRuntime) -> Result<Vec<Diagnosti
             .join("package.json"),
         true,
     ));
+    let expose_dependencies = load_workspace_dependency_state_async().await;
     checks.push(DiagnosticCheck {
         name: "依赖项暴露".to_string(),
-        status: if load_workspace_dependency_state() {
-            "ok"
-        } else {
-            "warn"
-        }
-        .to_string(),
-        detail: if load_workspace_dependency_state() {
+        status: if expose_dependencies { "ok" } else { "warn" }.to_string(),
+        detail: if expose_dependencies {
             "已允许向工作区暴露 Node.js 与 Python 工具。"
         } else {
             "当前已关闭依赖项暴露。"
@@ -295,8 +289,12 @@ fn path_check(name: &str, path: &Path, required: bool) -> DiagnosticCheck {
     }
 }
 
-fn command_check(name: &str, command: &str, args: &[&str]) -> DiagnosticCheck {
-    match Command::new(command).args(args).output() {
+async fn command_check(name: &str, command: &str, args: &[&str]) -> DiagnosticCheck {
+    match tokio::process::Command::new(command)
+        .args(args)
+        .output()
+        .await
+    {
         Ok(output) if output.status.success() => {
             let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
             let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();

@@ -2,8 +2,10 @@ use std::path::{Path, PathBuf};
 
 use crate::protocol::LicenseNotice;
 
-pub(super) fn read_license_notices(workspace_path: &Path) -> Vec<LicenseNotice> {
-    let root = find_workspace_root(workspace_path).unwrap_or_else(|| workspace_path.to_path_buf());
+pub(super) async fn read_license_notices(workspace_path: &Path) -> Vec<LicenseNotice> {
+    let root = find_workspace_root(workspace_path)
+        .await
+        .unwrap_or_else(|| workspace_path.to_path_buf());
     let mut notices = vec![LicenseNotice {
         name: "yode".to_string(),
         version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -12,11 +14,11 @@ pub(super) fn read_license_notices(workspace_path: &Path) -> Vec<LicenseNotice> 
     }];
 
     let cargo_lock = root.join("Cargo.lock");
-    if let Ok(lock) = std::fs::read_to_string(&cargo_lock) {
+    if let Ok(lock) = tokio::fs::read_to_string(&cargo_lock).await {
         notices.extend(parse_cargo_lock_notices(&lock));
     }
     let package_lock = root.join("apps/yode-desktop/pnpm-lock.yaml");
-    if let Ok(lock) = std::fs::read_to_string(&package_lock) {
+    if let Ok(lock) = tokio::fs::read_to_string(&package_lock).await {
         notices.extend(parse_pnpm_lock_notices(&lock));
     }
     notices.sort_by(|a, b| a.name.cmp(&b.name).then(a.version.cmp(&b.version)));
@@ -24,18 +26,18 @@ pub(super) fn read_license_notices(workspace_path: &Path) -> Vec<LicenseNotice> 
     notices
 }
 
-fn find_workspace_root(start: &Path) -> Option<PathBuf> {
+async fn find_workspace_root(start: &Path) -> Option<PathBuf> {
     let mut current = start;
     loop {
-        if is_cargo_workspace_root(current) {
+        if is_cargo_workspace_root(current).await {
             return Some(current.to_path_buf());
         }
         current = current.parent()?;
     }
 }
 
-fn is_cargo_workspace_root(path: &Path) -> bool {
-    let Ok(content) = std::fs::read_to_string(path.join("Cargo.toml")) else {
+async fn is_cargo_workspace_root(path: &Path) -> bool {
+    let Ok(content) = tokio::fs::read_to_string(path.join("Cargo.toml")).await else {
         return false;
     };
     content.contains("[workspace]") && content.contains("apps/yode-desktop/src-tauri")

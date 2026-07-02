@@ -211,17 +211,23 @@ async fn import_ai_sessions(
 }
 
 #[tauri::command]
-fn license_notices(
+async fn license_notices(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<Vec<protocol::LicenseNotice>, String> {
-    runtime.license_notices().map_err(|err| err.to_string())
+    runtime
+        .license_notices()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-fn configuration_state_get(
+async fn configuration_state_get(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::ConfigurationState, String> {
-    runtime.configuration_state().map_err(|err| err.to_string())
+    runtime
+        .configuration_state()
+        .await
+        .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
