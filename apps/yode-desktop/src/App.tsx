@@ -78,9 +78,9 @@ import {
   UsageSnapshot
 } from "./lib/localSlashCommands";
 import { handleDesktopRuntimeEvent } from "./lib/desktopEventHandlers";
-import { loadGeneralSettings, loadGeneralSettingsPayload } from "./lib/desktopSettings";
+import { applyGeneralSettings, loadGeneralSettings, toggleBottomPanelSetting } from "./lib/desktopSettings";
 import {
-  ARCHIVED_SESSION_IDS_STORAGE_KEY,
+  archiveSessionLocally,
   dedupeProjectRoots,
   normalizeProjectRoot,
   visibleSessions
@@ -148,34 +148,6 @@ function timelineCreatedAt(item: TimelineItem | null | undefined): number | unde
   return typeof item?.createdAt === "number" && Number.isFinite(item.createdAt)
     ? item.createdAt
     : undefined;
-}
-
-type ArchivedChat = {
-  id: string;
-  title: string;
-  date: string;
-  project: string;
-};
-
-function isArchivedChat(value: unknown): value is ArchivedChat {
-  const record = recordFromUnknown(value);
-  return Boolean(
-    record &&
-    typeof record.id === "string" &&
-    typeof record.title === "string" &&
-    typeof record.date === "string" &&
-    typeof record.project === "string"
-  );
-}
-
-function parseArchivedChats(raw: string | null): ArchivedChat[] {
-  if (!raw) return [];
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter(isArchivedChat) : [];
-  } catch {
-    return [];
-  }
 }
 
 function turnStaticDurationSeconds(turn: ConversationTurn) {
@@ -431,13 +403,9 @@ export function App() {
   useEffect(() => {
     const handleGeneralSettingsChange = () => {
       setGeneralSettings(loadGeneralSettings());
-      if ("__TAURI_INTERNALS__" in window) {
-        invoke("general_settings_apply", { settings: loadGeneralSettingsPayload() }).catch(console.error);
-      }
+      void applyGeneralSettings();
     };
-    if ("__TAURI_INTERNALS__" in window) {
-      invoke("general_settings_apply", { settings: loadGeneralSettingsPayload() }).catch(console.error);
-    }
+    void applyGeneralSettings();
     window.addEventListener("yode-general-settings-change", handleGeneralSettingsChange);
     return () => window.removeEventListener("yode-general-settings-change", handleGeneralSettingsChange);
   }, []);
@@ -1176,33 +1144,7 @@ export function App() {
     const session = sessionItems.find(s => s.id === sessionId);
     if (!session) return;
 
-    // 1. Get and update yode-archived-session-ids
-    const savedIds = localStorage.getItem(ARCHIVED_SESSION_IDS_STORAGE_KEY);
-    let archivedIds: string[] = [];
-    if (savedIds) {
-      try {
-        archivedIds = JSON.parse(savedIds);
-      } catch (e) {}
-    }
-    if (!archivedIds.includes(sessionId)) {
-      archivedIds.push(sessionId);
-    }
-    localStorage.setItem(ARCHIVED_SESSION_IDS_STORAGE_KEY, JSON.stringify(archivedIds));
-
-    // 2. Get and update yode-archived-chats
-    const savedChats = localStorage.getItem("yode-archived-chats");
-    const archivedChats = parseArchivedChats(savedChats);
-    if (!archivedChats.some(c => c.id === sessionId)) {
-      archivedChats.push({
-        id: sessionId,
-        title: session.title,
-        date: session.updatedAt,
-        project: session.project || "default"
-      });
-    }
-    localStorage.setItem("yode-archived-chats", JSON.stringify(archivedChats));
-
-    // 3. Filter state
+    archiveSessionLocally(session);
     setSessionItems(prev => prev.filter(s => s.id !== sessionId));
     if (activeSessionIdRef.current === sessionId) {
       const nextProjectRoot = session.projectRoot ?? null;
@@ -1282,9 +1224,7 @@ export function App() {
           break;
         case "toggle_bottom_panel": {
           event.preventDefault();
-          const next = localStorage.getItem("yode-bottom-panel") === "false";
-          localStorage.setItem("yode-bottom-panel", String(next));
-          window.dispatchEvent(new Event("yode-general-settings-change"));
+          toggleBottomPanelSetting();
           break;
         }
         case "archive":

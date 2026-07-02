@@ -56,6 +56,7 @@ import {
   ArchivedChatsSettingsSettings
 } from "./settings/ArchivedChatsSettings";
 import { ProvidersSettings } from "./settings/ProvidersSettings";
+import { applyGeneralSettings, saveGeneralSettingValue } from "../lib/desktopSettings";
 
 const SETTINGS_SIDEBAR_WIDTH_KEY = "yode-settings-sidebar-width";
 
@@ -81,28 +82,6 @@ function loadStoredNumber(key: string, fallback: number) {
   if (raw === null) return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function loadGeneralSettingsPayload() {
-  return {
-    workMode: localStorage.getItem("yode-work-mode") || "coding",
-    defaultFilePermission: localStorage.getItem("yode-def-perm") !== "false",
-    autoReview: localStorage.getItem("yode-auto-review") !== "false",
-    fullAccess: localStorage.getItem("yode-full-access") !== "false",
-    openDestination: localStorage.getItem("yode-open-dest") || "VS Code",
-    showInMenuBar: localStorage.getItem("yode-show-menu-bar") !== "false",
-    bottomPanel: localStorage.getItem("yode-bottom-panel") !== "false",
-    terminalLocation: localStorage.getItem("yode-term-loc") || "bottom",
-    preventSleep: localStorage.getItem("yode-prevent-sleep") === "true",
-    codeReviewPolicy: localStorage.getItem("yode-code-review-policy") || "inline",
-    suggestedPrompts: localStorage.getItem("yode-suggested-prompts") !== "false",
-    contextUsage: localStorage.getItem("yode-context-usage") === "true",
-    followUpBehavior: localStorage.getItem("yode-follow-up-behavior") || "queue",
-    requireOptEnter: localStorage.getItem("yode-require-opt-enter") === "true",
-    completionNotification: localStorage.getItem("yode-completion-notif") || "Only when unfocused",
-    permissionNotification: localStorage.getItem("yode-perm-notif") !== "false",
-    questionNotification: localStorage.getItem("yode-question-notif") !== "false"
-  };
 }
 
 export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; onClose: () => void }) {
@@ -220,17 +199,12 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
   const [importStatus, setImportStatus] = useState("");
 
   const updateGeneralVal = (key: string, value: string | boolean) => {
-    localStorage.setItem(key, String(value));
-    window.dispatchEvent(new CustomEvent("yode-general-settings-change", { detail: { key, value } }));
-    if ("__TAURI_INTERNALS__" in window) {
-      invoke("general_settings_apply", { settings: loadGeneralSettingsPayload() }).catch(console.error);
-    }
+    saveGeneralSettingValue(key, value);
+    void applyGeneralSettings();
   };
 
   useEffect(() => {
-    if ("__TAURI_INTERNALS__" in window) {
-      invoke("general_settings_apply", { settings: loadGeneralSettingsPayload() }).catch(console.error);
-    }
+    void applyGeneralSettings();
   }, []);
 
   const handleOpenCurrentProject = () => {

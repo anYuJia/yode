@@ -1,17 +1,13 @@
 import React, { useState } from "react";
 import { Search, Trash2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-
-const ARCHIVED_SESSION_IDS_STORAGE_KEY = "yode-archived-session-ids";
-const ARCHIVED_CHATS_STORAGE_KEY = "yode-archived-chats";
-const DELETED_SESSION_IDS_STORAGE_KEY = "yode-deleted-session-ids";
-
-export interface ArchivedChatInfo {
-  id: string;
-  title: string;
-  date: string;
-  project: string;
-}
+import {
+  ArchivedChatInfo,
+  loadStoredArchivedChats,
+  markArchivedSessionDeletedLocally,
+  saveStoredArchivedChats,
+  unarchiveSessionLocally
+} from "../../lib/projectStorage";
 
 export function ArchivedChatsSettingsSettings({
   isZh,
@@ -23,39 +19,15 @@ export function ArchivedChatsSettingsSettings({
   const [searchQuery, setSearchQuery] = useState("");
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("");
-  const [chats, setChats] = useState<ArchivedChatInfo[]>(() => {
-    const saved = localStorage.getItem(ARCHIVED_CHATS_STORAGE_KEY);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        // use empty list
-      }
-    }
-    return [];
-  });
+  const [chats, setChats] = useState<ArchivedChatInfo[]>(loadStoredArchivedChats);
 
   const saveChats = (list: ArchivedChatInfo[]) => {
     setChats(list);
-    localStorage.setItem(ARCHIVED_CHATS_STORAGE_KEY, JSON.stringify(list));
+    saveStoredArchivedChats(list);
   };
 
   const handleUnarchive = (id: string, title: string) => {
-    // 1. Remove from yode-archived-session-ids
-    const savedIds = localStorage.getItem(ARCHIVED_SESSION_IDS_STORAGE_KEY);
-    if (savedIds) {
-      try {
-        const ids = JSON.parse(savedIds) as string[];
-        const updatedIds = ids.filter(x => x !== id);
-        localStorage.setItem(ARCHIVED_SESSION_IDS_STORAGE_KEY, JSON.stringify(updatedIds));
-      } catch (e) {}
-    }
-
-    // 2. Remove from yode-archived-chats
-    const updated = chats.filter(c => c.id !== id);
-    saveChats(updated);
-
-    // 3. Notify App.tsx to reload sessions
+    setChats(unarchiveSessionLocally(id));
     window.dispatchEvent(new CustomEvent("yode-session-unarchived", { detail: { sessionId: id } }));
 
     setStatusText(t(`对话 "${title}" 已恢复。`, `Chat "${title}" restored.`));
@@ -71,26 +43,7 @@ export function ArchivedChatsSettingsSettings({
       }
     }
 
-    try {
-      const deletedIds = JSON.parse(localStorage.getItem(DELETED_SESSION_IDS_STORAGE_KEY) || "[]") as string[];
-      if (!deletedIds.includes(id)) {
-        localStorage.setItem(DELETED_SESSION_IDS_STORAGE_KEY, JSON.stringify([...deletedIds, id]));
-      }
-    } catch {
-      localStorage.setItem(DELETED_SESSION_IDS_STORAGE_KEY, JSON.stringify([id]));
-    }
-
-    const savedIds = localStorage.getItem(ARCHIVED_SESSION_IDS_STORAGE_KEY);
-    if (savedIds) {
-      try {
-        const ids = JSON.parse(savedIds) as string[];
-        localStorage.setItem(ARCHIVED_SESSION_IDS_STORAGE_KEY, JSON.stringify(ids.filter(x => x !== id)));
-      } catch (e) {}
-    }
-
-    const updated = chats.filter(c => c.id !== id);
-    saveChats(updated);
-
+    setChats(markArchivedSessionDeletedLocally(id));
     window.dispatchEvent(new CustomEvent("yode-session-deleted-permanently", { detail: { sessionId: id } }));
   };
 

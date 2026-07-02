@@ -91,3 +91,23 @@ export function loadGeneralSettingsPayload(): GeneralSettingsPayload {
     questionNotification: localStorage.getItem("yode-question-notif") !== "false"
   };
 }
+
+export function saveGeneralSettingValue(key: string, value: string | boolean) {
+  localStorage.setItem(key, String(value));
+  window.dispatchEvent(new CustomEvent("yode-general-settings-change", { detail: { key, value } }));
+}
+
+export async function applyGeneralSettings(): Promise<void> {
+  if (!isTauriRuntime()) return;
+  try {
+    await invoke("general_settings_apply", { settings: loadGeneralSettingsPayload() });
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+export function toggleBottomPanelSetting() {
+  const next = localStorage.getItem("yode-bottom-panel") === "false";
+  saveGeneralSettingValue("yode-bottom-panel", next);
+  return next;
+}
