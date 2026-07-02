@@ -80,7 +80,7 @@ impl Updater {
             return Ok(None);
         }
 
-        if let Some(last_checked) = self.get_last_checked() {
+        if let Some(last_checked) = self.get_last_checked().await {
             let current_secs = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|duration| duration.as_secs())

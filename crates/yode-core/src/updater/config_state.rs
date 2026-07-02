@@ -5,59 +5,52 @@ impl Updater {
         self.config_dir.join("updater.toml")
     }
 
+    async fn read_config(&self) -> UpdaterConfig {
+        let config_path = self.config_path();
+        if !fs::try_exists(&config_path).await.unwrap_or(false) {
+            return UpdaterConfig::default();
+        }
+
+        fs::read_to_string(&config_path)
+            .await
+            .ok()
+            .and_then(|s| toml::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    async fn write_config(&self, config: &UpdaterConfig, label: &str) {
+        match toml::to_string(config) {
+            Ok(toml_str) => {
+                if let Err(err) = fs::write(self.config_path(), toml_str).await {
+                    warn!("Failed to write updater config after {}: {}", label, err);
+                }
+            }
+            Err(err) => warn!(
+                "Failed to serialize updater config after {}: {}",
+                label, err
+            ),
+        }
+    }
+
     pub(in crate::updater) async fn update_last_checked(&self) {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
 
-        let config_path = self.config_path();
-        let mut config: UpdaterConfig = if config_path.exists() {
-            fs::read_to_string(&config_path)
-                .await
-                .ok()
-                .and_then(|s| toml::from_str(&s).ok())
-                .unwrap_or_default()
-        } else {
-            UpdaterConfig::default()
-        };
-
+        let mut config = self.read_config().await;
         config.last_checked = Some(timestamp);
-
-        if let Ok(toml_str) = toml::to_string(&config) {
-            let _ = fs::write(&config_path, toml_str).await;
-        }
+        self.write_config(&config, "last-check update").await;
     }
 
-    pub(in crate::updater) fn get_last_checked(&self) -> Option<u64> {
-        let config_path = self.config_path();
-        if config_path.exists() {
-            std::fs::read_to_string(&config_path)
-                .ok()
-                .and_then(|s| toml::from_str::<UpdaterConfig>(&s).ok())
-                .and_then(|c| c.last_checked)
-        } else {
-            None
-        }
+    pub(in crate::updater) async fn get_last_checked(&self) -> Option<u64> {
+        self.read_config().await.last_checked
     }
 
     pub(in crate::updater) async fn mark_as_downloaded(&self, version: &str) {
-        let config_path = self.config_path();
-        let mut config: UpdaterConfig = if config_path.exists() {
-            fs::read_to_string(&config_path)
-                .await
-                .ok()
-                .and_then(|s| toml::from_str(&s).ok())
-                .unwrap_or_default()
-        } else {
-            UpdaterConfig::default()
-        };
-
+        let mut config = self.read_config().await;
         config.downloaded_version = Some(version.to_string());
-
-        if let Ok(toml_str) = toml::to_string(&config) {
-            let _ = fs::write(&config_path, toml_str).await;
-        }
+        self.write_config(&config, "download marker update").await;
     }
 
     fn lock_path(&self) -> PathBuf {
@@ -88,7 +81,9 @@ impl Updater {
             }
         }
 
-        let _ = fs::write(&lock_path, std::process::id().to_string()).await;
+        if let Err(err) = fs::write(&lock_path, std::process::id().to_string()).await {
+            warn!("Failed to write updater lock file: {}", err);
+        }
         Ok(true)
     }
 
@@ -98,7 +93,9 @@ impl Updater {
             if let Ok(content) = fs::read_to_string(&lock_path).await {
                 if let Ok(pid) = content.trim().parse::<u32>() {
                     if pid == std::process::id() {
-                        let _ = fs::remove_file(&lock_path).await;
+                        if let Err(err) = fs::remove_file(&lock_path).await {
+                            warn!("Failed to remove updater lock file: {}", err);
+                        }
                     }
                 }
             }
@@ -129,8 +126,10 @@ impl Updater {
 
         if versions.len() > VERSION_RETENTION_COUNT {
             for (_, path) in versions.iter().skip(VERSION_RETENTION_COUNT) {
-                let _ = fs::remove_file(path).await;
-                info!("Cleaned up old version: {:?}", path);
+                match fs::remove_file(path).await {
+                    Ok(()) => info!("Cleaned up old version: {:?}", path),
+                    Err(err) => warn!("Failed to cleanup old version {:?}: {}", path, err),
+                }
             }
         }
 
