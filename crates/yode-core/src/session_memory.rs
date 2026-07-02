@@ -49,8 +49,9 @@ pub(in crate::session_memory) struct MemorySchemaHints {
 
 pub use self::io::{
     best_compaction_memory_excerpt, clear_live_session_memory, live_session_memory_path,
-    persist_compaction_memory, persist_live_session_memory, persist_live_session_memory_summary,
-    session_memory_path,
+    persist_compaction_memory, persist_compaction_memory_async, persist_live_session_memory,
+    persist_live_session_memory_async, persist_live_session_memory_summary,
+    persist_live_session_memory_summary_async, session_memory_path,
 };
 pub use self::snapshot::{build_live_snapshot, render_live_session_memory_prompt};
 

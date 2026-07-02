@@ -74,8 +74,9 @@ use crate::permission::{
 };
 use crate::session_memory::{
     best_compaction_memory_excerpt, build_live_snapshot, clear_live_session_memory,
-    live_session_memory_path, persist_compaction_memory, persist_live_session_memory,
-    persist_live_session_memory_summary, render_live_session_memory_prompt,
+    live_session_memory_path, persist_compaction_memory_async, persist_live_session_memory,
+    persist_live_session_memory_async, persist_live_session_memory_summary_async,
+    render_live_session_memory_prompt,
 };
 use crate::transcript::write_compaction_transcript;
 use retry::{

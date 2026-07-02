@@ -211,7 +211,7 @@ impl AgentEngine {
         prompt_tokens: u32,
         event_tx: &mpsc::UnboundedSender<EngineEvent>,
     ) {
-        let prompt_tokens = if self.apply_context_collapse_if_enabled() {
+        let prompt_tokens = if self.apply_context_collapse_if_enabled().await {
             self.estimated_prompt_tokens_for_current_messages()
         } else {
             prompt_tokens
@@ -221,7 +221,7 @@ impl AgentEngine {
             .await;
     }
 
-    fn apply_context_collapse_if_enabled(&mut self) -> bool {
+    async fn apply_context_collapse_if_enabled(&mut self) -> bool {
         if !crate::context_collapse::is_context_collapse_enabled() {
             return false;
         }
@@ -232,11 +232,13 @@ impl AgentEngine {
         };
 
         let project_root = self.context.working_dir_compat();
-        match crate::context_collapse::write_context_collapse_artifact(
+        match crate::context_collapse::write_context_collapse_artifact_async(
             &project_root,
             &self.context.session_id,
             &operation,
-        ) {
+        )
+        .await
+        {
             Ok(path) => {
                 self.last_context_collapse_artifact_path = Some(path.display().to_string());
             }
@@ -795,13 +797,15 @@ impl AgentEngine {
         let mut transcript_path = None;
         let project_root = self.context.working_dir_compat();
         let compacted_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        match persist_compaction_memory(
+        match persist_compaction_memory_async(
             &project_root,
             &self.context.session_id,
             &report,
             &self.files_read,
             &self.files_modified,
-        ) {
+        )
+        .await
+        {
             Ok(path) => {
                 session_memory_path = Some(path);
             }

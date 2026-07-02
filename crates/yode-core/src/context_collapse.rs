@@ -158,6 +158,32 @@ pub fn write_context_collapse_artifact(
     Ok(path)
 }
 
+pub async fn write_context_collapse_artifact_async(
+    project_root: &Path,
+    session_id: &str,
+    operation: &ContextCollapseOperation,
+) -> Result<PathBuf> {
+    let dir = project_root.join(".yode").join("context-collapse");
+    tokio::fs::create_dir_all(&dir)
+        .await
+        .with_context(|| format!("Failed to create context collapse dir: {}", dir.display()))?;
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = dir.join(format!(
+        "{}-collapse-{}.json",
+        short_session,
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    ));
+    tokio::fs::write(&path, serde_json::to_string_pretty(operation)?)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to write context collapse artifact: {}",
+                path.display()
+            )
+        })?;
+    Ok(path)
+}
+
 fn summarize_tool_output(content: &str) -> String {
     let preview = content
         .split_whitespace()

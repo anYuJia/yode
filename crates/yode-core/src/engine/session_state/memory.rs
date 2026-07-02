@@ -103,7 +103,9 @@ impl AgentEngine {
 
         tokio::spawn(async move {
             let existing_summary =
-                std::fs::read_to_string(live_session_memory_path(&project_root)).ok();
+                tokio::fs::read_to_string(live_session_memory_path(&project_root))
+                    .await
+                    .ok();
             let prompt = render_live_session_memory_prompt(
                 existing_summary.as_deref(),
                 &snapshot,
@@ -136,10 +138,13 @@ impl AgentEngine {
             }
 
             let result = if let Some(summary) = summary {
-                persist_live_session_memory_summary(&project_root, &snapshot, &summary)
+                persist_live_session_memory_summary_async(&project_root, &snapshot, &summary)
+                    .await
                     .map(|path| (path, true))
             } else {
-                persist_live_session_memory(&project_root, &snapshot).map(|path| (path, false))
+                persist_live_session_memory_async(&project_root, &snapshot)
+                    .await
+                    .map(|path| (path, false))
             };
 
             match result {

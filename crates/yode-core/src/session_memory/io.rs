@@ -72,6 +72,44 @@ pub fn persist_compaction_memory(
     Ok(path)
 }
 
+pub async fn persist_compaction_memory_async(
+    project_root: &Path,
+    session_id: &str,
+    report: &CompressionReport,
+    files_read: &HashMap<String, usize>,
+    files_modified: &[String],
+) -> Result<PathBuf> {
+    let path = session_memory_path(project_root);
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await.with_context(|| {
+            format!(
+                "Failed to create session memory directory: {}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let previous = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+    let existing_entries = previous
+        .strip_prefix(SESSION_MEMORY_HEADER)
+        .map(str::trim)
+        .unwrap_or_else(|| previous.trim());
+
+    let content = render_compaction_memory_content(
+        project_root,
+        session_id,
+        report,
+        files_read,
+        files_modified,
+        existing_entries,
+    );
+    write_string_with_retry_async(&path, &content)
+        .await
+        .with_context(|| format!("Failed to write session memory file: {}", path.display()))?;
+
+    Ok(path)
+}
+
 pub fn persist_live_session_memory(
     project_root: &Path,
     snapshot: &LiveSessionSnapshot,
@@ -98,6 +136,33 @@ pub fn persist_live_session_memory(
             path.display()
         )
     })?;
+
+    Ok(path)
+}
+
+pub async fn persist_live_session_memory_async(
+    project_root: &Path,
+    snapshot: &LiveSessionSnapshot,
+) -> Result<PathBuf> {
+    let path = live_session_memory_path(project_root);
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await.with_context(|| {
+            format!(
+                "Failed to create live session memory directory: {}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let content = render_live_session_memory_content(snapshot);
+    write_string_with_retry_async(&path, &content)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to write live session memory file: {}",
+                path.display()
+            )
+        })?;
 
     Ok(path)
 }
@@ -143,6 +208,34 @@ pub fn persist_live_session_memory_summary(
     Ok(path)
 }
 
+pub async fn persist_live_session_memory_summary_async(
+    project_root: &Path,
+    snapshot: &LiveSessionSnapshot,
+    summary: &str,
+) -> Result<PathBuf> {
+    let path = live_session_memory_path(project_root);
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await.with_context(|| {
+            format!(
+                "Failed to create live session memory directory: {}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let content = render_live_session_memory_summary_content(snapshot, summary);
+    write_string_with_retry_async(&path, &content)
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to write live session memory file: {}",
+                path.display()
+            )
+        })?;
+
+    Ok(path)
+}
+
 pub fn clear_live_session_memory(project_root: &Path) -> Result<()> {
     let path = live_session_memory_path(project_root);
     match fs::remove_file(&path) {
@@ -151,6 +244,62 @@ pub fn clear_live_session_memory(project_root: &Path) -> Result<()> {
         Err(err) => Err(err)
             .with_context(|| format!("Failed to remove live session memory: {}", path.display())),
     }
+}
+
+fn render_compaction_memory_content(
+    project_root: &Path,
+    session_id: &str,
+    report: &CompressionReport,
+    files_read: &HashMap<String, usize>,
+    files_modified: &[String],
+    existing_entries: &str,
+) -> String {
+    let mut content = String::new();
+    content.push_str(SESSION_MEMORY_HEADER);
+    content.push_str("\n\n");
+    content.push_str(&render_entry(
+        project_root,
+        session_id,
+        report,
+        files_read,
+        files_modified,
+    ));
+
+    if !existing_entries.is_empty() {
+        content.push_str("\n\n");
+        content.push_str(existing_entries);
+    }
+
+    truncate_memory_file(content)
+}
+
+fn render_live_session_memory_content(snapshot: &LiveSessionSnapshot) -> String {
+    let mut content = String::new();
+    content.push_str(LIVE_SESSION_MEMORY_HEADER);
+    content.push_str("\n\n");
+    content.push_str(&super::snapshot::render_live_snapshot(snapshot));
+    truncate_memory_file(content)
+}
+
+fn render_live_session_memory_summary_content(
+    snapshot: &LiveSessionSnapshot,
+    summary: &str,
+) -> String {
+    let mut content = String::new();
+    content.push_str(LIVE_SESSION_MEMORY_HEADER);
+    content.push_str("\n\n");
+    let generated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let hints = super::schema::live_memory_hints(&generated_at);
+    let summary_body = super::schema::normalize_live_summary_markdown(summary, snapshot, &hints);
+    content.push_str(&format!(
+        "## {} session {}\n\n### Session Stats\n\n- Total tool calls this session: {}\n- Current message count: {}\n\n{}\n",
+        generated_at,
+        snapshot.session_id.chars().take(8).collect::<String>(),
+        snapshot.total_tool_calls,
+        snapshot.message_count,
+        summary_body
+    ));
+    truncate_memory_file(content)
 }
 
 fn render_entry(
@@ -299,6 +448,25 @@ fn write_string_with_retry(path: &Path, content: &str) -> Result<()> {
                 last_err = Some(err);
                 if attempt + 1 < MEMORY_WRITE_RETRIES {
                     std::thread::sleep(std::time::Duration::from_millis(25 * (attempt as u64 + 1)));
+                }
+            }
+        }
+    }
+    Err(last_err
+        .map(Into::into)
+        .unwrap_or_else(|| anyhow::anyhow!("session memory write failed without an I/O error")))
+}
+
+async fn write_string_with_retry_async(path: &Path, content: &str) -> Result<()> {
+    let mut last_err = None;
+    for attempt in 0..MEMORY_WRITE_RETRIES {
+        match tokio::fs::write(path, content).await {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                last_err = Some(err);
+                if attempt + 1 < MEMORY_WRITE_RETRIES {
+                    tokio::time::sleep(std::time::Duration::from_millis(25 * (attempt as u64 + 1)))
+                        .await;
                 }
             }
         }
