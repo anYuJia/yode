@@ -35,6 +35,12 @@ async fn warn_if_remove_file_failed_async(path: PathBuf, label: &'static str) {
     }
 }
 
+fn warn_if_release_lock_failed(result: Result<()>) {
+    if let Err(err) = result {
+        warn!("Failed to release updater lock: {}", err);
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum UpdateError {
     #[error("Another update process is running (lock held by PID {0})")]
@@ -235,7 +241,7 @@ impl Updater {
                             "invalid update download",
                         )
                         .await;
-                        let _ = self.release_lock().await;
+                        warn_if_release_lock_failed(self.release_lock().await);
                         return Err(err);
                     }
 
@@ -244,7 +250,7 @@ impl Updater {
                     }
 
                     self.mark_as_downloaded(&update.latest_version).await;
-                    let _ = self.release_lock().await;
+                    warn_if_release_lock_failed(self.release_lock().await);
                     return Ok(filepath);
                 }
                 Err(e) => {
@@ -261,7 +267,7 @@ impl Updater {
             }
         }
 
-        let _ = self.release_lock().await;
+        warn_if_release_lock_failed(self.release_lock().await);
 
         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("Download failed after all retries")))
     }

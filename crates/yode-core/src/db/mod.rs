@@ -23,7 +23,12 @@ impl Database {
     /// Open or create the database at the given path.
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).ok();
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "Failed to create database parent dir '{}'",
+                    parent.display()
+                )
+            })?;
         }
 
         let conn = Connection::open(path)
