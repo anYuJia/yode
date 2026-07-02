@@ -754,7 +754,8 @@ impl Tool for SendMessageTool {
         let path = if let Some(manager) = ctx.team_runtime.as_ref() {
             let snapshot = {
                 let mut manager = manager.lock().await;
-                let _ = hydrate_agent_team_manager(working_dir, &mut manager, &team_id)?;
+                hydrate_agent_team_manager(working_dir, &mut manager, &team_id)?
+                    .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
                 manager.append_message(&team_id, &target, kind, &message)?;
                 manager
                     .snapshot(&team_id)
