@@ -21,11 +21,16 @@ use self::planning::{
     render_phase_timeline,
 };
 
-fn warn_if_team_runtime_failed<T>(operation: &str, result: anyhow::Result<T>) -> Option<T> {
+fn record_team_runtime_result<T>(
+    persistence_errors: &mut Vec<String>,
+    operation: &str,
+    result: anyhow::Result<T>,
+) -> Option<T> {
     match result {
         Ok(value) => Some(value),
         Err(err) => {
             warn!(operation, error = %err, "agent team runtime operation failed");
+            persistence_errors.push(format!("{operation}: {err}"));
             None
         }
     }
@@ -172,6 +177,7 @@ impl Tool for CoordinateAgentsTool {
             .map(|value| value.max(1) as usize)
             .unwrap_or(usize::MAX);
         let phases = build_execution_phases(&normalized)?;
+        let mut persistence_errors = Vec::new();
         let team_id = params
             .get("team_id")
             .or_else(|| params.get("team_name"))
@@ -230,38 +236,30 @@ impl Tool for CoordinateAgentsTool {
                     team_members,
                 )
             };
-            persist_agent_team_snapshot(
-                dir,
-                &yode_agent::AgentTeamSnapshot {
-                    state: Some(state),
-                    messages: Vec::new(),
-                },
+            record_team_runtime_result(
+                &mut persistence_errors,
+                "persist_agent_team_snapshot",
+                persist_agent_team_snapshot(
+                    dir,
+                    &yode_agent::AgentTeamSnapshot {
+                        state: Some(state),
+                        messages: Vec::new(),
+                    },
+                ),
             )
-            .inspect_err(|err| {
-                warn!(
-                    operation = "persist_agent_team_snapshot",
-                    error = %err,
-                    "agent team runtime operation failed"
-                );
-            })
-            .ok()
         } else {
             ctx.working_dir.as_deref().and_then(|dir| {
-                persist_agent_team_runtime(
-                    dir,
-                    &goal,
-                    Some(&team_id),
-                    if dry_run { "dry_run" } else { "coordinate" },
-                    team_members,
+                record_team_runtime_result(
+                    &mut persistence_errors,
+                    "persist_agent_team_runtime",
+                    persist_agent_team_runtime(
+                        dir,
+                        &goal,
+                        Some(&team_id),
+                        if dry_run { "dry_run" } else { "coordinate" },
+                        team_members,
+                    ),
                 )
-                .inspect_err(|err| {
-                    warn!(
-                        operation = "persist_agent_team_runtime",
-                        error = %err,
-                        "agent team runtime operation failed"
-                    );
-                })
-                .ok()
             })
         };
 
@@ -270,26 +268,25 @@ impl Tool for CoordinateAgentsTool {
             let timeline = render_phase_timeline(&phases, max_parallel);
             let artifacts = if let Some(dir) = ctx.working_dir.as_deref() {
                 let max_parallel = max_parallel_label(max_parallel).to_string();
-                persist_coordinator_runtime_artifacts_async(CoordinatorRuntimeArtifactRequest {
-                    working_dir: dir,
-                    goal: &goal,
-                    dry_run: true,
-                    max_parallel: &max_parallel,
-                    phase_count: phases.len(),
-                    workstream_count: normalized.len(),
-                    timeline: &timeline,
-                    plan: &plan,
-                    results: &[],
-                })
-                .await
-                .inspect_err(|err| {
-                    warn!(
-                        operation = "persist_coordinator_runtime_artifacts",
-                        error = %err,
-                        "coordinator runtime operation failed"
-                    );
-                })
-                .ok()
+                let result = persist_coordinator_runtime_artifacts_async(
+                    CoordinatorRuntimeArtifactRequest {
+                        working_dir: dir,
+                        goal: &goal,
+                        dry_run: true,
+                        max_parallel: &max_parallel,
+                        phase_count: phases.len(),
+                        workstream_count: normalized.len(),
+                        timeline: &timeline,
+                        plan: &plan,
+                        results: &[],
+                    },
+                )
+                .await;
+                record_team_runtime_result(
+                    &mut persistence_errors,
+                    "persist_coordinator_runtime_artifacts",
+                    result,
+                )
             } else {
                 None
             };
@@ -332,6 +329,7 @@ impl Tool for CoordinateAgentsTool {
                         .as_ref()
                         .and_then(|set| set.monitor_path.as_ref())
                         .map(|path| path.display().to_string()),
+                    "persistence_errors": persistence_errors,
                 }),
             ));
         }
@@ -359,10 +357,14 @@ impl Tool for CoordinateAgentsTool {
                                 if let (Some(dir), Some(snapshot)) =
                                     (ctx.working_dir.as_deref(), manager.snapshot(&team_id))
                                 {
-                                    warn_if_team_runtime_failed(
-                                        "persist_agent_team_snapshot",
-                                        persist_agent_team_snapshot(dir, &snapshot),
-                                    );
+                                    let result = persist_agent_team_snapshot(dir, &snapshot);
+                                    if let Err(err) = result {
+                                        warn!(
+                                            operation = "persist_agent_team_snapshot",
+                                            error = %err,
+                                            "agent team runtime operation failed"
+                                        );
+                                    }
                                 }
                             }
                             Some(messages)
@@ -433,11 +435,13 @@ impl Tool for CoordinateAgentsTool {
                             {
                                 let snapshot = {
                                     let mut manager = manager.lock().await;
-                                    warn_if_team_runtime_failed(
+                                    record_team_runtime_result(
+                                        &mut persistence_errors,
                                         "hydrate_agent_team_manager",
                                         hydrate_agent_team_manager(dir, &mut manager, &team_id),
                                     );
-                                    warn_if_team_runtime_failed(
+                                    record_team_runtime_result(
+                                        &mut persistence_errors,
                                         "update_agent_team_member_in_memory",
                                         manager.update_member(
                                             &team_id,
@@ -455,13 +459,15 @@ impl Tool for CoordinateAgentsTool {
                                     manager.snapshot(&team_id)
                                 };
                                 if let Some(snapshot) = snapshot.as_ref() {
-                                    warn_if_team_runtime_failed(
+                                    record_team_runtime_result(
+                                        &mut persistence_errors,
                                         "persist_agent_team_snapshot",
                                         persist_agent_team_snapshot(dir, snapshot),
                                     );
                                 }
                             } else if let Some(dir) = ctx.working_dir.as_deref() {
-                                warn_if_team_runtime_failed(
+                                record_team_runtime_result(
+                                    &mut persistence_errors,
                                     "update_agent_team_member",
                                     update_agent_team_member(
                                         dir,
@@ -493,11 +499,13 @@ impl Tool for CoordinateAgentsTool {
                             {
                                 let snapshot = {
                                     let mut manager = manager.lock().await;
-                                    warn_if_team_runtime_failed(
+                                    record_team_runtime_result(
+                                        &mut persistence_errors,
                                         "hydrate_agent_team_manager",
                                         hydrate_agent_team_manager(dir, &mut manager, &team_id),
                                     );
-                                    warn_if_team_runtime_failed(
+                                    record_team_runtime_result(
+                                        &mut persistence_errors,
                                         "update_agent_team_member_in_memory",
                                         manager.update_member(
                                             &team_id,
@@ -511,13 +519,15 @@ impl Tool for CoordinateAgentsTool {
                                     manager.snapshot(&team_id)
                                 };
                                 if let Some(snapshot) = snapshot.as_ref() {
-                                    warn_if_team_runtime_failed(
+                                    record_team_runtime_result(
+                                        &mut persistence_errors,
                                         "persist_agent_team_snapshot",
                                         persist_agent_team_snapshot(dir, snapshot),
                                     );
                                 }
                             } else if let Some(dir) = ctx.working_dir.as_deref() {
-                                warn_if_team_runtime_failed(
+                                record_team_runtime_result(
+                                    &mut persistence_errors,
                                     "update_agent_team_member",
                                     update_agent_team_member(
                                         dir,
@@ -549,26 +559,24 @@ impl Tool for CoordinateAgentsTool {
         let plan = render_phase_plan(&phases, max_parallel);
         let artifacts = if let Some(dir) = ctx.working_dir.as_deref() {
             let max_parallel = max_parallel_label(max_parallel).to_string();
-            persist_coordinator_runtime_artifacts_async(CoordinatorRuntimeArtifactRequest {
-                working_dir: dir,
-                goal: &goal,
-                dry_run: false,
-                max_parallel: &max_parallel,
-                phase_count: phases.len(),
-                workstream_count: normalized.len(),
-                timeline: &timeline,
-                plan: &plan,
-                results: &rendered,
-            })
-            .await
-            .inspect_err(|err| {
-                warn!(
-                    operation = "persist_coordinator_runtime_artifacts",
-                    error = %err,
-                    "coordinator runtime operation failed"
-                );
-            })
-            .ok()
+            let result =
+                persist_coordinator_runtime_artifacts_async(CoordinatorRuntimeArtifactRequest {
+                    working_dir: dir,
+                    goal: &goal,
+                    dry_run: false,
+                    max_parallel: &max_parallel,
+                    phase_count: phases.len(),
+                    workstream_count: normalized.len(),
+                    timeline: &timeline,
+                    plan: &plan,
+                    results: &rendered,
+                })
+                .await;
+            record_team_runtime_result(
+                &mut persistence_errors,
+                "persist_coordinator_runtime_artifacts",
+                result,
+            )
         } else {
             None
         };
@@ -607,6 +615,7 @@ impl Tool for CoordinateAgentsTool {
                     .as_ref()
                     .and_then(|set| set.monitor_path.as_ref())
                     .map(|path| path.display().to_string()),
+                "persistence_errors": persistence_errors,
                 "results": rendered,
             }),
         ))
