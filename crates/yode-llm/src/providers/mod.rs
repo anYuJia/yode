@@ -8,6 +8,7 @@ pub(crate) mod retry;
 pub(crate) mod streaming_shared;
 
 use serde::Serialize;
+use std::path::PathBuf;
 
 pub use anthropic::AnthropicProvider;
 pub use gemini::GeminiProvider;
@@ -32,7 +33,6 @@ pub(crate) fn write_debug_artifact(
         .join("debug")
         .join("provider-requests")
         .join(provider);
-    std::fs::create_dir_all(&debug_dir).ok()?;
 
     let timestamp_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -40,6 +40,19 @@ pub(crate) fn write_debug_artifact(
         .as_millis();
     let path = debug_dir.join(format!("{timestamp_ms}-{kind}.json"));
     let rendered = serde_json::to_string_pretty(&payload).ok()?;
-    std::fs::write(&path, rendered).ok()?;
+    let write_path = path.clone();
+    drop(std::thread::spawn(move || {
+        write_debug_artifact_file(write_path, rendered);
+    }));
     Some(path)
+}
+
+fn write_debug_artifact_file(path: PathBuf, rendered: String) -> bool {
+    let Some(debug_dir) = path.parent() else {
+        return false;
+    };
+    if std::fs::create_dir_all(debug_dir).is_err() {
+        return false;
+    }
+    std::fs::write(path, rendered).is_ok()
 }
