@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_BROWSER_SETTINGS,
+  DEFAULT_COMPUTER_USE_SETTINGS,
   DEFAULT_GIT_SETTINGS,
   DEFAULT_PERSONALIZATION_SETTINGS,
   loadBrowserSettings,
+  loadComputerUseSettings,
   loadGitSettings,
   loadConfigurationSettings,
   loadGeneralSettings,
@@ -12,6 +14,7 @@ import {
   loadPersonalizationSettings,
   loadWorktreesSettings,
   saveBrowserSettings,
+  saveComputerUseSettings,
   saveConfigurationSettings,
   saveGitSettings,
   savePersonalizationSetting,
@@ -378,6 +381,61 @@ describe("desktop settings helpers", () => {
       "yode-custom-instructions": "Keep it short",
       "yode-enable-memories": "true",
       "yode-skip-tool-chats": "true"
+    });
+  });
+
+  it("loads computer use settings defaults from local storage", () => {
+    stubLocalStorage(() => null);
+
+    expect(loadComputerUseSettings()).toEqual(DEFAULT_COMPUTER_USE_SETTINGS);
+  });
+
+  it("loads computer use settings overrides and filters invalid apps", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-computer-use-anyapp": "installed",
+        "yode-computer-use-chrome": "installing",
+        "yode-computer-use-allowed-apps": JSON.stringify(["Slack", 42, null, "Finder"])
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadComputerUseSettings()).toEqual({
+      anyAppStatus: "installed",
+      chromeStatus: "installing",
+      allowedApps: ["Slack", "Finder"]
+    });
+  });
+
+  it("falls back to uninstalled status and empty apps on malformed computer use storage", () => {
+    stubLocalStorage((key) => {
+      const values: Record<string, string> = {
+        "yode-computer-use-anyapp": "bad-status",
+        "yode-computer-use-chrome": "connected",
+        "yode-computer-use-allowed-apps": "{broken"
+      };
+      return values[key] ?? null;
+    });
+
+    expect(loadComputerUseSettings()).toEqual(DEFAULT_COMPUTER_USE_SETTINGS);
+  });
+
+  it("saves computer use settings through the shared helper", () => {
+    const saved = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      setItem: (key: string, value: string) => saved.set(key, value)
+    });
+
+    saveComputerUseSettings({
+      anyAppStatus: "installed",
+      chromeStatus: "uninstalled",
+      allowedApps: ["Slack", "Finder"]
+    });
+
+    expect(Object.fromEntries(saved)).toEqual({
+      "yode-computer-use-anyapp": "installed",
+      "yode-computer-use-chrome": "uninstalled",
+      "yode-computer-use-allowed-apps": JSON.stringify(["Slack", "Finder"])
     });
   });
 });

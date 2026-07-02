@@ -1,39 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { FolderOpen, Plus, Trash2, X } from "lucide-react";
-import { isTauriRuntime, loadDesktopSetting } from "../../lib/desktopSettings";
-
-type InstallStatus = "installed" | "uninstalled" | "installing";
-
-type ComputerUseSettingsState = {
-  anyAppStatus: InstallStatus;
-  chromeStatus: InstallStatus;
-  allowedApps: string[];
-};
-
-const DEFAULT_COMPUTER_USE_SETTINGS: ComputerUseSettingsState = {
-  anyAppStatus: "uninstalled",
-  chromeStatus: "uninstalled",
-  allowedApps: []
-};
-
-function persistComputerUseFallback(settings: ComputerUseSettingsState) {
-  localStorage.setItem("yode-computer-use-anyapp", settings.anyAppStatus);
-  localStorage.setItem("yode-computer-use-chrome", settings.chromeStatus);
-  localStorage.setItem("yode-computer-use-allowed-apps", JSON.stringify(settings.allowedApps));
-}
+import {
+  ComputerUseSettings,
+  isTauriRuntime,
+  loadComputerUseSettings,
+  loadPersistedComputerUseSettings,
+  saveComputerUseSettings
+} from "../../lib/desktopSettings";
 
 function normalizeAppName(value: string): string | null {
   const name = value.trim().replace(/\.app$/i, "").trim();
   if (!name || name.length > 80 || name.includes("\0")) return null;
   return name;
-}
-
-function storedInstallStatus(key: string): InstallStatus {
-  const raw = localStorage.getItem(key);
-  return raw === "installed" || raw === "installing" || raw === "uninstalled"
-    ? raw
-    : "uninstalled";
 }
 
 export function ComputerUseSettingsSettings({
@@ -43,20 +22,10 @@ export function ComputerUseSettingsSettings({
   isZh: boolean;
   t: (zh: string, en: string) => string;
 }) {
-  const [anyAppStatus, setAnyAppStatus] = useState<InstallStatus>(() => {
-    return storedInstallStatus("yode-computer-use-anyapp");
-  });
-  const [chromeStatus, setChromeStatus] = useState<InstallStatus>(() => {
-    return storedInstallStatus("yode-computer-use-chrome");
-  });
-  const [allowedApps, setAllowedApps] = useState<string[]>(() => {
-    const saved = localStorage.getItem("yode-computer-use-allowed-apps");
-    try {
-      return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
-  });
+  const initialSettings = loadComputerUseSettings();
+  const [anyAppStatus, setAnyAppStatus] = useState(initialSettings.anyAppStatus);
+  const [chromeStatus, setChromeStatus] = useState(initialSettings.chromeStatus);
+  const [allowedApps, setAllowedApps] = useState<string[]>(initialSettings.allowedApps);
 
   const [showAppModal, setShowAppModal] = useState(false);
   const [newAppName, setNewAppName] = useState("");
@@ -67,7 +36,7 @@ export function ComputerUseSettingsSettings({
     const loadSettings = async () => {
       if (isTauriRuntime()) {
         try {
-          const settings = await invoke<ComputerUseSettingsState>("computer_use_settings_get");
+          const settings = await invoke<ComputerUseSettings>("computer_use_settings_get");
           applySettingsToState(settings);
           setStatusText(t("计算机使用设置已连接到运行时。", "Computer use settings are connected to the runtime."));
           return;
@@ -76,44 +45,30 @@ export function ComputerUseSettingsSettings({
         }
       }
 
-      const fallback = {
-        anyAppStatus: await loadDesktopSetting(
-          "yode-computer-use-anyapp",
-          DEFAULT_COMPUTER_USE_SETTINGS.anyAppStatus
-        ),
-        chromeStatus: await loadDesktopSetting(
-          "yode-computer-use-chrome",
-          DEFAULT_COMPUTER_USE_SETTINGS.chromeStatus
-        ),
-        allowedApps: await loadDesktopSetting(
-          "yode-computer-use-allowed-apps",
-          DEFAULT_COMPUTER_USE_SETTINGS.allowedApps
-        )
-      };
-      applySettingsToState(fallback as ComputerUseSettingsState);
+      applySettingsToState(await loadPersistedComputerUseSettings(initialSettings));
     };
     void loadSettings();
   }, []);
 
-  const currentSettings = (): ComputerUseSettingsState => ({
+  const currentSettings = (): ComputerUseSettings => ({
     anyAppStatus,
     chromeStatus,
     allowedApps
   });
 
-  const applySettingsToState = (settings: ComputerUseSettingsState) => {
+  const applySettingsToState = (settings: ComputerUseSettings) => {
     setAnyAppStatus(settings.anyAppStatus);
     setChromeStatus(settings.chromeStatus);
     setAllowedApps(settings.allowedApps);
   };
 
-  const applyComputerUseSettings = async (nextSettings: ComputerUseSettingsState) => {
+  const applyComputerUseSettings = async (nextSettings: ComputerUseSettings) => {
     try {
       if (isTauriRuntime()) {
-        const applied = await invoke<ComputerUseSettingsState>("computer_use_settings_apply", { settings: nextSettings });
+        const applied = await invoke<ComputerUseSettings>("computer_use_settings_apply", { settings: nextSettings });
         applySettingsToState(applied);
       } else {
-        persistComputerUseFallback(nextSettings);
+        saveComputerUseSettings(nextSettings);
         applySettingsToState(nextSettings);
       }
       setStatusText(t("计算机使用设置已应用。", "Computer use settings applied."));

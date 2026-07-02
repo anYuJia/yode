@@ -64,6 +64,14 @@ export type PersonalizationSettings = {
   skipToolChats: boolean;
 };
 
+export type InstallStatus = "installed" | "uninstalled" | "installing";
+
+export type ComputerUseSettings = {
+  anyAppStatus: InstallStatus;
+  chromeStatus: InstallStatus;
+  allowedApps: string[];
+};
+
 export const DEFAULT_GIT_SETTINGS: GitSettings = {
   branchPrefix: "yode/",
   mergeMethod: "merge",
@@ -89,6 +97,12 @@ export const DEFAULT_PERSONALIZATION_SETTINGS: PersonalizationSettings = {
   customInstructions: "",
   enableMemories: false,
   skipToolChats: false
+};
+
+export const DEFAULT_COMPUTER_USE_SETTINGS: ComputerUseSettings = {
+  anyAppStatus: "uninstalled",
+  chromeStatus: "uninstalled",
+  allowedApps: []
 };
 
 const CONFIGURATION_STORAGE_KEYS = {
@@ -130,6 +144,12 @@ const PERSONALIZATION_STORAGE_KEYS = {
   customInstructions: "yode-custom-instructions",
   enableMemories: "yode-enable-memories",
   skipToolChats: "yode-skip-tool-chats"
+} as const;
+
+const COMPUTER_USE_STORAGE_KEYS = {
+  anyAppStatus: "yode-computer-use-anyapp",
+  chromeStatus: "yode-computer-use-chrome",
+  allowedApps: "yode-computer-use-allowed-apps"
 } as const;
 
 export function isTauriRuntime() {
@@ -369,6 +389,36 @@ export function savePersonalizationSetting<K extends keyof PersonalizationSettin
   value: PersonalizationSettings[K]
 ): Promise<void> {
   return saveDesktopSetting(PERSONALIZATION_STORAGE_KEYS[key], value);
+}
+
+function normalizeInstallStatus(value: string | null): InstallStatus {
+  return value === "installed" || value === "installing" || value === "uninstalled"
+    ? value
+    : DEFAULT_COMPUTER_USE_SETTINGS.anyAppStatus;
+}
+
+export function loadComputerUseSettings(): ComputerUseSettings {
+  return {
+    anyAppStatus: normalizeInstallStatus(localStorage.getItem(COMPUTER_USE_STORAGE_KEYS.anyAppStatus)),
+    chromeStatus: normalizeInstallStatus(localStorage.getItem(COMPUTER_USE_STORAGE_KEYS.chromeStatus)),
+    allowedApps: loadStoredStringArray(COMPUTER_USE_STORAGE_KEYS.allowedApps)
+  };
+}
+
+export async function loadPersistedComputerUseSettings(
+  fallback = DEFAULT_COMPUTER_USE_SETTINGS
+): Promise<ComputerUseSettings> {
+  return {
+    anyAppStatus: await loadDesktopSetting(COMPUTER_USE_STORAGE_KEYS.anyAppStatus, fallback.anyAppStatus),
+    chromeStatus: await loadDesktopSetting(COMPUTER_USE_STORAGE_KEYS.chromeStatus, fallback.chromeStatus),
+    allowedApps: await loadDesktopSetting(COMPUTER_USE_STORAGE_KEYS.allowedApps, fallback.allowedApps)
+  };
+}
+
+export function saveComputerUseSettings(settings: ComputerUseSettings): void {
+  localStorage.setItem(COMPUTER_USE_STORAGE_KEYS.anyAppStatus, settings.anyAppStatus);
+  localStorage.setItem(COMPUTER_USE_STORAGE_KEYS.chromeStatus, settings.chromeStatus);
+  localStorage.setItem(COMPUTER_USE_STORAGE_KEYS.allowedApps, JSON.stringify(settings.allowedApps));
 }
 
 export function saveGeneralSettingValue(key: string, value: string | boolean) {
