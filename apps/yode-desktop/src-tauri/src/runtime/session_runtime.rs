@@ -277,7 +277,7 @@ impl DesktopRuntime {
             allow: config.mcp.resource_allow.clone(),
             deny: config.mcp.resource_deny.clone(),
         });
-        engine.restore_messages(restored_messages);
+        engine.restore_messages_async(restored_messages).await;
 
         let (event_tx, _event_rx) = unbounded_channel();
         let compacted = engine.force_compact(event_tx).await;

@@ -109,6 +109,39 @@ impl AgentEngine {
         }
     }
 
+    pub(super) async fn rehydrate_post_compact_restore_messages_async(&mut self) {
+        let extracted = self.take_post_compact_restore_messages_from_conversation();
+        if !extracted.is_empty() {
+            self.set_post_compact_restore_blocks(extracted);
+        }
+
+        let has_summary_anchor = self.messages.iter().any(|message| {
+            matches!(message.role, Role::System)
+                && message
+                    .content
+                    .as_deref()
+                    .unwrap_or_default()
+                    .starts_with(SESSION_MEMORY_SUMMARY_PREFIX)
+        });
+        if !has_summary_anchor {
+            self.post_compact_restore_blocks.clear();
+            return;
+        }
+
+        if !self.post_compact_restore_blocks.is_empty() {
+            return;
+        }
+
+        if let Some(blocks) = load_post_compact_restore_state_artifact_async(
+            &self.context.working_dir_compat(),
+            &self.context.session_id,
+        )
+        .await
+        {
+            self.set_post_compact_restore_blocks(blocks);
+        }
+    }
+
     pub(super) fn apply_microcompact(&mut self) {
         let media_report = self
             .context_manager

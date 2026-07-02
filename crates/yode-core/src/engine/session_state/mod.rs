@@ -16,6 +16,19 @@ impl AgentEngine {
 
     /// Restore messages from database for a resumed session.
     pub fn restore_messages(&mut self, messages: Vec<Message>) {
+        self.replace_restored_messages(messages);
+        self.rehydrate_post_compact_restore_messages();
+        self.finish_restore_messages();
+    }
+
+    /// Restore messages from database for a resumed session without blocking the async runtime.
+    pub async fn restore_messages_async(&mut self, messages: Vec<Message>) {
+        self.replace_restored_messages(messages);
+        self.rehydrate_post_compact_restore_messages_async().await;
+        self.finish_restore_messages();
+    }
+
+    fn replace_restored_messages(&mut self, messages: Vec<Message>) {
         self.messages.clear();
         self.failed_tool_call_ids.clear();
         self.clear_cache_edit_tracking();
@@ -23,7 +36,9 @@ impl AgentEngine {
         self.messages
             .push(Message::system(self.system_prompt.clone()));
         self.messages.extend(messages);
-        self.rehydrate_post_compact_restore_messages();
+    }
+
+    fn finish_restore_messages(&mut self) {
         self.set_expected_prompt_cache_drop_reason("restore_messages");
         self.reset_autocompact_state();
         self.compaction_cause_histogram.clear();
@@ -36,6 +51,12 @@ impl AgentEngine {
 
     pub fn restore_and_persist_messages(&mut self, messages: Vec<Message>) {
         self.restore_messages(messages);
+        self.sync_persisted_messages_snapshot();
+        self.persist_session_artifacts();
+    }
+
+    pub async fn restore_and_persist_messages_async(&mut self, messages: Vec<Message>) {
+        self.restore_messages_async(messages).await;
         self.sync_persisted_messages_snapshot();
         self.persist_session_artifacts();
     }
