@@ -102,26 +102,23 @@ fn with_batch_action_narrative_parameter(mut schema: Value) -> Value {
 }
 
 fn metadata_object(result: &mut ToolResult) -> &mut Map<String, Value> {
-    if !matches!(result.metadata, Some(Value::Object(_))) {
-        result.metadata = Some(Value::Object(Map::new()));
-    }
-
-    match result.metadata {
-        Some(Value::Object(ref mut object)) => object,
-        _ => unreachable!("tool result metadata must be an object"),
-    }
+    result
+        .metadata
+        .get_or_insert_with(|| Value::Object(Map::new()));
+    result
+        .metadata
+        .as_mut()
+        .and_then(Value::as_object_mut)
+        .expect("metadata was initialized as an object")
 }
 
 fn tool_runtime_object(result: &mut ToolResult) -> &mut Map<String, Value> {
     let metadata = metadata_object(result);
-    if !matches!(metadata.get("tool_runtime"), Some(Value::Object(_))) {
-        metadata.insert("tool_runtime".to_string(), Value::Object(Map::new()));
-    }
-
-    match metadata.get_mut("tool_runtime") {
-        Some(Value::Object(object)) => object,
-        _ => unreachable!("tool_runtime metadata must be an object"),
-    }
+    metadata
+        .entry("tool_runtime".to_string())
+        .or_insert_with(|| Value::Object(Map::new()))
+        .as_object_mut()
+        .expect("tool_runtime metadata was initialized as an object")
 }
 
 pub(super) fn set_tool_runtime_truncation_metadata(
