@@ -491,7 +491,13 @@ struct BackgroundSubagentCompletion {
 }
 
 async fn complete_background_subagent(completion: BackgroundSubagentCompletion) {
-    let _ = tokio::fs::write(&completion.output_path, &completion.output).await;
+    if let Err(err) = tokio::fs::write(&completion.output_path, &completion.output).await {
+        warn!(
+            "Failed to persist background subagent output to {}: {}",
+            completion.output_path.display(),
+            err
+        );
+    }
     {
         let mut store = completion.runtime_tasks.lock().await;
         match completion.status {

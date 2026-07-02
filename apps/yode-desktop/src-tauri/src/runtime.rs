@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::process::Child;
 use std::sync::{atomic::AtomicU64, Arc, Mutex};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use tokio::sync::mpsc::UnboundedSender;
 
 use yode_core::config::Config;
@@ -84,8 +84,14 @@ impl DesktopRuntime {
             .join(".yode")
             .join("sessions.db");
 
-        let config = load_desktop_config(&workspace_path)
-            .unwrap_or_else(|_| Config::load_from(None).expect("failed to load default config"));
+        let config = load_desktop_config(&workspace_path).or_else(|err| {
+            Config::load_from(None).with_context(|| {
+                format!(
+                    "failed to load desktop config from {} and default config after: {err}",
+                    workspace_path.display()
+                )
+            })
+        })?;
 
         let provider_registry = Mutex::new(bootstrap_providers(&config));
         let (tool_registry, mcp_resource_provider) =
