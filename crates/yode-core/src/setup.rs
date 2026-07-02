@@ -15,6 +15,21 @@ pub fn has_api_keys_configured() -> bool {
     has_env || has_config
 }
 
+/// Check if any API key is configured without blocking the async runtime.
+pub async fn has_api_keys_configured_async() -> bool {
+    let has_env = std::env::var("OPENAI_API_KEY").is_ok()
+        || std::env::var("ANTHROPIC_API_KEY").is_ok()
+        || std::env::var("ANTHROPIC_AUTH_TOKEN").is_ok();
+
+    let has_config = if let Ok(config) = Config::load_async().await {
+        config.llm.providers.values().any(|p| p.api_key.is_some())
+    } else {
+        false
+    };
+
+    has_env || has_config
+}
+
 #[cfg(test)]
 mod tests {
     use crate::config::Config;

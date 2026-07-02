@@ -145,12 +145,12 @@ enum ConfigScope {
     Project,
 }
 
-pub(super) fn load_desktop_config(workspace_path: &Path) -> Result<Config> {
+pub(super) async fn load_desktop_config(workspace_path: &Path) -> Result<Config> {
     let project_config = workspace_path.join(".yode").join("config.toml");
-    if project_config.exists() {
-        Config::load_from(Some(&project_config))
+    if tokio::fs::try_exists(&project_config).await? {
+        Config::load_from_async(Some(&project_config)).await
     } else {
-        Config::load()
+        Config::load_async().await
     }
 }
 

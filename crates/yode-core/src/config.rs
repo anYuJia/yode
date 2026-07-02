@@ -177,6 +177,11 @@ impl Config {
         Self::load_from(None)
     }
 
+    /// Load config from the default config file without blocking the async runtime.
+    pub async fn load_async() -> Result<Self> {
+        Self::load_from_async(None).await
+    }
+
     /// Load config from a specific path, or default locations.
     pub fn load_from(path: Option<&Path>) -> Result<Self> {
         let home_config = dirs::home_dir()
@@ -210,6 +215,40 @@ impl Config {
         Ok(config)
     }
 
+    /// Load config from a specific path, or default locations, without blocking the async runtime.
+    pub async fn load_from_async(path: Option<&Path>) -> Result<Self> {
+        let home_config = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".yode")
+            .join("config.toml");
+
+        let default_value: toml::Value =
+            toml::from_str(include_str!("../../../config/default.toml"))?;
+
+        let (config_value, should_persist_migration) = if let Some(p) = path {
+            let user_config_str = tokio::fs::read_to_string(p).await?;
+            let user_value: toml::Value = toml::from_str(&user_config_str)?;
+            (merge_config_values(default_value, user_value), None)
+        } else if tokio::fs::try_exists(&home_config).await? {
+            let user_config_str = tokio::fs::read_to_string(&home_config).await?;
+            let user_value: toml::Value = toml::from_str(&user_config_str)?;
+            let merged = merge_config_values(default_value, user_value.clone());
+            let should_persist = (merged != user_value).then_some(home_config.clone());
+            (merged, should_persist)
+        } else {
+            (default_value, None)
+        };
+
+        let config: Config = config_value.clone().try_into()?;
+        if let Some(path) = should_persist_migration {
+            if let Some(parent) = path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+            tokio::fs::write(path, toml::to_string_pretty(&config_value)?).await?;
+        }
+        Ok(config)
+    }
+
     /// Save config to the default config file path
     pub fn save(&self) -> Result<()> {
         let path = dirs::home_dir()
@@ -221,6 +260,20 @@ impl Config {
         }
         let toml_str = toml::to_string_pretty(self)?;
         fs::write(path, toml_str)?;
+        Ok(())
+    }
+
+    /// Save config to the default config file path without blocking the async runtime.
+    pub async fn save_async(&self) -> Result<()> {
+        let path = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".yode")
+            .join("config.toml");
+        if let Some(parent) = path.parent() {
+            tokio::fs::create_dir_all(parent).await?;
+        }
+        let toml_str = toml::to_string_pretty(self)?;
+        tokio::fs::write(path, toml_str).await?;
         Ok(())
     }
 

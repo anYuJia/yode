@@ -84,14 +84,15 @@ impl DesktopRuntime {
             .join(".yode")
             .join("sessions.db");
 
-        let config = load_desktop_config(&workspace_path).or_else(|err| {
-            Config::load_from(None).with_context(|| {
+        let config = match load_desktop_config(&workspace_path).await {
+            Ok(config) => config,
+            Err(err) => Config::load_from_async(None).await.with_context(|| {
                 format!(
                     "failed to load desktop config from {} and default config after: {err}",
                     workspace_path.display()
                 )
-            })
-        })?;
+            })?,
+        };
 
         let provider_registry = Mutex::new(bootstrap_providers(&config));
         let (tool_registry, mcp_resource_provider) =
