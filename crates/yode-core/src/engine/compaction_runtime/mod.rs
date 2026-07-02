@@ -15,14 +15,15 @@ use budget::apply_restore_budget;
 
 use blocks::{
     collect_preserved_read_file_paths, load_post_compact_restore_state_artifact,
-    ordered_restore_block_contents, render_post_compact_file_excerpts,
-    render_skill_invocation_restore_lines, render_task_restore_lines, restore_block_body,
-    restore_block_kind_from_content, sanitized_request_restore_block_contents,
-    write_post_compact_restore_artifact, write_post_compact_restore_diff_artifact,
-    write_post_compact_restore_state_artifact, RestoreBlockKind, POST_COMPACT_ARTIFACTS_PREFIX,
-    POST_COMPACT_FILES_PREFIX, POST_COMPACT_MCP_PREFIX, POST_COMPACT_PLAN_PREFIX,
-    POST_COMPACT_PROMPT_CACHE_PREFIX, POST_COMPACT_RUNTIME_PREFIX, POST_COMPACT_SKILLS_PREFIX,
-    POST_COMPACT_TOOLS_PREFIX,
+    load_post_compact_restore_state_artifact_async, ordered_restore_block_contents,
+    render_post_compact_file_excerpts, render_skill_invocation_restore_lines,
+    render_task_restore_lines, restore_block_body, restore_block_kind_from_content,
+    sanitized_request_restore_block_contents, write_post_compact_restore_artifact_async,
+    write_post_compact_restore_diff_artifact_async,
+    write_post_compact_restore_state_artifact_async, RestoreBlockKind,
+    POST_COMPACT_ARTIFACTS_PREFIX, POST_COMPACT_FILES_PREFIX, POST_COMPACT_MCP_PREFIX,
+    POST_COMPACT_PLAN_PREFIX, POST_COMPACT_PROMPT_CACHE_PREFIX, POST_COMPACT_RUNTIME_PREFIX,
+    POST_COMPACT_SKILLS_PREFIX, POST_COMPACT_TOOLS_PREFIX,
 };
 use summarizer::{
     build_fallback_compaction_summary, build_session_memory_compaction_summary,
@@ -872,23 +873,26 @@ impl AgentEngine {
             .await;
         self.last_restore_budget = Some(restore_budget.clone());
         let previous_restore_messages =
-            load_post_compact_restore_state_artifact(&project_root, &self.context.session_id);
-        let restore_artifact_path = write_post_compact_restore_artifact(
+            load_post_compact_restore_state_artifact_async(&project_root, &self.context.session_id)
+                .await;
+        let restore_artifact_path = write_post_compact_restore_artifact_async(
             &project_root,
             &self.context.session_id,
             mode_label,
             &restore_messages,
             Some(&compact_boundary),
             Some(&restore_budget),
-        );
-        let restore_state_artifact_path = write_post_compact_restore_state_artifact(
+        )
+        .await;
+        let restore_state_artifact_path = write_post_compact_restore_state_artifact_async(
             &project_root,
             &self.context.session_id,
             mode_label,
             &restore_messages,
             Some(&compact_boundary),
             Some(&restore_budget),
-        );
+        )
+        .await;
         push_artifact_path(
             &mut compact_boundary.artifact_paths,
             restore_artifact_path.as_deref(),
@@ -898,12 +902,13 @@ impl AgentEngine {
             restore_state_artifact_path.as_deref(),
         );
         if let Some(previous) = previous_restore_messages.as_ref() {
-            let _ = write_post_compact_restore_diff_artifact(
+            let _ = write_post_compact_restore_diff_artifact_async(
                 &project_root,
                 &self.context.session_id,
                 previous,
                 &restore_messages,
-            );
+            )
+            .await;
         }
         self.set_post_compact_restore_blocks(restore_messages);
         self.take_post_compact_restore_messages_from_conversation();

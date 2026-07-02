@@ -504,7 +504,7 @@ pub(super) fn render_hidden_post_compact_restore_prompt(
     Some(hidden_restore.trim().to_string())
 }
 
-pub(super) fn write_post_compact_restore_artifact(
+pub(super) async fn write_post_compact_restore_artifact_async(
     project_root: &Path,
     session_id: &str,
     mode: &str,
@@ -513,10 +513,28 @@ pub(super) fn write_post_compact_restore_artifact(
     restore_budget: Option<&RestoreBudgetRuntimeState>,
 ) -> Option<PathBuf> {
     let dir = project_root.join(".yode").join("status");
-    std::fs::create_dir_all(&dir).ok()?;
+    tokio::fs::create_dir_all(&dir).await.ok()?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-post-compact-restore.md", short_session));
+    let body = render_post_compact_restore_artifact_body(
+        session_id,
+        mode,
+        blocks,
+        compact_boundary,
+        restore_budget,
+    )?;
 
+    tokio::fs::write(&path, body).await.ok()?;
+    Some(path)
+}
+
+fn render_post_compact_restore_artifact_body(
+    session_id: &str,
+    mode: &str,
+    blocks: &[(RestoreBlockKind, String)],
+    compact_boundary: Option<&CompactBoundaryRuntimeState>,
+    restore_budget: Option<&RestoreBudgetRuntimeState>,
+) -> Option<String> {
     let mut body = format!(
         "# Post-compact Restore\n\n- Session: {}\n- Mode: {}\n- Timestamp: {}\n\n",
         session_id,
@@ -539,11 +557,10 @@ pub(super) fn write_post_compact_restore_artifact(
         body.push_str("\n\n");
     }
 
-    std::fs::write(&path, body).ok()?;
-    Some(path)
+    Some(body)
 }
 
-pub(super) fn write_post_compact_restore_state_artifact(
+pub(super) async fn write_post_compact_restore_state_artifact_async(
     project_root: &Path,
     session_id: &str,
     mode: &str,
@@ -552,10 +569,30 @@ pub(super) fn write_post_compact_restore_state_artifact(
     restore_budget: Option<&RestoreBudgetRuntimeState>,
 ) -> Option<PathBuf> {
     let dir = project_root.join(".yode").join("status");
-    std::fs::create_dir_all(&dir).ok()?;
+    tokio::fs::create_dir_all(&dir).await.ok()?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-post-compact-restore-state.json", short_session));
+    let payload = render_post_compact_restore_state_artifact_payload(
+        session_id,
+        mode,
+        blocks,
+        compact_boundary,
+        restore_budget,
+    );
 
+    tokio::fs::write(&path, serde_json::to_string_pretty(&payload).ok()?)
+        .await
+        .ok()?;
+    Some(path)
+}
+
+fn render_post_compact_restore_state_artifact_payload(
+    session_id: &str,
+    mode: &str,
+    blocks: &[(RestoreBlockKind, String)],
+    compact_boundary: Option<&CompactBoundaryRuntimeState>,
+    restore_budget: Option<&RestoreBudgetRuntimeState>,
+) -> serde_json::Value {
     let payload = serde_json::json!({
         "session_id": session_id,
         "mode": mode,
@@ -577,11 +614,10 @@ pub(super) fn write_post_compact_restore_state_artifact(
             .collect::<Vec<_>>(),
     });
 
-    std::fs::write(&path, serde_json::to_string_pretty(&payload).ok()?).ok()?;
-    Some(path)
+    payload
 }
 
-pub(super) fn write_post_compact_restore_diff_artifact(
+pub(super) async fn write_post_compact_restore_diff_artifact_async(
     project_root: &Path,
     session_id: &str,
     previous: &[(RestoreBlockKind, String)],
@@ -591,6 +627,21 @@ pub(super) fn write_post_compact_restore_diff_artifact(
         return None;
     }
 
+    let dir = project_root.join(".yode").join("status");
+    tokio::fs::create_dir_all(&dir).await.ok()?;
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = dir.join(format!("{}-post-compact-restore-diff.md", short_session));
+    let body = render_post_compact_restore_diff_artifact_body(session_id, previous, current);
+
+    tokio::fs::write(&path, body).await.ok()?;
+    Some(path)
+}
+
+fn render_post_compact_restore_diff_artifact_body(
+    session_id: &str,
+    previous: &[(RestoreBlockKind, String)],
+    current: &[(RestoreBlockKind, String)],
+) -> String {
     let previous_map = previous
         .iter()
         .map(|(kind, content)| (*kind, content))
@@ -599,11 +650,6 @@ pub(super) fn write_post_compact_restore_diff_artifact(
         .iter()
         .map(|(kind, content)| (*kind, content))
         .collect::<std::collections::BTreeMap<_, _>>();
-
-    let dir = project_root.join(".yode").join("status");
-    std::fs::create_dir_all(&dir).ok()?;
-    let short_session = session_id.chars().take(8).collect::<String>();
-    let path = dir.join(format!("{}-post-compact-restore-diff.md", short_session));
 
     let mut body = format!(
         "# Post-compact Restore Diff\n\n- Session: {}\n- Timestamp: {}\n\n",
@@ -644,8 +690,7 @@ pub(super) fn write_post_compact_restore_diff_artifact(
         body.push_str("\n```\n\n");
     }
 
-    std::fs::write(&path, body).ok()?;
-    Some(path)
+    body
 }
 
 pub(super) fn load_post_compact_restore_state_artifact(
@@ -659,6 +704,26 @@ pub(super) fn load_post_compact_restore_state_artifact(
         .join(format!("{}-post-compact-restore-state.json", short_session));
     let value =
         serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(path).ok()?).ok()?;
+    parse_post_compact_restore_state(value)
+}
+
+pub(super) async fn load_post_compact_restore_state_artifact_async(
+    project_root: &Path,
+    session_id: &str,
+) -> Option<Vec<(RestoreBlockKind, String)>> {
+    let short_session = session_id.chars().take(8).collect::<String>();
+    let path = project_root
+        .join(".yode")
+        .join("status")
+        .join(format!("{}-post-compact-restore-state.json", short_session));
+    let content = tokio::fs::read_to_string(path).await.ok()?;
+    let value = serde_json::from_str::<serde_json::Value>(&content).ok()?;
+    parse_post_compact_restore_state(value)
+}
+
+fn parse_post_compact_restore_state(
+    value: serde_json::Value,
+) -> Option<Vec<(RestoreBlockKind, String)>> {
     let blocks = value.get("blocks")?.as_array()?;
     let mut restored = Vec::new();
     for block in blocks {
