@@ -106,6 +106,7 @@ import {
   saveActiveSettingsTab,
   useAppUiStore
 } from "./lib/appUiStore";
+import { formatAskUserAnswerForDisplay } from "./lib/askUser";
 import {
   LANGUAGE_CHANGE_EVENT,
   applyStoredAppearanceSettings,
@@ -691,12 +692,7 @@ export function App() {
 
   async function handleAskUserResolve(answer: string) {
     if (!pendingUserQuestion) return;
-    
-    let displayText = answer;
-    try {
-      const parsed = JSON.parse(answer);
-      displayText = Object.values(parsed).join(", ");
-    } catch (e) {}
+    const displayText = formatAskUserAnswerForDisplay(answer);
 
     setTimelineItems((items) => [
       ...items,

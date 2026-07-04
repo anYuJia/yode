@@ -1,6 +1,7 @@
 import { PendingUserQuestion } from "../components/ChatWorkspace";
-import { UserQuery } from "../components/chat-workspace/AskUserActions";
 import { applyDesktopEventToTimelineItems } from "../components/timelineUtils";
+import { isUserQuery } from "./askUser";
+import type { UserQuery } from "./askUser";
 import { DesktopEvent, TimelineItem } from "./desktopTypes";
 import { UsageSnapshot } from "./localSlashCommands";
 
@@ -136,8 +137,8 @@ function objectField(value: Record<string, unknown>, key: string): Record<string
 }
 
 function userQueryField(value: Record<string, unknown>, key: string): UserQuery | undefined {
-  const raw = objectField(value, key);
-  return Array.isArray(raw?.questions) ? (raw as unknown as UserQuery) : undefined;
+  const raw = value[key];
+  return isUserQuery(raw) ? raw : undefined;
 }
 
 function optionalStringField(value: Record<string, unknown> | undefined, key: string) {

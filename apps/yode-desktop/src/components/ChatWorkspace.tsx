@@ -13,8 +13,10 @@ import { RunInspector } from "./RunInspector";
 import { TimelineNode } from "./chat-workspace/TimelineNode";
 import { TurnProcessSummary } from "./chat-workspace/TurnProcessSummary";
 import { PermissionActions } from "./chat-workspace/PermissionActions";
-import { AskUserActions, UserQuery } from "./chat-workspace/AskUserActions";
+import { AskUserActions } from "./chat-workspace/AskUserActions";
 import { LiveStatusRow } from "./chat-workspace/LiveStatusRow";
+import { isUserQuery, parseUserQueryJson } from "../lib/askUser";
+import type { UserQuery } from "../lib/askUser";
 
 export type PendingUserQuestion = {
   sessionId: string;
@@ -206,15 +208,11 @@ export function ChatWorkspace({
 
   const parsedStructuredQuery = useMemo((): UserQuery | null => {
     if (!pendingUserQuestion) return null;
-    if (pendingUserQuestion.query && Array.isArray(pendingUserQuestion.query.questions)) {
+    if (isUserQuery(pendingUserQuestion.query)) {
       return pendingUserQuestion.query;
     }
-    try {
-      const parsed = JSON.parse(pendingUserQuestion.question);
-      if (parsed && Array.isArray(parsed.questions)) {
-        return parsed as UserQuery;
-      }
-    } catch (e) {}
+    const parsed = parseUserQueryJson(pendingUserQuestion.question);
+    if (parsed) return parsed;
     return {
       questions: [
         {

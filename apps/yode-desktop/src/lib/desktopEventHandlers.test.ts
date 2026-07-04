@@ -86,4 +86,59 @@ describe("desktop runtime event handling", () => {
       })
     );
   });
+
+  it("keeps structured ask_user queries only when the payload is well typed", () => {
+    const query = {
+      questions: [
+        {
+          header: "Decision",
+          question: "Pick one?",
+          options: [{ label: "Proceed", description: "Continue the run" }]
+        }
+      ]
+    };
+    const { context } = handlerContext({
+      payload: {
+        sessionId: "session-1",
+        turnId: "turn-ask",
+        seq: 2,
+        kind: "ask_user",
+        timestamp: new Date().toISOString(),
+        payload: { title: "Decision", body: "Pick one?", query }
+      }
+    });
+
+    handleDesktopRuntimeEvent(context);
+
+    expect(context.setPendingUserQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query
+      })
+    );
+  });
+
+  it("drops malformed structured ask_user query payloads", () => {
+    const { context } = handlerContext({
+      payload: {
+        sessionId: "session-1",
+        turnId: "turn-ask",
+        seq: 2,
+        kind: "ask_user",
+        timestamp: new Date().toISOString(),
+        payload: {
+          title: "Decision",
+          body: "Pick one?",
+          query: { questions: [{ header: "Decision", question: "Pick one?", options: [null] }] }
+        }
+      }
+    });
+
+    handleDesktopRuntimeEvent(context);
+
+    expect(context.setPendingUserQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        query: undefined
+      })
+    );
+  });
 });

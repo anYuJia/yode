@@ -1,22 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Check, CircleHelp, CornerDownLeft, Edit3 } from "lucide-react";
 
-export interface UserQueryOption {
-  label: string;
-  description: string;
-  preview?: string;
-}
-
-export interface UserQuestion {
-  question: string;
-  header: string;
-  options: UserQueryOption[];
-  multiSelect?: boolean;
-}
-
-export interface UserQuery {
-  questions: UserQuestion[];
-}
+import type { UserQuery } from "../../lib/askUser";
+export type { UserQuery, UserQuestion, UserQueryOption } from "../../lib/askUser";
 
 export function AskUserActions({
   query,
