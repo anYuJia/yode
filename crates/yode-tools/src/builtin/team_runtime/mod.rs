@@ -168,6 +168,37 @@ pub fn hydrate_agent_team_manager(
     Ok(manager.snapshot(team_id))
 }
 
+async fn hydrate_agent_team_manager_async(
+    working_dir: &Path,
+    manager: &Arc<tokio::sync::Mutex<AgentTeamManager>>,
+    team_id: &str,
+) -> Result<Option<AgentTeamSnapshot>> {
+    {
+        let manager = manager.lock().await;
+        if let Some(snapshot) = manager.snapshot(team_id) {
+            return Ok(Some(snapshot));
+        }
+    }
+
+    let working_dir = working_dir.to_path_buf();
+    let team_id = team_id.to_string();
+    let team_id_for_disk = team_id.clone();
+    let disk_snapshot = run_team_disk_io("load_agent_team_snapshot", move || {
+        load_agent_team_snapshot(&working_dir, &team_id_for_disk)
+    })
+    .await?;
+
+    let mut manager = manager.lock().await;
+    if manager.snapshot(&team_id).is_none() {
+        if let Some(snapshot) = disk_snapshot {
+            if let Some(state) = snapshot.state {
+                manager.upsert_snapshot(state, snapshot.messages);
+            }
+        }
+    }
+    Ok(manager.snapshot(&team_id))
+}
+
 pub fn persist_agent_team_snapshot(
     working_dir: &Path,
     snapshot: &AgentTeamSnapshot,
@@ -752,10 +783,11 @@ impl Tool for SendMessageTool {
             .and_then(|value| value.as_str())
             .unwrap_or("message");
         let path = if let Some(manager) = ctx.team_runtime.as_ref() {
+            hydrate_agent_team_manager_async(working_dir, manager, &team_id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
             let snapshot = {
                 let mut manager = manager.lock().await;
-                hydrate_agent_team_manager(working_dir, &mut manager, &team_id)?
-                    .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
                 manager.append_message(&team_id, &target, kind, &message)?;
                 manager
                     .snapshot(&team_id)
@@ -860,10 +892,11 @@ impl Tool for TeamReceiveTool {
             .unwrap_or(true);
 
         let messages = if let Some(manager) = ctx.team_runtime.as_ref() {
+            hydrate_agent_team_manager_async(working_dir, manager, team_id)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
             let snapshot = {
                 let mut manager = manager.lock().await;
-                hydrate_agent_team_manager(working_dir, &mut manager, team_id)?
-                    .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
                 let messages = if consume {
                     manager.consume_message_context(team_id, member_id, max_items)
                 } else {
@@ -1063,10 +1096,11 @@ impl Tool for TeamRunReadyTool {
             inner: Arc::clone(sub_agent_runner),
             working_dir: working_dir.clone(),
         };
+        hydrate_agent_team_manager_async(working_dir, &manager, team_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
         let (report, snapshot) = {
             let mut manager = manager.lock().await;
-            hydrate_agent_team_manager(working_dir, &mut manager, team_id)?
-                .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
             let report = run_ready_agent_steps(&mut manager, team_id, &adapter, max_steps).await?;
             let snapshot = manager
                 .snapshot(team_id)
@@ -1164,11 +1198,9 @@ impl Tool for TeamMonitorTool {
             .unwrap_or(false);
         let (rendered, artifacts) =
             if let (Some(team_id), Some(manager)) = (team_id, ctx.team_runtime.as_ref()) {
-                let snapshot = {
-                    let mut manager = manager.lock().await;
-                    hydrate_agent_team_manager(working_dir, &mut manager, team_id)?
-                        .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?
-                };
+                let snapshot = hydrate_agent_team_manager_async(working_dir, manager, team_id)
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
                 (
                     render_agent_team_monitor_from_snapshot(
                         &snapshot,
