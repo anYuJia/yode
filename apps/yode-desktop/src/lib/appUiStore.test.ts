@@ -6,6 +6,7 @@ import {
   SELECTED_PROJECT_ROOT_STORAGE_KEY,
   STANDALONE_PROJECT_SENTINEL
 } from "./projectStorage";
+import { SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY } from "./paneLayout";
 
 describe("app UI store", () => {
   afterEach(() => {
@@ -54,6 +55,22 @@ describe("app UI store", () => {
     expect(saveActiveSettingsTab(KEYBOARD_SHORTCUTS_SETTINGS_TAB)).toBe(KEYBOARD_SHORTCUTS_SETTINGS_TAB);
     expect(localStorage.getItem(ACTIVE_SETTINGS_TAB_STORAGE_KEY)).toBe(KEYBOARD_SHORTCUTS_SETTINGS_TAB);
     expect(loadActiveSettingsTab()).toBe(KEYBOARD_SHORTCUTS_SETTINGS_TAB);
+  });
+
+  it("persists settings sidebar width from the shared store", async () => {
+    stubMemoryLocalStorage({
+      [SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY]: "260"
+    });
+
+    const { useAppUiStore } = await import("./appUiStore");
+    const store = useAppUiStore.getState();
+
+    expect(store.settingsSidebarWidth).toBe(260);
+
+    store.setSettingsSidebarWidth(300);
+
+    expect(localStorage.getItem(SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY)).toBe("300");
+    expect(useAppUiStore.getState().settingsSidebarWidth).toBe(300);
   });
 });
 

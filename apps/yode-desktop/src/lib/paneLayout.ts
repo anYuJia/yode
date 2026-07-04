@@ -1,9 +1,11 @@
 export const SIDEBAR_WIDTH_STORAGE_KEY = "yode-sidebar-width";
 export const INSPECTOR_WIDTH_STORAGE_KEY = "yode-inspector-width";
 export const TERMINAL_HEIGHT_STORAGE_KEY = "yode-terminal-height";
+export const SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY = "yode-settings-sidebar-width";
 
 export const PANE_LIMITS = {
   sidebar: { min: 180, max: 420, fallback: 232 },
+  settingsSidebar: { min: 180, max: 340, fallback: 224 },
   inspector: { min: 220, max: 460, fallback: 260 },
   terminal: { min: 180, max: 520, fallback: 280 }
 } as const;

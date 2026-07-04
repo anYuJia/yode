@@ -63,12 +63,11 @@ import {
 } from "../lib/appearanceSettings";
 import {
   loadActiveSettingsTab,
-  saveActiveSettingsTab
+  saveActiveSettingsTab,
+  useAppUiStore
 } from "../lib/appUiStore";
 import { applyGeneralSettings, loadGeneralSettingsPayload, saveGeneralSettingValue } from "../lib/desktopSettings";
 import { dispatchSessionsImported } from "../lib/projectStorage";
-
-const SETTINGS_SIDEBAR_WIDTH_KEY = "yode-settings-sidebar-width";
 
 type LicenseNotice = {
   name: string;
@@ -87,19 +86,11 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function loadStoredNumber(key: string, fallback: number) {
-  const raw = localStorage.getItem(key);
-  if (raw === null) return fallback;
-  const parsed = Number(raw);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
 export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; onClose: () => void }) {
   const [activeTab, setActiveTab] = useState(() => loadActiveSettingsTab());
   const [searchQuery, setSearchQuery] = useState("");
-  const [sidebarWidth, setSidebarWidth] = useState(() =>
-    clampNumber(loadStoredNumber(SETTINGS_SIDEBAR_WIDTH_KEY, 224), 180, 340)
-  );
+  const sidebarWidth = useAppUiStore((state) => state.settingsSidebarWidth);
+  const setSettingsSidebarWidth = useAppUiStore((state) => state.setSettingsSidebarWidth);
   const [draggingSidebar, setDraggingSidebar] = useState(false);
   const sidebarDragRef = useRef<{ startX: number; startWidth: number; target: Element | null; pointerId: number | null } | null>(null);
 
@@ -124,10 +115,6 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(SETTINGS_SIDEBAR_WIDTH_KEY, String(sidebarWidth));
-  }, [sidebarWidth]);
-
-  useEffect(() => {
     if (!draggingSidebar) return;
 
     const releaseCapture = () => {
@@ -144,7 +131,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
     const handlePointerMove = (event: PointerEvent) => {
       const drag = sidebarDragRef.current;
       if (!drag) return;
-      setSidebarWidth(clampNumber(drag.startWidth + event.clientX - drag.startX, 180, 340));
+      setSettingsSidebarWidth(clampNumber(drag.startWidth + event.clientX - drag.startX, 180, 340));
     };
 
     const stopDragging = () => {
@@ -164,7 +151,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
       window.removeEventListener("pointercancel", stopDragging);
       window.removeEventListener("blur", stopDragging);
     };
-  }, [draggingSidebar]);
+  }, [draggingSidebar, setSettingsSidebarWidth]);
 
   const beginSidebarDrag = (event: React.PointerEvent) => {
     if (event.button !== 0) return;

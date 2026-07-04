@@ -8,6 +8,7 @@ import {
 import {
   INSPECTOR_WIDTH_STORAGE_KEY,
   loadInitialPaneSize,
+  SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY,
   SIDEBAR_WIDTH_STORAGE_KEY,
   TERMINAL_HEIGHT_STORAGE_KEY
 } from "./paneLayout";
@@ -34,6 +35,7 @@ type AppUiState = {
   projectOrder: string[];
   projectRoots: string[];
   selectedProjectRoot: string | null | undefined;
+  settingsSidebarWidth: number;
   sidebarOpen: boolean;
   sidebarWidth: number;
   terminalHeight: number;
@@ -46,6 +48,7 @@ type AppUiState = {
   setProjectOrder: (order: StateUpdater<string[]>) => void;
   setProjectRoots: (roots: StateUpdater<string[]>) => void;
   setSelectedProjectRoot: (root: StateUpdater<string | null | undefined>) => void;
+  setSettingsSidebarWidth: (width: number) => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarWidth: (width: number) => void;
   setTerminalHeight: (height: number) => void;
@@ -80,6 +83,7 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   projectOrder: loadStoredProjectOrder(),
   projectRoots: loadStoredProjectRoots(),
   selectedProjectRoot: loadStoredSelectedProjectRoot(),
+  settingsSidebarWidth: loadInitialPaneSize("settingsSidebar", SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY),
   sidebarOpen: true,
   sidebarWidth: loadInitialPaneSize("sidebar", SIDEBAR_WIDTH_STORAGE_KEY),
   terminalHeight: loadInitialPaneSize("terminal", TERMINAL_HEIGHT_STORAGE_KEY),
@@ -117,6 +121,10 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
       );
     }
     set({ selectedProjectRoot });
+  },
+  setSettingsSidebarWidth: (settingsSidebarWidth) => {
+    localStorage.setItem(SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY, String(settingsSidebarWidth));
+    set({ settingsSidebarWidth });
   },
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   setSidebarWidth: (sidebarWidth) => {
