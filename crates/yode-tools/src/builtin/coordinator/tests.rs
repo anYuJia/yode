@@ -1,3 +1,4 @@
+use super::append_persistence_errors;
 use super::planning::{
     build_execution_phases, normalize_workstreams, render_phase_timeline, NormalizedWorkstream,
 };
@@ -254,4 +255,15 @@ fn coordinator_reports_blocked_cycle_details() {
     let err = build_execution_phases(&workstreams).unwrap_err();
     assert!(err.to_string().contains("a -> waiting for b"));
     assert!(err.to_string().contains("b -> waiting for a"));
+}
+
+#[test]
+fn coordinator_surfaces_persistence_errors_in_content() {
+    let content = append_persistence_errors(
+        "[]".to_string(),
+        &["persist_agent_team_snapshot: disk full".to_string()],
+    );
+
+    assert!(content.contains("Coordinator persistence warnings"));
+    assert!(content.contains("persist_agent_team_snapshot: disk full"));
 }

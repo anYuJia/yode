@@ -36,6 +36,21 @@ fn record_team_runtime_result<T>(
     }
 }
 
+fn append_persistence_errors(content: String, persistence_errors: &[String]) -> String {
+    if persistence_errors.is_empty() {
+        return content;
+    }
+
+    let mut output = content;
+    output.push_str("\n\nCoordinator persistence warnings:\n");
+    for error in persistence_errors {
+        output.push_str("- ");
+        output.push_str(error);
+        output.push('\n');
+    }
+    output
+}
+
 #[derive(Debug, Deserialize)]
 struct Workstream {
     #[serde(default)]
@@ -434,18 +449,14 @@ impl Tool for CoordinateAgentsTool {
                 let futures = futures.collect::<Vec<_>>();
 
                 for (working_dir, snapshot) in mailbox_snapshots {
-                    if let Err(err) =
+                    record_team_runtime_result(
+                        &mut persistence_errors,
+                        "persist_agent_team_snapshot_after_mailbox",
                         run_team_disk_io("persist_agent_team_snapshot_after_mailbox", move || {
                             persist_agent_team_snapshot(&working_dir, &snapshot)
                         })
-                        .await
-                    {
-                        warn!(
-                            operation = "persist_agent_team_snapshot_after_mailbox",
-                            error = %err,
-                            "agent team runtime operation failed"
-                        );
-                    }
+                        .await,
+                    );
                 }
 
                 let results = join_all(futures).await;
@@ -636,8 +647,10 @@ impl Tool for CoordinateAgentsTool {
             None
         };
 
+        let content = append_persistence_errors(rendered_text, &persistence_errors);
+
         Ok(ToolResult::success_with_metadata(
-            rendered_text,
+            content,
             json!({
                 "goal": goal,
                 "workstream_count": normalized.len(),
