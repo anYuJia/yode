@@ -39,6 +39,22 @@ describe("app UI store", () => {
     ]);
     expect(localStorage.getItem(SELECTED_PROJECT_ROOT_STORAGE_KEY)).toBe(STANDALONE_PROJECT_SENTINEL);
   });
+
+  it("loads and saves the active settings tab through shared helpers", async () => {
+    stubMemoryLocalStorage();
+
+    const {
+      ACTIVE_SETTINGS_TAB_STORAGE_KEY,
+      KEYBOARD_SHORTCUTS_SETTINGS_TAB,
+      loadActiveSettingsTab,
+      saveActiveSettingsTab
+    } = await import("./appUiStore");
+
+    expect(loadActiveSettingsTab()).toBe("常规");
+    expect(saveActiveSettingsTab(KEYBOARD_SHORTCUTS_SETTINGS_TAB)).toBe(KEYBOARD_SHORTCUTS_SETTINGS_TAB);
+    expect(localStorage.getItem(ACTIVE_SETTINGS_TAB_STORAGE_KEY)).toBe(KEYBOARD_SHORTCUTS_SETTINGS_TAB);
+    expect(loadActiveSettingsTab()).toBe(KEYBOARD_SHORTCUTS_SETTINGS_TAB);
+  });
 });
 
 function stubMemoryLocalStorage(seed: Record<string, string> = {}) {

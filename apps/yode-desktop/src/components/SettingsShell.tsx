@@ -61,6 +61,10 @@ import {
   loadAppLanguage,
   saveAppLanguage
 } from "../lib/appearanceSettings";
+import {
+  loadActiveSettingsTab,
+  saveActiveSettingsTab
+} from "../lib/appUiStore";
 import { applyGeneralSettings, loadGeneralSettingsPayload, saveGeneralSettingValue } from "../lib/desktopSettings";
 import { dispatchSessionsImported } from "../lib/projectStorage";
 
@@ -91,7 +95,7 @@ function loadStoredNumber(key: string, fallback: number) {
 }
 
 export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; onClose: () => void }) {
-  const [activeTab, setActiveTab] = useState(() => localStorage.getItem("yode-active-tab") || "常规");
+  const [activeTab, setActiveTab] = useState(() => loadActiveSettingsTab());
   const [searchQuery, setSearchQuery] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState(() =>
     clampNumber(loadStoredNumber(SETTINGS_SIDEBAR_WIDTH_KEY, 224), 180, 340)
@@ -100,8 +104,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
   const sidebarDragRef = useRef<{ startX: number; startWidth: number; target: Element | null; pointerId: number | null } | null>(null);
 
   const handleSetActiveTab = (tab: string) => {
-    setActiveTab(tab);
-    localStorage.setItem("yode-active-tab", tab);
+    setActiveTab(saveActiveSettingsTab(tab));
   };
 
   const [currentLang, setCurrentLang] = useState(() => loadAppLanguage());

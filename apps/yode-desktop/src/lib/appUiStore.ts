@@ -21,6 +21,10 @@ import {
   STANDALONE_PROJECT_SENTINEL
 } from "./projectStorage";
 
+export const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "yode-active-tab";
+export const DEFAULT_SETTINGS_TAB = "常规";
+export const KEYBOARD_SHORTCUTS_SETTINGS_TAB = "键盘快捷键";
+
 type StateUpdater<T> = T | ((current: T) => T);
 
 type AppUiState = {
@@ -52,6 +56,15 @@ type AppUiState = {
 function storedViewMode(): ViewMode {
   const raw = localStorage.getItem("yode-view-mode");
   return raw === "settings" ? "settings" : "chat";
+}
+
+export function loadActiveSettingsTab() {
+  return localStorage.getItem(ACTIVE_SETTINGS_TAB_STORAGE_KEY) || DEFAULT_SETTINGS_TAB;
+}
+
+export function saveActiveSettingsTab(tab: string) {
+  localStorage.setItem(ACTIVE_SETTINGS_TAB_STORAGE_KEY, tab);
+  return tab;
 }
 
 function resolveUpdater<T>(updater: StateUpdater<T>, current: T): T {

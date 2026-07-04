@@ -101,7 +101,11 @@ import {
   saveLastModelForProvider,
   saveStoredProviders
 } from "./lib/llmProviderStorage";
-import { useAppUiStore } from "./lib/appUiStore";
+import {
+  KEYBOARD_SHORTCUTS_SETTINGS_TAB,
+  saveActiveSettingsTab,
+  useAppUiStore
+} from "./lib/appUiStore";
 import {
   LANGUAGE_CHANGE_EVENT,
   applyStoredAppearanceSettings,
@@ -1064,7 +1068,7 @@ export function App() {
         case "show_kbd_shortcuts":
           event.preventDefault();
           handleSetViewMode("settings");
-          localStorage.setItem("yode-active-tab", "键盘快捷键");
+          saveActiveSettingsTab(KEYBOARD_SHORTCUTS_SETTINGS_TAB);
           break;
         case "toggle_sidebar":
           event.preventDefault();
