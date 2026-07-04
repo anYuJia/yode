@@ -2,6 +2,7 @@ mod helpers;
 
 use std::collections::BTreeMap;
 
+use anyhow::{Context, Result};
 use tokio::sync::mpsc;
 
 use yode_llm::types::ToolCall;
@@ -106,9 +107,14 @@ async fn write_prompt_cache_diff_artifact_async(
     current_restore_text: Option<&str>,
     current_tool_text: Option<&str>,
     current_message_text: Option<&str>,
-) -> Option<(String, String)> {
+) -> Result<(String, String)> {
     let dir = project_root.join(".yode").join("status");
-    tokio::fs::create_dir_all(&dir).await.ok()?;
+    tokio::fs::create_dir_all(&dir).await.with_context(|| {
+        format!(
+            "failed to create prompt-cache diff artifact directory {}",
+            dir.display()
+        )
+    })?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-prompt-cache-diff.md", short_session));
 
@@ -136,8 +142,13 @@ async fn write_prompt_cache_diff_artifact_async(
         truncate_cache_text(current_message_text.unwrap_or("none"), 4_000),
     );
 
-    tokio::fs::write(&path, body).await.ok()?;
-    Some((
+    tokio::fs::write(&path, body).await.with_context(|| {
+        format!(
+            "failed to write prompt-cache diff artifact {}",
+            path.display()
+        )
+    })?;
+    Ok((
         path.display().to_string(),
         format!(
             "{} / {}->{} / {}",
@@ -490,7 +501,7 @@ impl AgentEngine {
             .last_prompt_cache_transition_reason
             .clone();
         if transition_kind != "stable" {
-            if let Some((path, summary)) = write_prompt_cache_diff_artifact_async(
+            match write_prompt_cache_diff_artifact_async(
                 &self.context.working_dir_compat(),
                 &self.context.session_id,
                 &transition_kind,
@@ -514,9 +525,14 @@ impl AgentEngine {
             )
             .await
             {
-                self.prompt_cache_runtime
-                    .last_prompt_cache_diff_artifact_path = Some(path);
-                self.prompt_cache_runtime.last_prompt_cache_diff_summary = Some(summary);
+                Ok((path, summary)) => {
+                    self.prompt_cache_runtime
+                        .last_prompt_cache_diff_artifact_path = Some(path);
+                    self.prompt_cache_runtime.last_prompt_cache_diff_summary = Some(summary);
+                }
+                Err(err) => {
+                    tracing::warn!("Failed to write prompt-cache diff artifact: {}", err);
+                }
             }
         }
 
