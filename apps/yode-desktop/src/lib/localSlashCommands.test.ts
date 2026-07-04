@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   executeLocalSlashCommand,
+  formatCurrentModelLabel,
   formatUsageSnapshot,
   LocalSlashCommandContext
 } from "./localSlashCommands";
@@ -46,6 +47,12 @@ describe("local slash commands", () => {
         "en"
       )
     ).toContain("Estimated cost: $0.1235");
+  });
+
+  it("formats missing model state without fake fallback data", () => {
+    expect(formatCurrentModelLabel("", "", "zh")).toBe("未连接桌面运行时");
+    expect(formatCurrentModelLabel("openai", "", "en")).toBe("openai");
+    expect(formatCurrentModelLabel("openai", "gpt-5", "en")).toBe("openai / gpt-5");
   });
 
   it("handles unknown commands locally", async () => {

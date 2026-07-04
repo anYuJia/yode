@@ -164,10 +164,10 @@ export type ImageAttachment = {
 };
 
 export const fallbackBootstrap: Bootstrap = {
-  appVersion: "1.0.0",
+  appVersion: "",
   workspacePath: "",
-  provider: "openai",
-  model: "gpt-5.5",
+  provider: "",
+  model: "",
   permissionMode: "default",
   sessions: []
 };

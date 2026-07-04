@@ -70,6 +70,21 @@ export function formatUsageSnapshot(snapshot: UsageSnapshot | null, appLang: str
     : `Input ${input.toLocaleString()}, output ${output.toLocaleString()}, total ${total.toLocaleString()} tokens. Cache write ${cacheWrite.toLocaleString()}, cache read ${cacheRead.toLocaleString()}. Estimated cost: ${cost}.`;
 }
 
+export function formatCurrentModelLabel(provider: string, model: string, appLang: string) {
+  const trimmedProvider = provider.trim();
+  const trimmedModel = model.trim();
+  if (trimmedProvider && trimmedModel) {
+    return `${trimmedProvider} / ${trimmedModel}`;
+  }
+  if (trimmedModel) {
+    return trimmedModel;
+  }
+  if (trimmedProvider) {
+    return trimmedProvider;
+  }
+  return appLang === "zh" ? "未连接桌面运行时" : "Desktop runtime unavailable";
+}
+
 export async function executeLocalSlashCommand(
   content: string,
   context: LocalSlashCommandContext
@@ -286,7 +301,10 @@ export async function executeLocalSlashCommand(
       return true;
     }
     case "model": {
-      append(isZh ? "当前模型" : "Current model", `${context.currentProvider} / ${context.currentModel}`);
+      append(
+        isZh ? "当前模型" : "Current model",
+        formatCurrentModelLabel(context.currentProvider, context.currentModel, context.appLang)
+      );
       return true;
     }
     case "sessions": {
@@ -319,7 +337,7 @@ export async function executeLocalSlashCommand(
         isZh
           ? [
               `会话：${context.activeSession?.title ?? "新对话"}`,
-              `模型：${context.currentProvider} / ${context.currentModel}`,
+              `模型：${formatCurrentModelLabel(context.currentProvider, context.currentModel, context.appLang)}`,
               `权限：${context.permissionMode}`,
               `项目：${project}`,
               `运行：${context.isProcessing ? "进行中" : "空闲"}`,
@@ -327,7 +345,7 @@ export async function executeLocalSlashCommand(
             ].join("\n")
           : [
               `Session: ${context.activeSession?.title ?? "New chat"}`,
-              `Model: ${context.currentProvider} / ${context.currentModel}`,
+              `Model: ${formatCurrentModelLabel(context.currentProvider, context.currentModel, context.appLang)}`,
               `Permission: ${context.permissionMode}`,
               `Project: ${project}`,
               `Run: ${context.isProcessing ? "running" : "idle"}`,

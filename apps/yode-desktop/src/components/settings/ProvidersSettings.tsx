@@ -669,6 +669,10 @@ export function ProvidersSettings({
   };
 
   const availableTemplates = BUILT_IN_PROVIDERS.filter((preset) => !providers.some((p) => p.id === preset.id));
+  const defaultModelLabel =
+    defaultLlm.provider && defaultLlm.model
+      ? `${defaultLlm.provider} / ${defaultLlm.model}`
+      : defaultLlm.model || defaultLlm.provider || t("未配置", "Not configured");
 
   return (
     <div className="providers-page">
@@ -677,8 +681,8 @@ export function ProvidersSettings({
           <p className="providers-kicker">{t("模型提供商", "Model providers")}</p>
           <p className="providers-summary">
             {t(
-              `${providers.length} 个配置，${enabledCount} 个启用。默认：${defaultLlm.provider} / ${defaultLlm.model}`,
-              `${providers.length} configured, ${enabledCount} enabled. Default: ${defaultLlm.provider} / ${defaultLlm.model}`
+              `${providers.length} 个配置，${enabledCount} 个启用。默认：${defaultModelLabel}`,
+              `${providers.length} configured, ${enabledCount} enabled. Default: ${defaultModelLabel}`
             )}
           </p>
         </div>
