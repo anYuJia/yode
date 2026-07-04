@@ -14,7 +14,11 @@ import {
   clampNumber,
   DEFAULT_CODE_FONT,
   DEFAULT_UI_FONT,
+  dispatchAppearanceChange,
+  dispatchPetChange,
   DiffMarkerMode,
+  LANGUAGE_CHANGE_EVENT,
+  loadAppLanguage,
   loadAppearanceSettings,
   ReduceMotionMode,
   saveAppearanceSettings,
@@ -83,7 +87,7 @@ export function AppearanceSettings() {
     applyAppearanceSettings(settings);
     applyTranslucentSidebarSetting(translucentSidebar);
     saveAppearanceSettings(settings);
-    window.dispatchEvent(new CustomEvent("yode-appearance-change"));
+    dispatchAppearanceChange();
   }, [
     themeMode,
     themeName,
@@ -110,7 +114,7 @@ export function AppearanceSettings() {
   ]);
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent("yode-pet-change", { detail: pet }));
+    dispatchPetChange(pet);
   }, [pet]);
 
   const handleCopyTheme = () => {
@@ -169,7 +173,7 @@ export function AppearanceSettings() {
     setPet("Yode");
   };
 
-  const [currentLang, setCurrentLang] = useState(() => localStorage.getItem("yode-language") || "zh");
+  const [currentLang, setCurrentLang] = useState(() => loadAppLanguage());
   const isZh = currentLang === "zh";
 
   const t = (zhText: string, enText: string) => {
@@ -181,8 +185,8 @@ export function AppearanceSettings() {
       const newLang = (e as CustomEvent).detail;
       setCurrentLang(newLang);
     };
-    window.addEventListener("yode-language-change", handleLangChange);
-    return () => window.removeEventListener("yode-language-change", handleLangChange);
+    window.addEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
+    return () => window.removeEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
   }, []);
 
   const renderFontSizeControl = (

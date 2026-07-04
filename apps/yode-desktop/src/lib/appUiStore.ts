@@ -2,6 +2,10 @@ import { create } from "zustand";
 
 import type { ViewMode } from "../components/Sidebar";
 import {
+  loadAppLanguage,
+  normalizeAppLanguage
+} from "./appearanceSettings";
+import {
   INSPECTOR_WIDTH_STORAGE_KEY,
   loadInitialPaneSize,
   SIDEBAR_WIDTH_STORAGE_KEY,
@@ -57,7 +61,7 @@ function resolveUpdater<T>(updater: StateUpdater<T>, current: T): T {
 }
 
 export const useAppUiStore = create<AppUiState>((set, get) => ({
-  appLang: localStorage.getItem("yode-language") || "zh",
+  appLang: loadAppLanguage(),
   inspectorOpen: true,
   inspectorWidth: loadInitialPaneSize("inspector", INSPECTOR_WIDTH_STORAGE_KEY),
   projectOrder: loadStoredProjectOrder(),
@@ -74,8 +78,7 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     selectedProjectRoot: loadStoredSelectedProjectRoot(),
   }),
   setAppLang: (appLang) => {
-    localStorage.setItem("yode-language", appLang);
-    set({ appLang });
+    set({ appLang: normalizeAppLanguage(appLang) });
   },
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   setInspectorWidth: (inspectorWidth) => {

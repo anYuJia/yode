@@ -15,6 +15,11 @@ import {
   Settings
 } from "lucide-react";
 import { SessionSummary } from "../lib/desktopTypes";
+import {
+  PET_CHANGE_EVENT,
+  loadAppLanguage,
+  loadPetName
+} from "../lib/appearanceSettings";
 import { projectLabelFromPath } from "./timelineUtils";
 
 export type ViewMode = "chat" | "settings";
@@ -44,7 +49,7 @@ export function Sidebar({
   onProjectReorder,
   onDeleteSession
 }: SidebarProps) {
-  const lang = localStorage.getItem("yode-language") || "zh";
+  const lang = loadAppLanguage();
   const isZh = lang === "zh";
   const t = (zhText: string, enText: string) => isZh ? zhText : enText;
 
@@ -52,7 +57,7 @@ export function Sidebar({
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
-  const [pet, setPet] = useState(() => localStorage.getItem("yode-pet") || "Yode");
+  const [pet, setPet] = useState(() => loadPetName());
   const [dragGhost, setDragGhost] = useState<{
     name: string;
     count: number;
@@ -120,10 +125,10 @@ export function Sidebar({
   useEffect(() => {
     const handlePetChange = (event: Event) => {
       const nextPet = (event as CustomEvent<string>).detail;
-      setPet(nextPet || localStorage.getItem("yode-pet") || "Yode");
+      setPet(nextPet || loadPetName());
     };
-    window.addEventListener("yode-pet-change", handlePetChange);
-    return () => window.removeEventListener("yode-pet-change", handlePetChange);
+    window.addEventListener(PET_CHANGE_EVENT, handlePetChange);
+    return () => window.removeEventListener(PET_CHANGE_EVENT, handlePetChange);
   }, []);
 
   useEffect(() => {

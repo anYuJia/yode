@@ -97,7 +97,12 @@ import {
   saveStoredProviders
 } from "./lib/llmProviderStorage";
 import { useAppUiStore } from "./lib/appUiStore";
-import { applyStoredAppearanceSettings, applyTranslucentSidebarSetting } from "./lib/appearanceSettings";
+import {
+  LANGUAGE_CHANGE_EVENT,
+  applyStoredAppearanceSettings,
+  applyTranslucentSidebarSetting,
+  normalizeAppLanguage
+} from "./lib/appearanceSettings";
 
 function imageToRequestPayload(image: ImageAttachment) {
   return {
@@ -389,11 +394,11 @@ export function App() {
 
   useEffect(() => {
     const handleLangChange = (e: Event) => {
-      const newLang = (e as CustomEvent).detail;
+      const newLang = normalizeAppLanguage((e as CustomEvent).detail);
       setAppLang(newLang);
     };
-    window.addEventListener("yode-language-change", handleLangChange);
-    return () => window.removeEventListener("yode-language-change", handleLangChange);
+    window.addEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
+    return () => window.removeEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
   }, []);
 
   useEffect(() => {

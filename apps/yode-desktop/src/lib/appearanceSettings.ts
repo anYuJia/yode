@@ -1,6 +1,7 @@
 export type ThemeMode = "light" | "dark" | "system";
 export type ReduceMotionMode = "system" | "on" | "off";
 export type DiffMarkerMode = "color" | "symbols";
+export type AppLanguage = "zh" | "en";
 
 export type RgbColor = {
   r: number;
@@ -41,6 +42,12 @@ export type ThemePreset = {
 
 export const DEFAULT_UI_FONT = "-apple-system, BlinkMacSystemFont, \"Segoe UI\", system-ui, sans-serif";
 export const DEFAULT_CODE_FONT = "ui-monospace, \"SF Mono\", SFMono-Regular, Menlo, Monaco, Consolas, monospace";
+export const LANGUAGE_STORAGE_KEY = "yode-language";
+export const LANGUAGE_CHANGE_EVENT = "yode-language-change";
+export const APPEARANCE_CHANGE_EVENT = "yode-appearance-change";
+export const PET_CHANGE_EVENT = "yode-pet-change";
+export const DEFAULT_APP_LANGUAGE: AppLanguage = "zh";
+export const DEFAULT_PET_NAME = "Yode";
 
 export const DARK_THEME_PRESETS: Record<string, ThemePreset> = {
   Dracula: { bg: "#282A36", fg: "#F8F8F2", accent: "#FF79C6" },
@@ -86,6 +93,43 @@ export function loadStoredNumber(key: string, fallback: number, min = Number.NEG
 export function storedOption<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   const raw = localStorage.getItem(key);
   return allowed.includes(raw as T) ? raw as T : fallback;
+}
+
+export function normalizeAppLanguage(value: unknown): AppLanguage {
+  return value === "en" || value === "zh" ? value : DEFAULT_APP_LANGUAGE;
+}
+
+export function loadAppLanguage(): AppLanguage {
+  return normalizeAppLanguage(localStorage.getItem(LANGUAGE_STORAGE_KEY));
+}
+
+export function loadPetName() {
+  return localStorage.getItem("yode-pet") || DEFAULT_PET_NAME;
+}
+
+export function dispatchLanguageChange(appLang: AppLanguage) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(LANGUAGE_CHANGE_EVENT, { detail: appLang }));
+  }
+}
+
+export function saveAppLanguage(appLang: string) {
+  const nextLang = normalizeAppLanguage(appLang);
+  localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLang);
+  dispatchLanguageChange(nextLang);
+  return nextLang;
+}
+
+export function dispatchAppearanceChange() {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(APPEARANCE_CHANGE_EVENT));
+  }
+}
+
+export function dispatchPetChange(pet: string) {
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent(PET_CHANGE_EVENT, { detail: pet }));
+  }
 }
 
 export function hexToRgb(hex: string): RgbColor | null {
@@ -162,7 +206,7 @@ export function loadAppearanceSettings(): AppearanceSettingsState {
     inspectorFontSize: loadStoredNumber("yode-inspector-font-size", 12, 10, 18),
     diffMarkers: storedOption("yode-diff-markers", ["color", "symbols"] as const, "color"),
     fontSmoothing: localStorage.getItem("yode-font-smoothing") !== "false",
-    pet: localStorage.getItem("yode-pet") || "Yode"
+    pet: loadPetName()
   };
 }
 

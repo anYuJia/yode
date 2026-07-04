@@ -5,6 +5,7 @@ import { listen, UnlistenFn } from "@tauri-apps/api/event";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
+import { APPEARANCE_CHANGE_EVENT } from "../lib/appearanceSettings";
 
 type TerminalOutputEvent = {
   sessionId: string;
@@ -387,8 +388,8 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
       }
     };
 
-    window.addEventListener("yode-appearance-change", applyAppearance);
-    return () => window.removeEventListener("yode-appearance-change", applyAppearance);
+    window.addEventListener(APPEARANCE_CHANGE_EVENT, applyAppearance);
+    return () => window.removeEventListener(APPEARANCE_CHANGE_EVENT, applyAppearance);
   }, [tabs, sessionKey, isTauri, isOpen]);
 
   useEffect(() => {

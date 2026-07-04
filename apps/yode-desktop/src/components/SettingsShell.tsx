@@ -56,6 +56,11 @@ import {
   ArchivedChatsSettingsSettings
 } from "./settings/ArchivedChatsSettings";
 import { ProvidersSettings } from "./settings/ProvidersSettings";
+import {
+  LANGUAGE_CHANGE_EVENT,
+  loadAppLanguage,
+  saveAppLanguage
+} from "../lib/appearanceSettings";
 import { applyGeneralSettings, saveGeneralSettingValue } from "../lib/desktopSettings";
 
 const SETTINGS_SIDEBAR_WIDTH_KEY = "yode-settings-sidebar-width";
@@ -98,7 +103,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
     localStorage.setItem("yode-active-tab", tab);
   };
 
-  const [currentLang, setCurrentLang] = useState(() => localStorage.getItem("yode-language") || "zh");
+  const [currentLang, setCurrentLang] = useState(() => loadAppLanguage());
   const isZh = currentLang === "zh";
 
   const t = (zhText: string, enText: string) => {
@@ -110,8 +115,8 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
       const newLang = (e as CustomEvent).detail;
       setCurrentLang(newLang);
     };
-    window.addEventListener("yode-language-change", handleLangChange);
-    return () => window.removeEventListener("yode-language-change", handleLangChange);
+    window.addEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
+    return () => window.removeEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
   }, []);
 
   useEffect(() => {
@@ -607,10 +612,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                     <CustomSelect
                       value={currentLang}
                       onChange={(val) => {
-                        localStorage.setItem("yode-language", val);
-                        setCurrentLang(val);
-                        // Trigger a Custom Event that App.tsx listens to to update its local language state dynamically
-                        window.dispatchEvent(new CustomEvent("yode-language-change", { detail: val }));
+                        setCurrentLang(saveAppLanguage(val));
                       }}
                       options={[
                         { value: "zh", label: "简体中文 (Simplified Chinese)", avatarText: "🇨🇳", avatarBg: "rgba(255,255,255,0.05)" },
