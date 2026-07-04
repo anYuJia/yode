@@ -10,10 +10,13 @@ import {
   LLM_PROVIDERS_STORAGE_KEY,
   LLM_PROVIDERS_CHANGE_EVENT,
   modelsForProvider,
+  modelsForProviderFromStorage,
   parseStoredProviderValues,
   parseStoredProviders,
   providerDisplayName,
+  providerDisplayNameFromStorage,
   providerOptionsFromStorage,
+  providerOptionsFromStoredProviders,
   preferredModelForProvider,
   preferredModelFromStorage,
   saveLastModelForProvider,
@@ -88,6 +91,20 @@ describe("llm provider storage helpers", () => {
     expect(providerOptionsFromStorage(raw, meta)).toEqual([
       { value: "openai", label: "Custom OpenAI" }
     ]);
+  });
+
+  it("loads provider display data from the shared storage helpers", () => {
+    stubMemoryLocalStorage({
+      [LLM_PROVIDERS_STORAGE_KEY]: JSON.stringify([
+        { id: "openai", name: "Custom OpenAI", enabled: true, models: ["stored"] }
+      ])
+    });
+
+    expect(providerOptionsFromStoredProviders(meta)).toEqual([
+      { value: "openai", label: "Custom OpenAI" }
+    ]);
+    expect(providerDisplayNameFromStorage("openai", meta)).toBe("Custom OpenAI");
+    expect(modelsForProviderFromStorage("openai", meta)).toEqual(["stored"]);
   });
 
   it("falls back to metadata provider names", () => {

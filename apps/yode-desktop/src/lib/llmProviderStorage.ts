@@ -139,6 +139,10 @@ export function providerOptionsFromStorage(
   }));
 }
 
+export function providerOptionsFromStoredProviders(providerMeta: Array<{ id: string; nameEn: string }>) {
+  return providerOptionsFromStorage(loadStoredProvidersRaw(), providerMeta);
+}
+
 export function providerDisplayName(
   providerId: string,
   rawStoredProviders: string | null,
@@ -147,6 +151,20 @@ export function providerDisplayName(
   const stored = parseStoredProviders(rawStoredProviders).find((provider) => provider.id === providerId);
   if (stored?.name) return stored.name;
   return providerMeta.find((provider) => provider.id === providerId)?.name || providerId;
+}
+
+export function providerDisplayNameFromStorage(
+  providerId: string,
+  providerMeta: Array<{ id: string; name: string }>
+) {
+  return providerDisplayName(providerId, loadStoredProvidersRaw(), providerMeta);
+}
+
+export function modelsForProviderFromStorage(
+  provider: string,
+  providerMeta: ProviderModelsMeta[]
+) {
+  return modelsForProvider(provider, loadStoredProvidersRaw(), providerMeta);
 }
 
 function isStoredProvider(value: unknown): value is StoredProvider {

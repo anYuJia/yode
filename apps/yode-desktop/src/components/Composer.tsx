@@ -15,7 +15,10 @@ import {
 import { PROVIDERS_META } from "./settings/ProvidersSettings";
 import { TopbarProviderIcon } from "./Topbar";
 import { ImageAttachment } from "../lib/desktopTypes";
-import { LLM_PROVIDERS_STORAGE_KEY, modelsForProvider } from "../lib/llmProviderStorage";
+import {
+  LLM_PROVIDERS_CHANGE_EVENT,
+  modelsForProviderFromStorage
+} from "../lib/llmProviderStorage";
 
 const MAX_IMAGE_ATTACHMENTS = 8;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -79,20 +82,16 @@ export function Composer({
   const isZh = appLang === "zh";
 
   const modelOptions = useMemo(() => {
-    return modelsForProvider(
-      currentProvider,
-      localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY),
-      PROVIDERS_META
-    );
+    return modelsForProviderFromStorage(currentProvider, PROVIDERS_META);
   }, [currentProvider, providerVersion]);
 
   useEffect(() => {
     const refreshProviders = () => setProviderVersion((version) => version + 1);
     window.addEventListener("storage", refreshProviders);
-    window.addEventListener("yode-llm-providers-change", refreshProviders);
+    window.addEventListener(LLM_PROVIDERS_CHANGE_EVENT, refreshProviders);
     return () => {
       window.removeEventListener("storage", refreshProviders);
-      window.removeEventListener("yode-llm-providers-change", refreshProviders);
+      window.removeEventListener(LLM_PROVIDERS_CHANGE_EVENT, refreshProviders);
     };
   }, []);
 

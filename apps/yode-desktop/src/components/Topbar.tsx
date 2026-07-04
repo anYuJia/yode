@@ -11,9 +11,9 @@ import {
 import { Bootstrap } from "../lib/desktopTypes";
 import { PROVIDERS_META } from "./settings/ProvidersSettings";
 import {
-  LLM_PROVIDERS_STORAGE_KEY,
-  providerDisplayName,
-  providerOptionsFromStorage
+  LLM_PROVIDERS_CHANGE_EVENT,
+  providerDisplayNameFromStorage,
+  providerOptionsFromStoredProviders
 } from "../lib/llmProviderStorage";
 
 interface TopbarProps {
@@ -48,19 +48,19 @@ export function Topbar({
   const [currentBranch, setCurrentBranch] = useState<string | null>(null);
   const [providerVersion, setProviderVersion] = useState(0);
   const providerOptions = useMemo(() => {
-    return providerOptionsFromStorage(localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY), PROVIDERS_META);
+    return providerOptionsFromStoredProviders(PROVIDERS_META);
   }, [providerVersion]);
   const providerName = useMemo(() => {
-    return providerDisplayName(currentProvider, localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY), PROVIDERS_META);
+    return providerDisplayNameFromStorage(currentProvider, PROVIDERS_META);
   }, [currentProvider, providerVersion]);
 
   useEffect(() => {
     const refreshProviders = () => setProviderVersion((version) => version + 1);
     window.addEventListener("storage", refreshProviders);
-    window.addEventListener("yode-llm-providers-change", refreshProviders);
+    window.addEventListener(LLM_PROVIDERS_CHANGE_EVENT, refreshProviders);
     return () => {
       window.removeEventListener("storage", refreshProviders);
-      window.removeEventListener("yode-llm-providers-change", refreshProviders);
+      window.removeEventListener(LLM_PROVIDERS_CHANGE_EVENT, refreshProviders);
     };
   }, []);
 
