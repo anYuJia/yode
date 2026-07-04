@@ -3,8 +3,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   ENVIRONMENT_PROJECTS_STORAGE_KEY,
   PROJECT_ORDER_STORAGE_KEY,
+  PROJECT_ROOTS_CHANGED_EVENT,
   PROJECT_ROOTS_STORAGE_KEY,
+  SESSION_DELETED_PERMANENTLY_EVENT,
+  SESSION_UNARCHIVED_EVENT,
+  SESSIONS_IMPORTED_EVENT,
   dedupeProjectRoots,
+  dispatchSessionDeletedPermanently,
+  dispatchSessionUnarchived,
+  dispatchSessionsImported,
   loadRealProjectRoots,
   loadStoredSelectedProjectRoot,
   loadStoredProjectEnvironments,
@@ -72,7 +79,27 @@ describe("project storage helpers", () => {
 
     expect(saved.get(PROJECT_ROOTS_STORAGE_KEY)).toBe(JSON.stringify(["/repo", "/other"]));
     expect(saved.get(PROJECT_ORDER_STORAGE_KEY)).toBe(JSON.stringify(["/repo", "/other"]));
-    expect(dispatched).toEqual(["yode-project-roots-changed"]);
+    expect(dispatched).toEqual([PROJECT_ROOTS_CHANGED_EVENT]);
+  });
+
+  it("dispatches session lifecycle events through shared helpers", () => {
+    const dispatched: Array<{ type: string; detail: unknown }> = [];
+    vi.stubGlobal("window", {
+      dispatchEvent: (event: CustomEvent) => {
+        dispatched.push({ type: event.type, detail: event.detail });
+        return true;
+      }
+    });
+
+    dispatchSessionUnarchived("s-1");
+    dispatchSessionDeletedPermanently("s-2");
+    dispatchSessionsImported([{ id: "s-3", title: "Imported" } as never]);
+
+    expect(dispatched).toEqual([
+      { type: SESSION_UNARCHIVED_EVENT, detail: { sessionId: "s-1" } },
+      { type: SESSION_DELETED_PERMANENTLY_EVENT, detail: { sessionId: "s-2" } },
+      { type: SESSIONS_IMPORTED_EVENT, detail: [{ id: "s-3", title: "Imported" }] }
+    ]);
   });
 
   it("normalizes project environment records", () => {

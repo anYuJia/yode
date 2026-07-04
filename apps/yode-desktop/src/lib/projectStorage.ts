@@ -8,6 +8,10 @@ export const ARCHIVED_CHATS_STORAGE_KEY = "yode-archived-chats";
 export const DELETED_SESSION_IDS_STORAGE_KEY = "yode-deleted-session-ids";
 export const ENVIRONMENT_PROJECTS_STORAGE_KEY = "yode-environments-projects";
 export const STANDALONE_PROJECT_SENTINEL = "__standalone__";
+export const PROJECT_ROOTS_CHANGED_EVENT = "yode-project-roots-changed";
+export const SESSION_UNARCHIVED_EVENT = "yode-session-unarchived";
+export const SESSION_DELETED_PERMANENTLY_EVENT = "yode-session-deleted-permanently";
+export const SESSIONS_IMPORTED_EVENT = "yode-sessions-imported";
 
 export type ArchivedChatInfo = {
   id: string;
@@ -55,7 +59,19 @@ export function saveRealProjectRoots(roots: string[]) {
   const deduped = dedupeProjectRoots(roots);
   saveStoredStringArray(PROJECT_ROOTS_STORAGE_KEY, deduped);
   saveStoredStringArray(PROJECT_ORDER_STORAGE_KEY, deduped);
-  window.dispatchEvent(new CustomEvent("yode-project-roots-changed", { detail: deduped }));
+  window.dispatchEvent(new CustomEvent(PROJECT_ROOTS_CHANGED_EVENT, { detail: deduped }));
+}
+
+export function dispatchSessionUnarchived(sessionId: string) {
+  window.dispatchEvent(new CustomEvent(SESSION_UNARCHIVED_EVENT, { detail: { sessionId } }));
+}
+
+export function dispatchSessionDeletedPermanently(sessionId: string) {
+  window.dispatchEvent(new CustomEvent(SESSION_DELETED_PERMANENTLY_EVENT, { detail: { sessionId } }));
+}
+
+export function dispatchSessionsImported(sessions: SessionSummary[]) {
+  window.dispatchEvent(new CustomEvent(SESSIONS_IMPORTED_EVENT, { detail: sessions }));
 }
 
 export function loadStoredSelectedProjectRoot(): string | null | undefined {

@@ -71,7 +71,7 @@ import {
   projectLabelFromPath,
   ConversationTurn
 } from "./components/timelineUtils";
-import { findShortcutAction, loadShortcutBindings } from "./lib/keyboardShortcuts";
+import { KEYBOARD_SHORTCUTS_CHANGE_EVENT, findShortcutAction, loadShortcutBindings } from "./lib/keyboardShortcuts";
 import {
   executeLocalSlashCommand,
   formatUsageSnapshot,
@@ -80,6 +80,10 @@ import {
 import { handleDesktopRuntimeEvent } from "./lib/desktopEventHandlers";
 import { applyGeneralSettings, loadGeneralSettings, toggleBottomPanelSetting } from "./lib/desktopSettings";
 import {
+  PROJECT_ROOTS_CHANGED_EVENT,
+  SESSION_DELETED_PERMANENTLY_EVENT,
+  SESSION_UNARCHIVED_EVENT,
+  SESSIONS_IMPORTED_EVENT,
   archiveSessionLocally,
   dedupeProjectRoots,
   normalizeProjectRoot,
@@ -92,6 +96,7 @@ import {
   PaneKind,
 } from "./lib/paneLayout";
 import {
+  DEFAULT_LLM_CHANGE_EVENT,
   preferredModelFromStorage,
   saveLastModelForProvider,
   saveStoredProviders
@@ -433,10 +438,10 @@ export function App() {
     const handleProjectRootsChanged = () => {
       reloadProjectStorage();
     };
-    window.addEventListener("yode-project-roots-changed", handleProjectRootsChanged);
+    window.addEventListener(PROJECT_ROOTS_CHANGED_EVENT, handleProjectRootsChanged);
     window.addEventListener("storage", handleProjectRootsChanged);
     return () => {
-      window.removeEventListener("yode-project-roots-changed", handleProjectRootsChanged);
+      window.removeEventListener(PROJECT_ROOTS_CHANGED_EVENT, handleProjectRootsChanged);
       window.removeEventListener("storage", handleProjectRootsChanged);
     };
   }, [reloadProjectStorage]);
@@ -529,15 +534,15 @@ export function App() {
       setSessionItems((items) => items.filter((session) => session.id !== sessionId));
       setActiveSessionId((current) => current === sessionId ? null : current);
     };
-    window.addEventListener("yode-session-unarchived", handleUnarchive);
-    window.addEventListener("yode-default-llm-change", handleDefaultLlmChange);
-    window.addEventListener("yode-session-deleted-permanently", handlePermanentDelete);
-    window.addEventListener("yode-sessions-imported", handleUnarchive);
+    window.addEventListener(SESSION_UNARCHIVED_EVENT, handleUnarchive);
+    window.addEventListener(DEFAULT_LLM_CHANGE_EVENT, handleDefaultLlmChange);
+    window.addEventListener(SESSION_DELETED_PERMANENTLY_EVENT, handlePermanentDelete);
+    window.addEventListener(SESSIONS_IMPORTED_EVENT, handleUnarchive);
     return () => {
-      window.removeEventListener("yode-session-unarchived", handleUnarchive);
-      window.removeEventListener("yode-default-llm-change", handleDefaultLlmChange);
-      window.removeEventListener("yode-session-deleted-permanently", handlePermanentDelete);
-      window.removeEventListener("yode-sessions-imported", handleUnarchive);
+      window.removeEventListener(SESSION_UNARCHIVED_EVENT, handleUnarchive);
+      window.removeEventListener(DEFAULT_LLM_CHANGE_EVENT, handleDefaultLlmChange);
+      window.removeEventListener(SESSION_DELETED_PERMANENTLY_EVENT, handlePermanentDelete);
+      window.removeEventListener(SESSIONS_IMPORTED_EVENT, handleUnarchive);
     };
   }, []);
 
@@ -1108,10 +1113,10 @@ export function App() {
     };
 
     window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("yode-keyboard-shortcuts-change", refreshBindings);
+    window.addEventListener(KEYBOARD_SHORTCUTS_CHANGE_EVENT, refreshBindings);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("yode-keyboard-shortcuts-change", refreshBindings);
+      window.removeEventListener(KEYBOARD_SHORTCUTS_CHANGE_EVENT, refreshBindings);
     };
   }, [sessionItems, selectedProjectRoot, terminalOpen, displayedWorkspacePath, viewMode]);
 

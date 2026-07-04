@@ -3,6 +3,8 @@ import { Search, Trash2 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ArchivedChatInfo,
+  dispatchSessionDeletedPermanently,
+  dispatchSessionUnarchived,
   loadStoredArchivedChats,
   markArchivedSessionDeletedLocally,
   saveStoredArchivedChats,
@@ -28,7 +30,7 @@ export function ArchivedChatsSettingsSettings({
 
   const handleUnarchive = (id: string, title: string) => {
     setChats(unarchiveSessionLocally(id));
-    window.dispatchEvent(new CustomEvent("yode-session-unarchived", { detail: { sessionId: id } }));
+    dispatchSessionUnarchived(id);
 
     setStatusText(t(`对话 "${title}" 已恢复。`, `Chat "${title}" restored.`));
   };
@@ -44,7 +46,7 @@ export function ArchivedChatsSettingsSettings({
     }
 
     setChats(markArchivedSessionDeletedLocally(id));
-    window.dispatchEvent(new CustomEvent("yode-session-deleted-permanently", { detail: { sessionId: id } }));
+    dispatchSessionDeletedPermanently(id);
   };
 
   const filteredChats = chats.filter(c =>

@@ -62,6 +62,7 @@ import {
   saveAppLanguage
 } from "../lib/appearanceSettings";
 import { applyGeneralSettings, saveGeneralSettingValue } from "../lib/desktopSettings";
+import { dispatchSessionsImported } from "../lib/projectStorage";
 
 const SETTINGS_SIDEBAR_WIDTH_KEY = "yode-settings-sidebar-width";
 
@@ -227,7 +228,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
       const result = await invoke<ImportAiSessionsResult>("import_ai_sessions");
       setImportStatus(t(`已导入 ${result.imported} 个会话，跳过 ${result.skipped} 个文件。`, `Imported ${result.imported} sessions, skipped ${result.skipped} files.`));
       if (result.imported > 0) {
-        window.dispatchEvent(new CustomEvent("yode-sessions-imported", { detail: result.sessions }));
+        dispatchSessionsImported(result.sessions);
       }
     } catch (err) {
       console.error(err);
