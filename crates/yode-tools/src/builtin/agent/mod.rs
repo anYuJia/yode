@@ -29,6 +29,21 @@ fn record_agent_runtime_result<T>(
     }
 }
 
+fn append_persistence_errors(content: String, persistence_errors: &[String]) -> String {
+    if persistence_errors.is_empty() {
+        return content;
+    }
+
+    let mut output = content;
+    output.push_str("\n\nAgent persistence warnings:\n");
+    for error in persistence_errors {
+        output.push_str("- ");
+        output.push_str(error);
+        output.push('\n');
+    }
+    output
+}
+
 #[async_trait]
 impl Tool for AgentTool {
     fn name(&self) -> &str {
@@ -220,18 +235,15 @@ impl Tool for AgentTool {
                         (ctx.working_dir.as_deref(), manager.snapshot(team_id))
                     {
                         let working_dir = working_dir.to_path_buf();
-                        if let Err(err) = run_team_disk_io(
+                        record_agent_runtime_result(
+                            &mut persistence_errors,
                             "persist_agent_team_snapshot_after_mailbox",
-                            move || persist_agent_team_snapshot(&working_dir, &snapshot),
-                        )
-                        .await
-                        {
-                            warn!(
-                                operation = "persist_agent_team_snapshot_after_mailbox",
-                                error = %err,
-                                "agent runtime operation failed"
-                            );
-                        }
+                            run_team_disk_io(
+                                "persist_agent_team_snapshot_after_mailbox",
+                                move || persist_agent_team_snapshot(&working_dir, &snapshot),
+                            )
+                            .await,
+                        );
                     }
                 }
                 mailbox
@@ -440,12 +452,14 @@ impl Tool for AgentTool {
                     None
                 };
 
+                let content = if let Some(path) = &artifact_path {
+                    format!("{}\n\nSub-agent artifact: {}", result, path)
+                } else {
+                    result
+                };
+
                 Ok(ToolResult::success_with_metadata(
-                    if let Some(path) = &artifact_path {
-                        format!("{}\n\nSub-agent artifact: {}", result, path)
-                    } else {
-                        result
-                    },
+                    append_persistence_errors(content, &persistence_errors),
                     json!({
                         "description": description,
                         "run_in_background": run_in_background,
@@ -508,7 +522,7 @@ async fn persist_sub_agent_artifact_async(
 mod tests {
     use yode_agent::AgentTeamManager;
 
-    use super::AgentTool;
+    use super::{append_persistence_errors, AgentTool};
     use crate::tool::{SubAgentOptions, SubAgentRunner, Tool, ToolContext};
     use serde_json::json;
     use std::pin::Pin;
@@ -551,6 +565,17 @@ mod tests {
         let aliases = AgentTool.aliases();
         assert!(aliases.iter().any(|alias| alias == "Agent"));
         assert!(aliases.iter().any(|alias| alias == "Task"));
+    }
+
+    #[test]
+    fn agent_tool_surfaces_persistence_errors_in_content() {
+        let content = append_persistence_errors(
+            "sub-agent done".to_string(),
+            &["persist_agent_team_snapshot: disk full".to_string()],
+        );
+
+        assert!(content.contains("Agent persistence warnings"));
+        assert!(content.contains("persist_agent_team_snapshot: disk full"));
     }
 
     #[tokio::test]
