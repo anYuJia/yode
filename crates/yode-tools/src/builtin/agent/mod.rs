@@ -6,7 +6,7 @@ use serde_json::Value;
 use tracing::warn;
 
 use crate::builtin::team_runtime::{
-    hydrate_agent_team_manager, persist_agent_team_runtime, persist_agent_team_snapshot,
+    hydrate_agent_team_manager_async, persist_agent_team_runtime, persist_agent_team_snapshot,
     run_team_disk_io, update_agent_team_member, AgentTeamMemberState,
 };
 use crate::path_format::display_slash;
@@ -227,6 +227,13 @@ impl Tool for AgentTool {
             member_id.as_deref(),
             ctx.team_runtime.as_ref(),
         ) {
+            if let Some(working_dir) = ctx.working_dir.as_deref() {
+                record_agent_runtime_result(
+                    &mut persistence_errors,
+                    "hydrate_agent_team_manager",
+                    hydrate_agent_team_manager_async(working_dir, manager, team_id).await,
+                );
+            }
             let mailbox = {
                 let mut manager = manager.lock().await;
                 let mailbox = manager.consume_message_context(team_id, member_id, 6);
@@ -286,16 +293,15 @@ impl Tool for AgentTool {
                     (team_id.as_deref(), ctx.working_dir.as_deref())
                 {
                     if let Some(manager) = ctx.team_runtime.as_ref() {
+                        let existing_snapshot = record_agent_runtime_result(
+                            &mut persistence_errors,
+                            "hydrate_agent_team_manager",
+                            hydrate_agent_team_manager_async(working_dir, manager, team_id).await,
+                        )
+                        .flatten();
                         let snapshot = {
                             let mut manager = manager.lock().await;
-                            if record_agent_runtime_result(
-                                &mut persistence_errors,
-                                "hydrate_agent_team_manager",
-                                hydrate_agent_team_manager(working_dir, &mut manager, team_id),
-                            )
-                            .flatten()
-                            .is_none()
-                            {
+                            if existing_snapshot.is_none() {
                                 let state = manager.ensure_team(
                                     &description,
                                     Some(team_id),

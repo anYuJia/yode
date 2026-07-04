@@ -11,7 +11,7 @@ use crate::builtin::orchestration_common::{
     persist_coordinator_runtime_artifacts_async, CoordinatorRuntimeArtifactRequest,
 };
 use crate::builtin::team_runtime::{
-    hydrate_agent_team_manager, persist_agent_team_runtime, persist_agent_team_snapshot,
+    hydrate_agent_team_manager_async, persist_agent_team_runtime, persist_agent_team_snapshot,
     run_team_disk_io, update_agent_team_member, AgentTeamMemberState,
 };
 use crate::tool::{SubAgentOptions, Tool, ToolCapabilities, ToolContext, ToolResult};
@@ -467,13 +467,13 @@ impl Tool for CoordinateAgentsTool {
                             if let (Some(dir), Some(manager)) =
                                 (ctx.working_dir.as_deref(), ctx.team_runtime.as_ref())
                             {
+                                record_team_runtime_result(
+                                    &mut persistence_errors,
+                                    "hydrate_agent_team_manager",
+                                    hydrate_agent_team_manager_async(dir, manager, &team_id).await,
+                                );
                                 let snapshot = {
                                     let mut manager = manager.lock().await;
-                                    record_team_runtime_result(
-                                        &mut persistence_errors,
-                                        "hydrate_agent_team_manager",
-                                        hydrate_agent_team_manager(dir, &mut manager, &team_id),
-                                    );
                                     record_team_runtime_result(
                                         &mut persistence_errors,
                                         "update_agent_team_member_in_memory",
@@ -548,13 +548,13 @@ impl Tool for CoordinateAgentsTool {
                             if let (Some(dir), Some(manager)) =
                                 (ctx.working_dir.as_deref(), ctx.team_runtime.as_ref())
                             {
+                                record_team_runtime_result(
+                                    &mut persistence_errors,
+                                    "hydrate_agent_team_manager",
+                                    hydrate_agent_team_manager_async(dir, manager, &team_id).await,
+                                );
                                 let snapshot = {
                                     let mut manager = manager.lock().await;
-                                    record_team_runtime_result(
-                                        &mut persistence_errors,
-                                        "hydrate_agent_team_manager",
-                                        hydrate_agent_team_manager(dir, &mut manager, &team_id),
-                                    );
                                     record_team_runtime_result(
                                         &mut persistence_errors,
                                         "update_agent_team_member_in_memory",

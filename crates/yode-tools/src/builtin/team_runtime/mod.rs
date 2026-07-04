@@ -168,7 +168,7 @@ pub fn hydrate_agent_team_manager(
     Ok(manager.snapshot(team_id))
 }
 
-async fn hydrate_agent_team_manager_async(
+pub(crate) async fn hydrate_agent_team_manager_async(
     working_dir: &Path,
     manager: &Arc<tokio::sync::Mutex<AgentTeamManager>>,
     team_id: &str,
