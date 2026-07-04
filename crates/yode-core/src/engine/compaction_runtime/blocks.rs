@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use anyhow::{Context, Result};
 use yode_llm::types::{Message, RestoreSystemBlockHint, Role};
 use yode_tools::builtin::skill::SkillInvocation;
 use yode_tools::RuntimeTask;
@@ -522,9 +523,14 @@ pub(super) async fn write_post_compact_restore_artifact_async(
     blocks: &[(RestoreBlockKind, String)],
     compact_boundary: Option<&CompactBoundaryRuntimeState>,
     restore_budget: Option<&RestoreBudgetRuntimeState>,
-) -> Option<PathBuf> {
+) -> Result<Option<PathBuf>> {
     let dir = project_root.join(".yode").join("status");
-    tokio::fs::create_dir_all(&dir).await.ok()?;
+    tokio::fs::create_dir_all(&dir).await.with_context(|| {
+        format!(
+            "failed to create status artifact directory {}",
+            dir.display()
+        )
+    })?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-post-compact-restore.md", short_session));
     let body = render_post_compact_restore_artifact_body(
@@ -533,10 +539,13 @@ pub(super) async fn write_post_compact_restore_artifact_async(
         blocks,
         compact_boundary,
         restore_budget,
-    )?;
+    )
+    .context("failed to render post-compact restore artifact")?;
 
-    tokio::fs::write(&path, body).await.ok()?;
-    Some(path)
+    tokio::fs::write(&path, body)
+        .await
+        .with_context(|| format!("failed to write restore artifact {}", path.display()))?;
+    Ok(Some(path))
 }
 
 fn render_post_compact_restore_artifact_body(
@@ -578,9 +587,14 @@ pub(super) async fn write_post_compact_restore_state_artifact_async(
     blocks: &[(RestoreBlockKind, String)],
     compact_boundary: Option<&CompactBoundaryRuntimeState>,
     restore_budget: Option<&RestoreBudgetRuntimeState>,
-) -> Option<PathBuf> {
+) -> Result<Option<PathBuf>> {
     let dir = project_root.join(".yode").join("status");
-    tokio::fs::create_dir_all(&dir).await.ok()?;
+    tokio::fs::create_dir_all(&dir).await.with_context(|| {
+        format!(
+            "failed to create status artifact directory {}",
+            dir.display()
+        )
+    })?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-post-compact-restore-state.json", short_session));
     let payload = render_post_compact_restore_state_artifact_payload(
@@ -591,10 +605,12 @@ pub(super) async fn write_post_compact_restore_state_artifact_async(
         restore_budget,
     );
 
-    tokio::fs::write(&path, serde_json::to_string_pretty(&payload).ok()?)
+    let body = serde_json::to_string_pretty(&payload)
+        .context("failed to serialize post-compact restore state artifact")?;
+    tokio::fs::write(&path, body)
         .await
-        .ok()?;
-    Some(path)
+        .with_context(|| format!("failed to write restore state artifact {}", path.display()))?;
+    Ok(Some(path))
 }
 
 fn render_post_compact_restore_state_artifact_payload(
@@ -633,19 +649,26 @@ pub(super) async fn write_post_compact_restore_diff_artifact_async(
     session_id: &str,
     previous: &[(RestoreBlockKind, String)],
     current: &[(RestoreBlockKind, String)],
-) -> Option<PathBuf> {
+) -> Result<Option<PathBuf>> {
     if previous == current {
-        return None;
+        return Ok(None);
     }
 
     let dir = project_root.join(".yode").join("status");
-    tokio::fs::create_dir_all(&dir).await.ok()?;
+    tokio::fs::create_dir_all(&dir).await.with_context(|| {
+        format!(
+            "failed to create status artifact directory {}",
+            dir.display()
+        )
+    })?;
     let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!("{}-post-compact-restore-diff.md", short_session));
     let body = render_post_compact_restore_diff_artifact_body(session_id, previous, current);
 
-    tokio::fs::write(&path, body).await.ok()?;
-    Some(path)
+    tokio::fs::write(&path, body)
+        .await
+        .with_context(|| format!("failed to write restore diff artifact {}", path.display()))?;
+    Ok(Some(path))
 }
 
 fn render_post_compact_restore_diff_artifact_body(

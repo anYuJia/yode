@@ -908,7 +908,7 @@ impl AgentEngine {
         let previous_restore_messages =
             load_post_compact_restore_state_artifact_async(&project_root, &self.context.session_id)
                 .await;
-        let restore_artifact_path = write_post_compact_restore_artifact_async(
+        let restore_artifact_path = match write_post_compact_restore_artifact_async(
             &project_root,
             &self.context.session_id,
             mode_label,
@@ -916,8 +916,15 @@ impl AgentEngine {
             Some(&compact_boundary),
             Some(&restore_budget),
         )
-        .await;
-        let restore_state_artifact_path = write_post_compact_restore_state_artifact_async(
+        .await
+        {
+            Ok(path) => path,
+            Err(err) => {
+                warn!("Failed to write post-compact restore artifact: {}", err);
+                None
+            }
+        };
+        let restore_state_artifact_path = match write_post_compact_restore_state_artifact_async(
             &project_root,
             &self.context.session_id,
             mode_label,
@@ -925,7 +932,17 @@ impl AgentEngine {
             Some(&compact_boundary),
             Some(&restore_budget),
         )
-        .await;
+        .await
+        {
+            Ok(path) => path,
+            Err(err) => {
+                warn!(
+                    "Failed to write post-compact restore state artifact: {}",
+                    err
+                );
+                None
+            }
+        };
         push_artifact_path(
             &mut compact_boundary.artifact_paths,
             restore_artifact_path.as_deref(),
@@ -935,13 +952,24 @@ impl AgentEngine {
             restore_state_artifact_path.as_deref(),
         );
         if let Some(previous) = previous_restore_messages.as_ref() {
-            let _ = write_post_compact_restore_diff_artifact_async(
+            match write_post_compact_restore_diff_artifact_async(
                 &project_root,
                 &self.context.session_id,
                 previous,
                 &restore_messages,
             )
-            .await;
+            .await
+            {
+                Ok(path) => {
+                    push_artifact_path(&mut compact_boundary.artifact_paths, path.as_deref());
+                }
+                Err(err) => {
+                    warn!(
+                        "Failed to write post-compact restore diff artifact: {}",
+                        err
+                    );
+                }
+            }
         }
         self.set_post_compact_restore_blocks(restore_messages);
         self.take_post_compact_restore_messages_from_conversation();
