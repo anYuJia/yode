@@ -1,4 +1,5 @@
 import { TimelineItem, SessionSummary, DesktopMessage } from "../lib/desktopTypes";
+import { parseJsonArray, recordFromUnknown } from "../lib/jsonUtils";
 import {
   isRuntimeNoticeText,
   parseToolDetails,
@@ -13,12 +14,6 @@ export function normalizeProcessNoteText(text: string) {
     .replace(/[ \t]+/g, " ")
     .replace(/[ \t]+([,.;:!?，。；：！？])/g, "$1")
     .trim();
-}
-
-function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
 }
 
 type ToolTimelineItem =
@@ -788,22 +783,20 @@ export function statusLabel(status: "running" | "success" | "blocked") {
 }
 
 export function parseToolCalls(raw: string | null | undefined): Array<{ id?: string; name: string; arguments: string }> {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.flatMap((item) => {
-      const id = stringValue(item?.id);
-      const name = stringValue(item?.name) ?? stringValue(item?.function?.name);
-      const args =
-        stringValue(item?.arguments) ??
-        stringValue(item?.function?.arguments) ??
-        JSON.stringify(item?.arguments ?? item?.function?.arguments ?? {});
-      return name ? [{ id, name, arguments: args }] : [];
-    });
-  } catch {
-    return [];
-  }
+  return parseJsonArray(raw).flatMap((item) => {
+    const record = recordFromUnknown(item);
+    if (!record) return [];
+
+    const functionRecord = recordFromUnknown(record.function);
+    const id = stringValue(record.id);
+    const name = stringValue(record.name) ?? stringValue(functionRecord?.name);
+    const rawArgs =
+      stringValue(record.arguments) ??
+      stringValue(functionRecord?.arguments);
+    const args = rawArgs ?? JSON.stringify(record.arguments ?? functionRecord?.arguments ?? {});
+
+    return name ? [{ id, name, arguments: args }] : [];
+  });
 }
 
 export function desktopEventToTimelineItem(

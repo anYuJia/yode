@@ -1,4 +1,5 @@
 import type { TimelineItem } from "../../lib/desktopTypes";
+import { parseJsonObject, recordFromUnknown } from "../../lib/jsonUtils";
 
 type ActivityToolItem = Extract<TimelineItem, { kind: "tool" }>;
 type CountedActivityToolItem = ActivityToolItem & { count?: number };
@@ -8,12 +9,6 @@ type ToolDetailsItem = {
   title?: string;
   metadata?: unknown;
 };
-
-function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
-}
 
 export function isRuntimeNoticeText(text?: string) {
   if (!text) return false;
@@ -187,9 +182,8 @@ export function parseToolDetails(item: ToolDetailsItem) {
     }
   }
 
-  try {
-    const parsed = recordFromUnknown(JSON.parse(body));
-    if (parsed) {
+  const parsed = parseJsonObject(body);
+  if (parsed) {
       const rawPath = parsed.file_path || parsed.path || parsed.TargetFile || parsed.AbsolutePath || parsed.Path || parsed.Target || parsed.SearchPath || parsed.TargetContentFile;
       if (rawPath && typeof rawPath === "string") {
         filename = rawPath.substring(rawPath.lastIndexOf('/') + 1);
@@ -228,8 +222,7 @@ export function parseToolDetails(item: ToolDetailsItem) {
           diff = `+${replacementLines} -${targetLines}`;
         }
       }
-    }
-  } catch (e) {
+  } else {
     const pathMatch = body.match(/"(?:file_path|path|AbsolutePath|TargetFile|Path|SearchPath)"\s*:\s*"([^"]+)"/);
     if (pathMatch) {
       const rawPath = pathMatch[1];
@@ -359,16 +352,6 @@ export function summarizeActivityItems(items: TimelineItem[]) {
   }
 
   return summarized;
-}
-
-function parseJsonObject(text?: string): Record<string, unknown> | null {
-  if (!text || typeof text !== "string") return null;
-  try {
-    const parsed = JSON.parse(text);
-    return recordFromUnknown(parsed) ?? null;
-  } catch {
-    return null;
-  }
 }
 
 function expandBatchActivityItems(items: TimelineItem[]) {

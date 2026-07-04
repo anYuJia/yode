@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, CircleDot, Copy, Pencil, Check } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { TimelineItem } from "../../lib/desktopTypes";
+import { recordFromUnknown } from "../../lib/jsonUtils";
 import { ActivityLeafNode } from "./ActivityLeafNode";
 import { getFileIcon } from "../FileIcon";
 import {
@@ -20,12 +21,6 @@ type ToolDescriptorItem = ActivityToolItem | ActivityEditItem;
 
 function classifyActivityTool(item: ToolDescriptorItem) {
   return getActivityDescriptor(item).kind;
-}
-
-function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
 }
 
 function notifyTimelineLayoutChanged() {

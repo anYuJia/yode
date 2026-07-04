@@ -1,6 +1,7 @@
 import React, { useLayoutEffect, useState } from "react";
 import { ChevronDown, ChevronRight, CircleDot } from "lucide-react";
 import type { TimelineItem } from "../../lib/desktopTypes";
+import { parseJsonObject, recordFromUnknown } from "../../lib/jsonUtils";
 import { getFileIcon, getCommandIcon } from "../FileIcon";
 import { getActivityDescriptor, displayToolName } from "./ToolUtils";
 
@@ -9,22 +10,6 @@ type ActivityToolItem = Extract<TimelineItem, { kind: "tool" }> & { count?: numb
 function notifyTimelineLayoutChanged() {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent("yode:timeline-layout-change"));
-}
-
-function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
-}
-
-function parseJsonObject(text?: string): Record<string, unknown> | null {
-  if (!text) return null;
-  try {
-    const parsed = JSON.parse(text);
-    return recordFromUnknown(parsed) ?? null;
-  } catch {
-    return null;
-  }
 }
 
 function splitReadableText(text?: string) {
