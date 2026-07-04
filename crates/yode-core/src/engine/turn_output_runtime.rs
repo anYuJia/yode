@@ -69,7 +69,12 @@ impl AgentEngine {
             .working_dir_compat()
             .join(".yode")
             .join("turns");
-        if tokio::fs::create_dir_all(&dir).await.is_err() {
+        if let Err(err) = tokio::fs::create_dir_all(&dir).await {
+            tracing::warn!(
+                "Failed to create turn artifact directory {}: {}",
+                dir.display(),
+                err
+            );
             return;
         }
         let short_session = self.context.session_id.chars().take(8).collect::<String>();
@@ -84,14 +89,20 @@ impl AgentEngine {
             "message_count": self.messages.len(),
             "completed_at": Self::now_timestamp(),
         });
-        if tokio::fs::write(
-            &path,
-            serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()),
-        )
-        .await
-        .is_ok()
-        {
-            self.last_turn_artifact_path = Some(path.display().to_string());
+        let body = match serde_json::to_string_pretty(&payload) {
+            Ok(body) => body,
+            Err(err) => {
+                tracing::warn!("Failed to serialize turn artifact payload: {}", err);
+                return;
+            }
+        };
+        match tokio::fs::write(&path, body).await {
+            Ok(()) => {
+                self.last_turn_artifact_path = Some(path.display().to_string());
+            }
+            Err(err) => {
+                tracing::warn!("Failed to write turn artifact {}: {}", path.display(), err);
+            }
         }
     }
 

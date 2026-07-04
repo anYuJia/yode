@@ -158,13 +158,34 @@ impl AgentEngine {
             tool_name,
             state_path.display(),
         );
-        let summary_ok = tokio::fs::write(&summary_path, summary).await.is_ok();
-        let state_ok = tokio::fs::write(
-            &state_path,
-            serde_json::to_string_pretty(&payload).unwrap_or_else(|_| "{}".to_string()),
-        )
-        .await
-        .is_ok();
+        let summary_ok = match tokio::fs::write(&summary_path, summary).await {
+            Ok(()) => true,
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to write hook defer summary artifact {}: {}",
+                    summary_path.display(),
+                    err
+                );
+                false
+            }
+        };
+        let state_ok = match serde_json::to_string_pretty(&payload) {
+            Ok(body) => match tokio::fs::write(&state_path, body).await {
+                Ok(()) => true,
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to write hook defer state artifact {}: {}",
+                        state_path.display(),
+                        err
+                    );
+                    false
+                }
+            },
+            Err(err) => {
+                tracing::warn!("Failed to serialize hook defer state artifact: {}", err);
+                false
+            }
+        };
         (
             summary_ok.then(|| summary_path.display().to_string()),
             state_ok.then(|| state_path.display().to_string()),
