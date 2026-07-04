@@ -61,7 +61,7 @@ import {
   loadAppLanguage,
   saveAppLanguage
 } from "../lib/appearanceSettings";
-import { applyGeneralSettings, saveGeneralSettingValue } from "../lib/desktopSettings";
+import { applyGeneralSettings, loadGeneralSettingsPayload, saveGeneralSettingValue } from "../lib/desktopSettings";
 import { dispatchSessionsImported } from "../lib/projectStorage";
 
 const SETTINGS_SIDEBAR_WIDTH_KEY = "yode-settings-sidebar-width";
@@ -182,23 +182,24 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
   };
 
   // State bindings for General configuration elements
-  const [workMode, setWorkMode] = useState(() => localStorage.getItem("yode-work-mode") || "coding");
-  const [defPerm, setDefPerm] = useState(() => localStorage.getItem("yode-def-perm") !== "false");
-  const [autoReview, setAutoReview] = useState(() => localStorage.getItem("yode-auto-review") !== "false");
-  const [fullAccess, setFullAccess] = useState(() => localStorage.getItem("yode-full-access") !== "false");
-  const [openDest, setOpenDest] = useState(() => localStorage.getItem("yode-open-dest") || "VS Code");
-  const [showInMenuBar, setShowInMenuBar] = useState(() => localStorage.getItem("yode-show-menu-bar") !== "false");
-  const [bottomPanel, setBottomPanel] = useState(() => localStorage.getItem("yode-bottom-panel") !== "false");
-  const [termLoc, setTermLoc] = useState(() => localStorage.getItem("yode-term-loc") || "bottom");
-  const [preventSleep, setPreventSleep] = useState(() => localStorage.getItem("yode-prevent-sleep") === "true");
-  const [codeReviewPolicy, setCodeReviewPolicy] = useState(() => localStorage.getItem("yode-code-review-policy") || "inline");
-  const [suggestedPrompts, setSuggestedPrompts] = useState(() => localStorage.getItem("yode-suggested-prompts") !== "false");
-  const [contextUsage, setContextUsage] = useState(() => localStorage.getItem("yode-context-usage") === "true");
-  const [followUpBehavior, setFollowUpBehavior] = useState(() => localStorage.getItem("yode-follow-up-behavior") || "queue");
-  const [requireOptEnter, setRequireOptEnter] = useState(() => localStorage.getItem("yode-require-opt-enter") === "true");
-  const [completionNotif, setCompletionNotif] = useState(() => localStorage.getItem("yode-completion-notif") || "Only when unfocused");
-  const [permNotif, setPermNotif] = useState(() => localStorage.getItem("yode-perm-notif") !== "false");
-  const [questionNotif, setQuestionNotif] = useState(() => localStorage.getItem("yode-question-notif") !== "false");
+  const initialGeneralSettings = loadGeneralSettingsPayload();
+  const [workMode, setWorkMode] = useState(initialGeneralSettings.workMode);
+  const [defPerm, setDefPerm] = useState(initialGeneralSettings.defaultFilePermission);
+  const [autoReview, setAutoReview] = useState(initialGeneralSettings.autoReview);
+  const [fullAccess, setFullAccess] = useState(initialGeneralSettings.fullAccess);
+  const [openDest, setOpenDest] = useState(initialGeneralSettings.openDestination);
+  const [showInMenuBar, setShowInMenuBar] = useState(initialGeneralSettings.showInMenuBar);
+  const [bottomPanel, setBottomPanel] = useState(initialGeneralSettings.bottomPanel);
+  const [termLoc, setTermLoc] = useState(initialGeneralSettings.terminalLocation);
+  const [preventSleep, setPreventSleep] = useState(initialGeneralSettings.preventSleep);
+  const [codeReviewPolicy, setCodeReviewPolicy] = useState(initialGeneralSettings.codeReviewPolicy);
+  const [suggestedPrompts, setSuggestedPrompts] = useState(initialGeneralSettings.suggestedPrompts);
+  const [contextUsage, setContextUsage] = useState(initialGeneralSettings.contextUsage);
+  const [followUpBehavior, setFollowUpBehavior] = useState(initialGeneralSettings.followUpBehavior);
+  const [requireOptEnter, setRequireOptEnter] = useState(initialGeneralSettings.requireOptEnter);
+  const [completionNotif, setCompletionNotif] = useState(initialGeneralSettings.completionNotification);
+  const [permNotif, setPermNotif] = useState(initialGeneralSettings.permissionNotification);
+  const [questionNotif, setQuestionNotif] = useState(initialGeneralSettings.questionNotification);
   const [licenseModalOpen, setLicenseModalOpen] = useState(false);
   const [licenseNotices, setLicenseNotices] = useState<LicenseNotice[]>([]);
   const [licenseLoading, setLicenseLoading] = useState(false);
