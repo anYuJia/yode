@@ -86,6 +86,7 @@ import {
   SESSIONS_IMPORTED_EVENT,
   archiveSessionLocally,
   dedupeProjectRoots,
+  detailFromSessionIdEvent,
   normalizeProjectRoot,
   visibleSessions
 } from "./lib/projectStorage";
@@ -97,6 +98,7 @@ import {
 } from "./lib/paneLayout";
 import {
   DEFAULT_LLM_CHANGE_EVENT,
+  detailFromDefaultLlmChangeEvent,
   preferredModelFromStorage,
   saveLastModelForProvider,
   saveStoredProviders
@@ -111,7 +113,7 @@ import {
   LANGUAGE_CHANGE_EVENT,
   applyStoredAppearanceSettings,
   applyTranslucentSidebarSetting,
-  normalizeAppLanguage
+  languageFromChangeEvent
 } from "./lib/appearanceSettings";
 
 function imageToRequestPayload(image: ImageAttachment) {
@@ -406,8 +408,7 @@ export function App() {
 
   useEffect(() => {
     const handleLangChange = (e: Event) => {
-      const newLang = normalizeAppLanguage((e as CustomEvent).detail);
-      setAppLang(newLang);
+      setAppLang(languageFromChangeEvent(e));
     };
     window.addEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
     return () => window.removeEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
@@ -520,25 +521,25 @@ export function App() {
       loadBootstrap();
     };
     const handleDefaultLlmChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ provider?: string; model?: string }>).detail;
-      if (!detail?.provider || !detail?.model) {
+      const detail = detailFromDefaultLlmChangeEvent(event);
+      if (!detail) {
         loadBootstrap();
         return;
       }
       setBootstrap((current) => ({
         ...current,
-        provider: detail.provider!,
-        model: detail.model!
+        provider: detail.provider,
+        model: detail.model
       }));
     };
     const handlePermanentDelete = (event: Event) => {
-      const sessionId = (event as CustomEvent<{ sessionId?: string }>).detail?.sessionId;
-      if (!sessionId) {
+      const detail = detailFromSessionIdEvent(event);
+      if (!detail) {
         loadBootstrap();
         return;
       }
-      setSessionItems((items) => items.filter((session) => session.id !== sessionId));
-      setActiveSessionId((current) => current === sessionId ? null : current);
+      setSessionItems((items) => items.filter((session) => session.id !== detail.sessionId));
+      setActiveSessionId((current) => current === detail.sessionId ? null : current);
     };
     window.addEventListener(SESSION_UNARCHIVED_EVENT, handleUnarchive);
     window.addEventListener(DEFAULT_LLM_CHANGE_EVENT, handleDefaultLlmChange);

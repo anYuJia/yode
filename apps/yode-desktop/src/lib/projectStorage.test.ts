@@ -9,6 +9,7 @@ import {
   SESSION_UNARCHIVED_EVENT,
   SESSIONS_IMPORTED_EVENT,
   dedupeProjectRoots,
+  detailFromSessionIdEvent,
   dispatchSessionDeletedPermanently,
   dispatchSessionUnarchived,
   dispatchSessionsImported,
@@ -100,6 +101,16 @@ describe("project storage helpers", () => {
       { type: SESSION_DELETED_PERMANENTLY_EVENT, detail: { sessionId: "s-2" } },
       { type: SESSIONS_IMPORTED_EVENT, detail: [{ id: "s-3", title: "Imported" }] }
     ]);
+  });
+
+  it("guards session id event payloads", () => {
+    expect(detailFromSessionIdEvent(new CustomEvent(SESSION_DELETED_PERMANENTLY_EVENT, {
+      detail: { sessionId: "s-1" }
+    }))).toEqual({ sessionId: "s-1" });
+    expect(detailFromSessionIdEvent(new CustomEvent(SESSION_DELETED_PERMANENTLY_EVENT, {
+      detail: { sessionId: "" }
+    }))).toBeNull();
+    expect(detailFromSessionIdEvent(new Event(SESSION_DELETED_PERMANENTLY_EVENT))).toBeNull();
   });
 
   it("normalizes project environment records", () => {

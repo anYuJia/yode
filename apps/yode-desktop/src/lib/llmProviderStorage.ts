@@ -2,6 +2,11 @@ export const LLM_PROVIDERS_STORAGE_KEY = "yode-llm-providers";
 export const LLM_PROVIDERS_CHANGE_EVENT = "yode-llm-providers-change";
 export const DEFAULT_LLM_CHANGE_EVENT = "yode-default-llm-change";
 
+export type DefaultLlmChangeDetail = {
+  provider: string;
+  model: string;
+};
+
 export type ProviderModelsMeta = {
   id: string;
   defaultModels: string[];
@@ -81,6 +86,18 @@ export function parseStoredProviderValues(raw: string | null): unknown[] {
 
 export function loadStoredProviderValues() {
   return parseStoredProviderValues(loadStoredProvidersRaw());
+}
+
+export function parseDefaultLlmChangeDetail(detail: unknown): DefaultLlmChangeDetail | null {
+  if (!detail || typeof detail !== "object") return null;
+  const record = detail as Record<string, unknown>;
+  return typeof record.provider === "string" && typeof record.model === "string"
+    ? { provider: record.provider, model: record.model }
+    : null;
+}
+
+export function detailFromDefaultLlmChangeEvent(event: Event): DefaultLlmChangeDetail | null {
+  return event instanceof CustomEvent ? parseDefaultLlmChangeDetail(event.detail) : null;
 }
 
 export function dispatchDefaultLlmChange(detail: unknown) {

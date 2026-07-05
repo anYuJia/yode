@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_LLM_CHANGE_EVENT,
   dispatchDefaultLlmChange,
+  detailFromDefaultLlmChangeEvent,
   lastModelStorageKey,
   loadLastModelForProvider,
   loadStoredProviderValues,
@@ -13,6 +14,7 @@ import {
   modelsForProviderFromStorage,
   parseStoredProviderValues,
   parseStoredProviders,
+  parseDefaultLlmChangeDetail,
   providerDisplayName,
   providerDisplayNameFromStorage,
   providerOptionsFromStorage,
@@ -138,6 +140,19 @@ describe("llm provider storage helpers", () => {
       type: DEFAULT_LLM_CHANGE_EVENT,
       detail: { provider: "openai", model: "stored" }
     });
+  });
+
+  it("guards default llm change payloads", () => {
+    expect(parseDefaultLlmChangeDetail({ provider: "openai", model: "gpt" })).toEqual({
+      provider: "openai",
+      model: "gpt"
+    });
+    expect(parseDefaultLlmChangeDetail({ provider: "openai" })).toBeNull();
+    expect(parseDefaultLlmChangeDetail(null)).toBeNull();
+    expect(detailFromDefaultLlmChangeEvent(new CustomEvent(DEFAULT_LLM_CHANGE_EVENT, {
+      detail: { provider: "local", model: "llama" }
+    }))).toEqual({ provider: "local", model: "llama" });
+    expect(detailFromDefaultLlmChangeEvent(new Event(DEFAULT_LLM_CHANGE_EVENT))).toBeNull();
   });
 });
 

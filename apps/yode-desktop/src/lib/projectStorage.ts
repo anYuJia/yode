@@ -13,6 +13,10 @@ export const SESSION_UNARCHIVED_EVENT = "yode-session-unarchived";
 export const SESSION_DELETED_PERMANENTLY_EVENT = "yode-session-deleted-permanently";
 export const SESSIONS_IMPORTED_EVENT = "yode-sessions-imported";
 
+export type SessionIdEventDetail = {
+  sessionId: string;
+};
+
 export type ArchivedChatInfo = {
   id: string;
   title: string;
@@ -68,6 +72,14 @@ export function dispatchSessionUnarchived(sessionId: string) {
 
 export function dispatchSessionDeletedPermanently(sessionId: string) {
   window.dispatchEvent(new CustomEvent(SESSION_DELETED_PERMANENTLY_EVENT, { detail: { sessionId } }));
+}
+
+export function detailFromSessionIdEvent(event: Event): SessionIdEventDetail | null {
+  if (!(event instanceof CustomEvent)) return null;
+  const detail = event.detail;
+  if (!detail || typeof detail !== "object") return null;
+  const sessionId = (detail as Record<string, unknown>).sessionId;
+  return typeof sessionId === "string" && sessionId.length > 0 ? { sessionId } : null;
 }
 
 export function dispatchSessionsImported(sessions: SessionSummary[]) {

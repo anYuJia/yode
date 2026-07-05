@@ -99,6 +99,12 @@ export function normalizeAppLanguage(value: unknown): AppLanguage {
   return value === "en" || value === "zh" ? value : DEFAULT_APP_LANGUAGE;
 }
 
+export function languageFromChangeEvent(event: Event): AppLanguage {
+  return event instanceof CustomEvent
+    ? normalizeAppLanguage(event.detail)
+    : DEFAULT_APP_LANGUAGE;
+}
+
 export function loadAppLanguage(): AppLanguage {
   return normalizeAppLanguage(localStorage.getItem(LANGUAGE_STORAGE_KEY));
 }
