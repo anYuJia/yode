@@ -61,23 +61,22 @@ impl DesktopRuntime {
             }
             match yode_mcp::McpClient::connect(&server.name, &mcp_config).await {
                 Ok(client) => {
-                    let tools = client.discover_wrapped_tools().await.unwrap_or_default();
-                    let resources = client.list_resources().await.unwrap_or_default();
-                    let templates = client.list_resource_templates().await.unwrap_or_default();
+                    let tools = client.discover_wrapped_tools().await;
+                    let resources = client.list_resources().await;
+                    let templates = client.list_resource_templates().await;
                     let _ = client.shutdown().await;
-                    Ok(DesktopMcpServerStatus {
-                        name: server.name,
-                        state: "ready".to_string(),
-                        detail: format!(
-                            "连接成功，发现 {} 个工具、{} 个资源、{} 个资源模板。",
-                            tools.len(),
-                            resources.len(),
-                            templates.len()
-                        ),
-                        tool_count: tools.len(),
-                        resource_count: resources.len(),
-                        template_count: templates.len(),
-                    })
+                    Ok(mcp_test_status_from_discovery_results(
+                        server.name,
+                        tools
+                            .map(|items| items.len())
+                            .map_err(|err| err.to_string()),
+                        resources
+                            .map(|items| items.len())
+                            .map_err(|err| err.to_string()),
+                        templates
+                            .map(|items| items.len())
+                            .map_err(|err| err.to_string()),
+                    ))
                 }
                 Err(err) => Ok(DesktopMcpServerStatus {
                     name: server.name,
@@ -114,6 +113,58 @@ impl DesktopRuntime {
             .map_err(|_| anyhow::anyhow!("mcp resource provider lock poisoned"))? =
             mcp_resource_provider;
         Ok(())
+    }
+}
+
+fn mcp_test_status_from_discovery_results(
+    name: String,
+    tool_count: std::result::Result<usize, String>,
+    resource_count: std::result::Result<usize, String>,
+    template_count: std::result::Result<usize, String>,
+) -> DesktopMcpServerStatus {
+    let mut failures = Vec::new();
+    let tool_count = match tool_count {
+        Ok(count) => count,
+        Err(err) => {
+            failures.push(format!("工具枚举失败: {err}"));
+            0
+        }
+    };
+    let resource_count = match resource_count {
+        Ok(count) => count,
+        Err(err) => {
+            failures.push(format!("资源枚举失败: {err}"));
+            0
+        }
+    };
+    let template_count = match template_count {
+        Ok(count) => count,
+        Err(err) => {
+            failures.push(format!("资源模板枚举失败: {err}"));
+            0
+        }
+    };
+
+    let detail = if failures.is_empty() {
+        format!(
+            "连接成功，发现 {} 个工具、{} 个资源、{} 个资源模板。",
+            tool_count, resource_count, template_count
+        )
+    } else {
+        format!("连接成功，但部分能力枚举失败。{}", failures.join("；"))
+    };
+
+    DesktopMcpServerStatus {
+        name,
+        state: if failures.is_empty() {
+            "ready".to_string()
+        } else {
+            "degraded".to_string()
+        },
+        detail,
+        tool_count,
+        resource_count,
+        template_count,
     }
 }
 
@@ -336,4 +387,41 @@ fn mcp_statuses_from_servers(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_test_status_reports_partial_discovery_failures() {
+        let status = mcp_test_status_from_discovery_results(
+            "demo".to_string(),
+            Ok(2),
+            Err("resources unavailable".to_string()),
+            Ok(1),
+        );
+
+        assert_eq!(status.name, "demo");
+        assert_eq!(status.state, "degraded");
+        assert_eq!(status.tool_count, 2);
+        assert_eq!(status.resource_count, 0);
+        assert_eq!(status.template_count, 1);
+        assert!(status.detail.contains("连接成功，但部分能力枚举失败"));
+        assert!(status
+            .detail
+            .contains("资源枚举失败: resources unavailable"));
+    }
+
+    #[test]
+    fn mcp_test_status_reports_ready_when_all_discovery_succeeds() {
+        let status =
+            mcp_test_status_from_discovery_results("demo".to_string(), Ok(3), Ok(2), Ok(1));
+
+        assert_eq!(status.state, "ready");
+        assert_eq!(
+            status.detail,
+            "连接成功，发现 3 个工具、2 个资源、1 个资源模板。"
+        );
+    }
 }
