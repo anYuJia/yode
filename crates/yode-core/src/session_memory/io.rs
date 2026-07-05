@@ -43,7 +43,7 @@ pub fn persist_compaction_memory(
         })?;
     }
 
-    let previous = fs::read_to_string(&path).unwrap_or_default();
+    let previous = read_existing_session_memory(&path)?;
     let existing_entries = previous
         .strip_prefix(SESSION_MEMORY_HEADER)
         .map(str::trim)
@@ -89,7 +89,7 @@ pub async fn persist_compaction_memory_async(
         })?;
     }
 
-    let previous = tokio::fs::read_to_string(&path).await.unwrap_or_default();
+    let previous = read_existing_session_memory_async(&path).await?;
     let existing_entries = previous
         .strip_prefix(SESSION_MEMORY_HEADER)
         .map(str::trim)
@@ -457,6 +457,19 @@ fn write_string_with_retry(path: &Path, content: &str) -> Result<()> {
         .unwrap_or_else(|| anyhow::anyhow!("session memory write failed without an I/O error")))
 }
 
+fn read_existing_session_memory(path: &Path) -> Result<String> {
+    match fs::read_to_string(path) {
+        Ok(content) => Ok(content),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(err) => Err(err).with_context(|| {
+            format!(
+                "Failed to read existing session memory file before rewrite: {}",
+                path.display()
+            )
+        }),
+    }
+}
+
 async fn write_string_with_retry_async(path: &Path, content: &str) -> Result<()> {
     let mut last_err = None;
     for attempt in 0..MEMORY_WRITE_RETRIES {
@@ -474,6 +487,19 @@ async fn write_string_with_retry_async(path: &Path, content: &str) -> Result<()>
     Err(last_err
         .map(Into::into)
         .unwrap_or_else(|| anyhow::anyhow!("session memory write failed without an I/O error")))
+}
+
+async fn read_existing_session_memory_async(path: &Path) -> Result<String> {
+    match tokio::fs::read_to_string(path).await {
+        Ok(content) => Ok(content),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(err) => Err(err).with_context(|| {
+            format!(
+                "Failed to read existing session memory file before rewrite: {}",
+                path.display()
+            )
+        }),
+    }
 }
 
 fn load_memory_excerpt(path: &Path, max_chars: usize) -> Option<String> {

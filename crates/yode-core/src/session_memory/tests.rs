@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use super::{
     build_live_snapshot, clear_live_session_memory, persist_compaction_memory,
-    persist_live_session_memory, persist_live_session_memory_summary,
+    persist_live_session_memory, persist_live_session_memory_summary, session_memory_path,
 };
 use crate::context_manager::CompressionReport;
 use yode_llm::types::Message;
@@ -99,6 +99,35 @@ fn preserves_turn_artifact_cross_link_from_compaction_summary() {
     let content = std::fs::read_to_string(path).unwrap();
 
     assert!(content.contains("Turn artifact: /tmp/latest-turn.json"));
+}
+
+#[test]
+fn unreadable_existing_session_memory_is_not_silently_replaced() {
+    let temp = tempfile::tempdir().unwrap();
+    let project_root = temp.path();
+    let memory_path = session_memory_path(project_root);
+    std::fs::create_dir_all(&memory_path).unwrap();
+
+    let report = CompressionReport {
+        removed: 1,
+        tool_results_truncated: 0,
+        summary: Some("new summary".to_string()),
+        removed_messages: vec![],
+    };
+
+    let err = persist_compaction_memory(
+        project_root,
+        "session-read-error",
+        &report,
+        &HashMap::new(),
+        &[],
+    )
+    .expect_err("unreadable existing memory path should fail instead of replacing history");
+
+    assert!(err
+        .to_string()
+        .contains("Failed to read existing session memory file before rewrite"));
+    assert!(memory_path.is_dir());
 }
 
 #[test]
