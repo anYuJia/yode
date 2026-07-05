@@ -84,6 +84,58 @@ describe("app UI store", () => {
 
     expect(useAppUiStore.getState().permissionMode).toBe("accept-edits");
   });
+
+  it("keeps turn runtime state in the shared store", async () => {
+    stubMemoryLocalStorage();
+
+    const { useAppUiStore } = await import("./appUiStore");
+    const store = useAppUiStore.getState();
+
+    expect(store.isProcessing).toBe(false);
+    expect(store.currentTurnId).toBeNull();
+    expect(store.messageQueue).toEqual([]);
+    expect(store.pendingUserQuestion).toBeNull();
+    expect(store.usageSnapshot).toBeNull();
+
+    store.setIsProcessing(true);
+    store.setCurrentTurnId("turn-1");
+    store.setMessageQueue((current) => [
+      ...current,
+      { content: "queued", images: [] }
+    ]);
+    store.setPendingUserQuestion({
+      sessionId: "session-1",
+      turnId: "turn-1",
+      question: "continue?",
+    });
+    store.setUsageSnapshot((current) => ({
+      ...current,
+      inputTokens: 10,
+      outputTokens: 5,
+    }));
+
+    expect(useAppUiStore.getState().isProcessing).toBe(true);
+    expect(useAppUiStore.getState().currentTurnId).toBe("turn-1");
+    expect(useAppUiStore.getState().messageQueue).toEqual([
+      { content: "queued", images: [] }
+    ]);
+    expect(useAppUiStore.getState().pendingUserQuestion?.question).toBe("continue?");
+    expect(useAppUiStore.getState().usageSnapshot).toEqual({
+      inputTokens: 10,
+      outputTokens: 5,
+    });
+
+    useAppUiStore.getState().clearTurnState();
+
+    expect(useAppUiStore.getState().isProcessing).toBe(false);
+    expect(useAppUiStore.getState().currentTurnId).toBeNull();
+    expect(useAppUiStore.getState().messageQueue).toEqual([]);
+    expect(useAppUiStore.getState().pendingUserQuestion).toBeNull();
+    expect(useAppUiStore.getState().usageSnapshot).toEqual({
+      inputTokens: 10,
+      outputTokens: 5,
+    });
+  });
 });
 
 function stubMemoryLocalStorage(seed: Record<string, string> = {}) {
