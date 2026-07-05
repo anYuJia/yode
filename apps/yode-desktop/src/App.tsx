@@ -227,12 +227,18 @@ export function App() {
   const refreshGeneralSettings = useAppUiStore((state) => state.refreshGeneralSettings);
   const permissionMode = useAppUiStore((state) => state.permissionMode);
   const setPermissionMode = useAppUiStore((state) => state.setPermissionMode);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [messageQueue, setMessageQueue] = useState<Array<{ content: string; images: ImageAttachment[] }>>([]);
+  const isProcessing = useAppUiStore((state) => state.isProcessing);
+  const setIsProcessing = useAppUiStore((state) => state.setIsProcessing);
+  const messageQueue = useAppUiStore((state) => state.messageQueue);
+  const setMessageQueue = useAppUiStore((state) => state.setMessageQueue);
   const [composerImages, setComposerImages] = useState<ImageAttachment[]>([]);
-  const [currentTurnId, setCurrentTurnId] = useState<string | null>(null);
-  const [pendingUserQuestion, setPendingUserQuestion] = useState<PendingUserQuestion | null>(null);
-  const [usageSnapshot, setUsageSnapshot] = useState<UsageSnapshot | null>(null);
+  const currentTurnId = useAppUiStore((state) => state.currentTurnId);
+  const setCurrentTurnId = useAppUiStore((state) => state.setCurrentTurnId);
+  const pendingUserQuestion = useAppUiStore((state) => state.pendingUserQuestion);
+  const setPendingUserQuestion = useAppUiStore((state) => state.setPendingUserQuestion);
+  const usageSnapshot = useAppUiStore((state) => state.usageSnapshot);
+  const setUsageSnapshot = useAppUiStore((state) => state.setUsageSnapshot);
+  const clearTurnState = useAppUiStore((state) => state.clearTurnState);
   const activeSessionIdRef = useRef<string | null>(null);
   const windowFocusedRef = useRef(true);
   const terminalConversationKey = activeSessionId ?? "__draft__";
@@ -670,10 +676,7 @@ export function App() {
       }));
     }
     setActiveSessionId(null);
-    setCurrentTurnId(null);
-    setMessageQueue([]);
-    setIsProcessing(false);
-    setPendingUserQuestion(null);
+    clearTurnState();
     setSessionItems((items) => items.map((item) => ({ ...item, active: false })));
     setTimelineItems([]);
     if (projectRoot !== undefined) {
@@ -962,10 +965,7 @@ export function App() {
     activeSessionIdRef.current = sessionId;
     setActiveSessionId(sessionId);
     setSelectedProjectRoot(nextSession?.projectRoot ?? null);
-    setIsProcessing(false);
-    setCurrentTurnId(null);
-    setMessageQueue([]);
-    setPendingUserQuestion(null);
+    clearTurnState();
 
     if (!("__TAURI_INTERNALS__" in window)) {
       setTimelineItems([]);
@@ -1008,10 +1008,7 @@ export function App() {
       const nextProjectRoot = session.projectRoot ?? null;
       activeSessionIdRef.current = null;
       setActiveSessionId(null);
-      setCurrentTurnId(null);
-      setMessageQueue([]);
-      setIsProcessing(false);
-      setPendingUserQuestion(null);
+      clearTurnState();
       setTimelineItems([]);
       setSelectedProjectRoot(nextProjectRoot);
     }

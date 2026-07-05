@@ -1,6 +1,9 @@
 import { create } from "zustand";
 
+import type { PendingUserQuestion } from "../components/ChatWorkspace";
 import type { ViewMode } from "../components/Sidebar";
+import type { ImageAttachment } from "./desktopTypes";
+import type { UsageSnapshot } from "./localSlashCommands";
 import {
   loadAppLanguage,
   normalizeAppLanguage
@@ -33,11 +36,20 @@ export const KEYBOARD_SHORTCUTS_SETTINGS_TAB = "键盘快捷键";
 
 type StateUpdater<T> = T | ((current: T) => T);
 
+export type QueuedComposerMessage = {
+  content: string;
+  images: ImageAttachment[];
+};
+
 type AppUiState = {
   appLang: string;
+  currentTurnId: string | null;
   generalSettings: GeneralSettings;
   inspectorOpen: boolean;
   inspectorWidth: number;
+  isProcessing: boolean;
+  messageQueue: QueuedComposerMessage[];
+  pendingUserQuestion: PendingUserQuestion | null;
   permissionMode: string;
   projectOrder: string[];
   projectRoots: string[];
@@ -47,12 +59,18 @@ type AppUiState = {
   sidebarWidth: number;
   terminalHeight: number;
   terminalOpenByConversation: Record<string, boolean>;
+  usageSnapshot: UsageSnapshot | null;
   viewMode: ViewMode;
+  clearTurnState: () => void;
   reloadProjectStorage: () => void;
   refreshGeneralSettings: (options?: { apply?: boolean }) => void;
   setAppLang: (lang: string) => void;
+  setCurrentTurnId: (turnId: string | null) => void;
   setInspectorOpen: (open: boolean) => void;
   setInspectorWidth: (width: number) => void;
+  setIsProcessing: (isProcessing: boolean) => void;
+  setMessageQueue: (queue: StateUpdater<QueuedComposerMessage[]>) => void;
+  setPendingUserQuestion: (question: PendingUserQuestion | null) => void;
   setPermissionMode: (mode: string) => void;
   setProjectOrder: (order: StateUpdater<string[]>) => void;
   setProjectRoots: (roots: StateUpdater<string[]>) => void;
@@ -62,6 +80,7 @@ type AppUiState = {
   setSidebarWidth: (width: number) => void;
   setTerminalHeight: (height: number) => void;
   setTerminalOpenForConversation: (conversationKey: string, open: boolean) => void;
+  setUsageSnapshot: (snapshot: StateUpdater<UsageSnapshot | null>) => void;
   setViewMode: (mode: ViewMode) => void;
 };
 
@@ -87,9 +106,13 @@ function resolveUpdater<T>(updater: StateUpdater<T>, current: T): T {
 
 export const useAppUiStore = create<AppUiState>((set, get) => ({
   appLang: loadAppLanguage(),
+  currentTurnId: null,
   generalSettings: loadGeneralSettings(),
   inspectorOpen: true,
   inspectorWidth: loadInitialPaneSize("inspector", INSPECTOR_WIDTH_STORAGE_KEY),
+  isProcessing: false,
+  messageQueue: [],
+  pendingUserQuestion: null,
   permissionMode: "default",
   projectOrder: loadStoredProjectOrder(),
   projectRoots: loadStoredProjectRoots(),
@@ -99,7 +122,14 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   sidebarWidth: loadInitialPaneSize("sidebar", SIDEBAR_WIDTH_STORAGE_KEY),
   terminalHeight: loadInitialPaneSize("terminal", TERMINAL_HEIGHT_STORAGE_KEY),
   terminalOpenByConversation: {},
+  usageSnapshot: null,
   viewMode: storedViewMode(),
+  clearTurnState: () => set({
+    currentTurnId: null,
+    isProcessing: false,
+    messageQueue: [],
+    pendingUserQuestion: null,
+  }),
   reloadProjectStorage: () => set({
     projectOrder: loadStoredProjectOrder(),
     projectRoots: loadStoredProjectRoots(),
@@ -114,11 +144,18 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   setAppLang: (appLang) => {
     set({ appLang: normalizeAppLanguage(appLang) });
   },
+  setCurrentTurnId: (currentTurnId) => set({ currentTurnId }),
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   setInspectorWidth: (inspectorWidth) => {
     localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
     set({ inspectorWidth });
   },
+  setIsProcessing: (isProcessing) => set({ isProcessing }),
+  setMessageQueue: (updater) => {
+    const messageQueue = resolveUpdater(updater, get().messageQueue);
+    set({ messageQueue });
+  },
+  setPendingUserQuestion: (pendingUserQuestion) => set({ pendingUserQuestion }),
   setPermissionMode: (permissionMode) => set({ permissionMode }),
   setProjectOrder: (updater) => {
     const projectOrder = resolveUpdater(updater, get().projectOrder);
@@ -159,6 +196,10 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
       [conversationKey]: open
     }
   })),
+  setUsageSnapshot: (updater) => {
+    const usageSnapshot = resolveUpdater(updater, get().usageSnapshot);
+    set({ usageSnapshot });
+  },
   setViewMode: (viewMode) => {
     localStorage.setItem("yode-view-mode", viewMode);
     set({ viewMode });
