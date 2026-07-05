@@ -38,6 +38,7 @@ type AppUiState = {
   generalSettings: GeneralSettings;
   inspectorOpen: boolean;
   inspectorWidth: number;
+  permissionMode: string;
   projectOrder: string[];
   projectRoots: string[];
   selectedProjectRoot: string | null | undefined;
@@ -52,6 +53,7 @@ type AppUiState = {
   setAppLang: (lang: string) => void;
   setInspectorOpen: (open: boolean) => void;
   setInspectorWidth: (width: number) => void;
+  setPermissionMode: (mode: string) => void;
   setProjectOrder: (order: StateUpdater<string[]>) => void;
   setProjectRoots: (roots: StateUpdater<string[]>) => void;
   setSelectedProjectRoot: (root: StateUpdater<string | null | undefined>) => void;
@@ -88,6 +90,7 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   generalSettings: loadGeneralSettings(),
   inspectorOpen: true,
   inspectorWidth: loadInitialPaneSize("inspector", INSPECTOR_WIDTH_STORAGE_KEY),
+  permissionMode: "default",
   projectOrder: loadStoredProjectOrder(),
   projectRoots: loadStoredProjectRoots(),
   selectedProjectRoot: loadStoredSelectedProjectRoot(),
@@ -116,6 +119,7 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
     set({ inspectorWidth });
   },
+  setPermissionMode: (permissionMode) => set({ permissionMode }),
   setProjectOrder: (updater) => {
     const projectOrder = resolveUpdater(updater, get().projectOrder);
     localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(projectOrder));

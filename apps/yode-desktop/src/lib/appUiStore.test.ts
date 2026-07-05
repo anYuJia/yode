@@ -72,6 +72,18 @@ describe("app UI store", () => {
     expect(localStorage.getItem(SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY)).toBe("300");
     expect(useAppUiStore.getState().settingsSidebarWidth).toBe(300);
   });
+
+  it("keeps permission mode in the shared store", async () => {
+    stubMemoryLocalStorage();
+
+    const { useAppUiStore } = await import("./appUiStore");
+
+    expect(useAppUiStore.getState().permissionMode).toBe("default");
+
+    useAppUiStore.getState().setPermissionMode("accept-edits");
+
+    expect(useAppUiStore.getState().permissionMode).toBe("accept-edits");
+  });
 });
 
 function stubMemoryLocalStorage(seed: Record<string, string> = {}) {

@@ -223,11 +223,12 @@ export function App() {
   const setTerminalOpenForConversation = useAppUiStore((state) => state.setTerminalOpenForConversation);
   const generalSettings = useAppUiStore((state) => state.generalSettings);
   const refreshGeneralSettings = useAppUiStore((state) => state.refreshGeneralSettings);
+  const permissionMode = useAppUiStore((state) => state.permissionMode);
+  const setPermissionMode = useAppUiStore((state) => state.setPermissionMode);
   const [isProcessing, setIsProcessing] = useState(false);
   const [messageQueue, setMessageQueue] = useState<Array<{ content: string; images: ImageAttachment[] }>>([]);
   const [composerImages, setComposerImages] = useState<ImageAttachment[]>([]);
   const [currentTurnId, setCurrentTurnId] = useState<string | null>(null);
-  const [permissionMode, setPermissionMode] = useState<string>("default");
   const [pendingUserQuestion, setPendingUserQuestion] = useState<PendingUserQuestion | null>(null);
   const [usageSnapshot, setUsageSnapshot] = useState<UsageSnapshot | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
