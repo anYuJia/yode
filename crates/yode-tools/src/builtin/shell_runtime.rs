@@ -293,7 +293,7 @@ pub(crate) async fn execute_background_shell(
 
         tokio::select! {
             wait_result = child.wait() => {
-                let _ = done_tx.send(true);
+                notify_output_monitor_done(&done_tx, &task_id);
                 match wait_result {
                     Ok(status) if status.success() => {
                         runtime_tasks.lock().await.mark_completed(&task_id);
@@ -314,9 +314,24 @@ pub(crate) async fn execute_background_shell(
             }
             changed = cancel_rx.changed() => {
                 if changed.is_ok() && *cancel_rx.borrow() {
-                    let _ = child.kill().await;
-                    let _ = done_tx.send(true);
-                    runtime_tasks.lock().await.mark_cancelled(&task_id);
+                    match child.kill().await {
+                        Ok(()) => {
+                            notify_output_monitor_done(&done_tx, &task_id);
+                            runtime_tasks.lock().await.mark_cancelled(&task_id);
+                        }
+                        Err(err) => {
+                            tracing::warn!(
+                                task_id = %task_id,
+                                error = %err,
+                                "Failed to kill cancelled background shell task"
+                            );
+                            notify_output_monitor_done(&done_tx, &task_id);
+                            runtime_tasks
+                                .lock()
+                                .await
+                                .mark_failed(&task_id, format!("Failed to cancel command: {}", err));
+                        }
+                    }
                 }
             }
         }
@@ -364,13 +379,23 @@ fn spawn_output_progress_monitor(
                     }
                 }
                 changed = done_rx.changed() => {
-                    if changed.is_ok() && *done_rx.borrow() {
+                    if changed.is_err() || *done_rx.borrow() {
                         break;
                     }
                 }
             }
         }
     });
+}
+
+fn notify_output_monitor_done(done_tx: &tokio::sync::watch::Sender<bool>, task_id: &str) {
+    if let Err(err) = done_tx.send(true) {
+        tracing::warn!(
+            task_id,
+            error = ?err,
+            "Failed to notify shell output monitor completion"
+        );
+    }
 }
 
 fn truncate_progress_line(line: &str, max_chars: usize) -> String {

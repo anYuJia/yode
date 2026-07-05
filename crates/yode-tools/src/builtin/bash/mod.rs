@@ -11,7 +11,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use regex::Regex;
 use serde_json::{json, Value};
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
 
 use crate::builtin::shell_runtime::{
@@ -247,7 +247,7 @@ While the bash tool can do similar things, it's better to use the built-in tools
                     .await
             }
             watchdog::StallResult::Stalled(partial_output) => {
-                let _ = child.kill().await;
+                kill_child_after_bash_interruption(&mut child, command, "stalled").await;
                 Ok(ToolResult::error_typed(
                     format!(
                         "Command appears to be stalled (waiting for interactive input).\n\
@@ -262,7 +262,7 @@ While the bash tool can do similar things, it's better to use the built-in tools
                 ))
             }
             watchdog::StallResult::Timeout => {
-                let _ = child.kill().await;
+                kill_child_after_bash_interruption(&mut child, command, "timeout").await;
                 Ok(ToolResult::error_typed(
                     format!("Command timed out after {} seconds", timeout_secs),
                     ToolErrorType::Timeout,
@@ -271,13 +271,24 @@ While the bash tool can do similar things, it's better to use the built-in tools
                 ))
             }
             watchdog::StallResult::Error(e) => {
-                let _ = child.kill().await;
+                kill_child_after_bash_interruption(&mut child, command, "watchdog_error").await;
                 Ok(ToolResult::error(format!(
                     "Failed to execute command: {}",
                     e
                 )))
             }
         }
+    }
+}
+
+async fn kill_child_after_bash_interruption(child: &mut Child, command: &str, reason: &str) {
+    if let Err(err) = child.kill().await {
+        tracing::warn!(
+            command = %command,
+            reason,
+            error = %err,
+            "Failed to kill interrupted bash command"
+        );
     }
 }
 
