@@ -253,7 +253,7 @@ impl DesktopRuntime {
                             timestamp: Utc::now().to_rfc3339(),
                             payload: json!({ "body": err.to_string() }),
                         };
-                        let _ = app.emit("desktop-event", desktop_event);
+                        emit_desktop_event(&app, desktop_event);
                         return;
                     }
                 };
@@ -287,7 +287,12 @@ impl DesktopRuntime {
                         .await
                     {
                         tracing::error!("AgentEngine run_turn_streaming failed: {}", err);
-                        let _ = error_event_tx.send(EngineEvent::Error(err.to_string()));
+                        if let Err(send_err) = error_event_tx.send(EngineEvent::Error(err.to_string())) {
+                            tracing::warn!(
+                                error = %send_err,
+                                "Failed to enqueue engine error event from desktop turn task"
+                            );
+                        }
                     }
                 });
 
@@ -309,7 +314,7 @@ impl DesktopRuntime {
                                     "query": query
                                 }),
                             };
-                            let _ = app.emit("desktop-event", desktop_event);
+                            emit_desktop_event(&app, desktop_event);
                             seq += 1;
                             continue;
                         }
@@ -368,11 +373,13 @@ impl DesktopRuntime {
                         payload,
                     };
 
-                    let _ = app.emit("desktop-event", desktop_event);
+                    emit_desktop_event(&app, desktop_event);
                     seq += 1;
                 }
 
-                let _ = handle.await;
+                if let Err(err) = handle.await {
+                    tracing::error!("Desktop turn task join failed: {}", err);
+                }
 
                 if let Ok(mut txs) = confirm_txs_clone.lock() {
                     txs.remove(&(session_id.clone(), emit_turn_id.clone()));
@@ -477,6 +484,21 @@ impl DesktopRuntime {
             token.cancel();
         }
         Ok(())
+    }
+}
+
+fn emit_desktop_event(app: &AppHandle, desktop_event: DesktopEvent) {
+    let session_id = desktop_event.session_id.clone();
+    let turn_id = desktop_event.turn_id.clone();
+    let kind = desktop_event.kind.clone();
+    if let Err(err) = app.emit("desktop-event", desktop_event) {
+        tracing::warn!(
+            session_id = %session_id,
+            turn_id = %turn_id,
+            kind = %kind,
+            error = %err,
+            "Failed to emit desktop runtime event"
+        );
     }
 }
 
