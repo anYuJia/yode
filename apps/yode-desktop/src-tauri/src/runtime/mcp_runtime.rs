@@ -64,7 +64,13 @@ impl DesktopRuntime {
                     let tools = client.discover_wrapped_tools().await;
                     let resources = client.list_resources().await;
                     let templates = client.list_resource_templates().await;
-                    let _ = client.shutdown().await;
+                    if let Err(err) = client.shutdown().await {
+                        tracing::warn!(
+                            server = %server.name,
+                            error = %err,
+                            "Failed to shutdown MCP test client"
+                        );
+                    }
                     Ok(mcp_test_status_from_discovery_results(
                         server.name,
                         tools
