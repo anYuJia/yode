@@ -731,27 +731,32 @@ pub(super) fn load_post_compact_restore_state_artifact(
     project_root: &Path,
     session_id: &str,
 ) -> Option<Vec<(RestoreBlockKind, String)>> {
-    let short_session = session_id.chars().take(8).collect::<String>();
-    let path = project_root
-        .join(".yode")
-        .join("status")
-        .join(format!("{}-post-compact-restore-state.json", short_session));
-    let value =
-        serde_json::from_str::<serde_json::Value>(&std::fs::read_to_string(path).ok()?).ok()?;
-    parse_post_compact_restore_state(value)
+    let path = post_compact_restore_state_artifact_path(project_root, session_id);
+    let content = std::fs::read_to_string(path).ok()?;
+    parse_post_compact_restore_state_content(&content)
 }
 
 pub(super) async fn load_post_compact_restore_state_artifact_async(
     project_root: &Path,
     session_id: &str,
 ) -> Option<Vec<(RestoreBlockKind, String)>> {
+    let path = post_compact_restore_state_artifact_path(project_root, session_id);
+    let content = tokio::fs::read_to_string(path).await.ok()?;
+    parse_post_compact_restore_state_content(&content)
+}
+
+fn post_compact_restore_state_artifact_path(project_root: &Path, session_id: &str) -> PathBuf {
     let short_session = session_id.chars().take(8).collect::<String>();
-    let path = project_root
+    project_root
         .join(".yode")
         .join("status")
-        .join(format!("{}-post-compact-restore-state.json", short_session));
-    let content = tokio::fs::read_to_string(path).await.ok()?;
-    let value = serde_json::from_str::<serde_json::Value>(&content).ok()?;
+        .join(format!("{}-post-compact-restore-state.json", short_session))
+}
+
+fn parse_post_compact_restore_state_content(
+    content: &str,
+) -> Option<Vec<(RestoreBlockKind, String)>> {
+    let value = serde_json::from_str::<serde_json::Value>(content).ok()?;
     parse_post_compact_restore_state(value)
 }
 
