@@ -57,12 +57,13 @@ import {
   TimelineItem,
   TurnAccepted,
   ImageAttachment,
-  UsageSnapshot
+  UsageSnapshot,
+  ViewMode
 } from "./lib/desktopTypes";
 import { SettingsShell } from "./components/SettingsShell";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 import { PROVIDERS_META } from "./components/settings/ProvidersSettings";
-import { Sidebar, ViewMode } from "./components/Sidebar";
+import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
 import { ChatWorkspace } from "./components/ChatWorkspace";
 import {

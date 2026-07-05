@@ -14,6 +14,8 @@ export type DefaultLlm = {
   model: string;
 };
 
+export type ViewMode = "chat" | "settings";
+
 export type SessionSummary = {
   id: string;
   title: string;

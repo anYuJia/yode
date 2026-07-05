@@ -1,7 +1,6 @@
 import { create } from "zustand";
 
-import type { ViewMode } from "../components/Sidebar";
-import type { ImageAttachment, PendingUserQuestion, UsageSnapshot } from "./desktopTypes";
+import type { ImageAttachment, PendingUserQuestion, UsageSnapshot, ViewMode } from "./desktopTypes";
 import {
   loadAppLanguage,
   normalizeAppLanguage

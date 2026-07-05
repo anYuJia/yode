@@ -14,7 +14,7 @@ import {
   FolderPlus,
   Settings
 } from "lucide-react";
-import { SessionSummary } from "../lib/desktopTypes";
+import { SessionSummary, ViewMode } from "../lib/desktopTypes";
 import {
   PET_CHANGE_EVENT,
   loadAppLanguage,
@@ -22,8 +22,6 @@ import {
   petFromChangeEvent
 } from "../lib/appearanceSettings";
 import { projectLabelFromPath } from "./timelineUtils";
-
-export type ViewMode = "chat" | "settings";
 
 interface SidebarProps {
   sessions: SessionSummary[];
