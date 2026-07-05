@@ -443,7 +443,7 @@ impl DesktopRuntime {
             .confirm_txs
             .lock()
             .map_err(|_| anyhow::anyhow!("poisoned"))?
-            .get(&(session_id, turn_id))
+            .get(&(session_id.clone(), turn_id.clone()))
             .cloned();
         if let Some(tx) = tx {
             let response = if allow && always_allow {
@@ -453,7 +453,14 @@ impl DesktopRuntime {
             } else {
                 ConfirmResponse::Deny
             };
-            let _ = tx.send(response);
+            if let Err(err) = tx.send(response) {
+                tracing::warn!(
+                    session_id = %session_id,
+                    turn_id = %turn_id,
+                    error = ?err,
+                    "Failed to send desktop permission response"
+                );
+            }
         }
         Ok(())
     }
@@ -468,8 +475,15 @@ impl DesktopRuntime {
             .ask_user_txs
             .lock()
             .map_err(|_| anyhow::anyhow!("poisoned"))?;
-        if let Some(tx) = txs.get(&(session_id, turn_id)) {
-            let _ = tx.send(answer);
+        if let Some(tx) = txs.get(&(session_id.clone(), turn_id.clone())) {
+            if let Err(err) = tx.send(answer) {
+                tracing::warn!(
+                    session_id = %session_id,
+                    turn_id = %turn_id,
+                    error = %err,
+                    "Failed to send ask-user response"
+                );
+            }
         }
         Ok(())
     }
