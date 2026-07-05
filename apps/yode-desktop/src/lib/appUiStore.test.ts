@@ -136,6 +136,44 @@ describe("app UI store", () => {
       outputTokens: 5,
     });
   });
+
+  it("keeps composer draft and attachments in the shared store", async () => {
+    stubMemoryLocalStorage();
+
+    const { useAppUiStore } = await import("./appUiStore");
+    const store = useAppUiStore.getState();
+
+    expect(store.draft).toBe("");
+    expect(store.composerImages).toEqual([]);
+
+    store.setDraft("hello");
+    store.setComposerImages([
+      {
+        id: "image-1",
+        name: "screenshot.png",
+        mediaType: "image/png",
+        base64: "abc",
+        dataUrl: "data:image/png;base64,abc",
+        size: 3,
+      }
+    ]);
+
+    expect(useAppUiStore.getState().draft).toBe("hello");
+    expect(useAppUiStore.getState().composerImages).toEqual([
+      {
+        id: "image-1",
+        name: "screenshot.png",
+        mediaType: "image/png",
+        base64: "abc",
+        dataUrl: "data:image/png;base64,abc",
+        size: 3,
+      }
+    ]);
+
+    store.setComposerImages((current) => current.filter((image) => image.id !== "image-1"));
+
+    expect(useAppUiStore.getState().composerImages).toEqual([]);
+  });
 });
 
 function stubMemoryLocalStorage(seed: Record<string, string> = {}) {

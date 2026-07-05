@@ -201,10 +201,11 @@ export function App() {
   const setViewMode = useAppUiStore((state) => state.setViewMode);
   const appLang = useAppUiStore((state) => state.appLang);
   const setAppLang = useAppUiStore((state) => state.setAppLang);
-  const [draft, setDraft] = useState("");
   const [sessionItems, setSessionItems] = useState<SessionSummary[]>([]);
   const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const draft = useAppUiStore((state) => state.draft);
+  const setDraft = useAppUiStore((state) => state.setDraft);
   const projectRoots = useAppUiStore((state) => state.projectRoots);
   const setProjectRoots = useAppUiStore((state) => state.setProjectRoots);
   const projectOrder = useAppUiStore((state) => state.projectOrder);
@@ -232,7 +233,8 @@ export function App() {
   const setIsProcessing = useAppUiStore((state) => state.setIsProcessing);
   const messageQueue = useAppUiStore((state) => state.messageQueue);
   const setMessageQueue = useAppUiStore((state) => state.setMessageQueue);
-  const [composerImages, setComposerImages] = useState<ImageAttachment[]>([]);
+  const composerImages = useAppUiStore((state) => state.composerImages);
+  const setComposerImages = useAppUiStore((state) => state.setComposerImages);
   const currentTurnId = useAppUiStore((state) => state.currentTurnId);
   const setCurrentTurnId = useAppUiStore((state) => state.setCurrentTurnId);
   const pendingUserQuestion = useAppUiStore((state) => state.pendingUserQuestion);

@@ -40,7 +40,9 @@ export type QueuedComposerMessage = {
 
 type AppUiState = {
   appLang: string;
+  composerImages: ImageAttachment[];
   currentTurnId: string | null;
+  draft: string;
   generalSettings: GeneralSettings;
   inspectorOpen: boolean;
   inspectorWidth: number;
@@ -62,7 +64,9 @@ type AppUiState = {
   reloadProjectStorage: () => void;
   refreshGeneralSettings: (options?: { apply?: boolean }) => void;
   setAppLang: (lang: string) => void;
+  setComposerImages: (images: StateUpdater<ImageAttachment[]>) => void;
   setCurrentTurnId: (turnId: string | null) => void;
+  setDraft: (draft: string) => void;
   setInspectorOpen: (open: boolean) => void;
   setInspectorWidth: (width: number) => void;
   setIsProcessing: (isProcessing: boolean) => void;
@@ -103,7 +107,9 @@ function resolveUpdater<T>(updater: StateUpdater<T>, current: T): T {
 
 export const useAppUiStore = create<AppUiState>((set, get) => ({
   appLang: loadAppLanguage(),
+  composerImages: [],
   currentTurnId: null,
+  draft: "",
   generalSettings: loadGeneralSettings(),
   inspectorOpen: true,
   inspectorWidth: loadInitialPaneSize("inspector", INSPECTOR_WIDTH_STORAGE_KEY),
@@ -141,7 +147,12 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   setAppLang: (appLang) => {
     set({ appLang: normalizeAppLanguage(appLang) });
   },
+  setComposerImages: (updater) => {
+    const composerImages = resolveUpdater(updater, get().composerImages);
+    set({ composerImages });
+  },
   setCurrentTurnId: (currentTurnId) => set({ currentTurnId }),
+  setDraft: (draft) => set({ draft }),
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   setInspectorWidth: (inspectorWidth) => {
     localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
