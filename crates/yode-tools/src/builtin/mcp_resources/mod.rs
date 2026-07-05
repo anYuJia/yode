@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
+use tracing::warn;
 
 use crate::tool::{
     McpResourceBlob, McpResourceRead, McpResourceTemplate, Tool, ToolCapabilities, ToolContext,
@@ -506,7 +507,14 @@ fn persist_mcp_resource_blob_artifacts(
     ));
     fs::write(&manifest_path, manifest)?;
     paths.push(manifest_path.clone());
-    let _ = prune_mcp_resource_artifacts(&dir, retention, paths.as_slice());
+    if let Err(err) = prune_mcp_resource_artifacts(&dir, retention, paths.as_slice()) {
+        warn!(
+            dir = %dir.display(),
+            retention,
+            error = %err,
+            "Failed to prune MCP resource artifacts"
+        );
+    }
     Ok(McpResourceArtifactWrite {
         paths,
         manifest_path: Some(manifest_path),
