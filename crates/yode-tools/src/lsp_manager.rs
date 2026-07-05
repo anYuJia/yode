@@ -6,7 +6,7 @@ use anyhow::{Context, Result};
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, ChildStdout};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// An active LSP server process.
 struct LspServer {
@@ -299,7 +299,13 @@ impl LspManager {
         for lang in keys {
             if let Some(mut server) = self.servers.remove(&lang) {
                 info!(language = %lang, "Shutting down LSP server");
-                let _ = send_notification(&mut server, "shutdown", Value::Null).await;
+                if let Err(err) = send_notification(&mut server, "shutdown", Value::Null).await {
+                    warn!(
+                        language = %lang,
+                        error = %err,
+                        "Failed to send LSP shutdown notification"
+                    );
+                }
             }
         }
     }
