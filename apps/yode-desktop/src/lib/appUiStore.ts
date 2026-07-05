@@ -1,6 +1,13 @@
 import { create } from "zustand";
 
-import type { ImageAttachment, PendingUserQuestion, UsageSnapshot, ViewMode } from "./desktopTypes";
+import type {
+  ImageAttachment,
+  PendingUserQuestion,
+  SessionSummary,
+  TimelineItem,
+  UsageSnapshot,
+  ViewMode
+} from "./desktopTypes";
 import {
   loadAppLanguage,
   normalizeAppLanguage
@@ -39,6 +46,7 @@ export type QueuedComposerMessage = {
 };
 
 type AppUiState = {
+  activeSessionId: string | null;
   appLang: string;
   composerImages: ImageAttachment[];
   currentTurnId: string | null;
@@ -53,16 +61,19 @@ type AppUiState = {
   projectOrder: string[];
   projectRoots: string[];
   selectedProjectRoot: string | null | undefined;
+  sessionItems: SessionSummary[];
   settingsSidebarWidth: number;
   sidebarOpen: boolean;
   sidebarWidth: number;
   terminalHeight: number;
   terminalOpenByConversation: Record<string, boolean>;
+  timelineItems: TimelineItem[];
   usageSnapshot: UsageSnapshot | null;
   viewMode: ViewMode;
   clearTurnState: () => void;
   reloadProjectStorage: () => void;
   refreshGeneralSettings: (options?: { apply?: boolean }) => void;
+  setActiveSessionId: (sessionId: string | null) => void;
   setAppLang: (lang: string) => void;
   setComposerImages: (images: StateUpdater<ImageAttachment[]>) => void;
   setCurrentTurnId: (turnId: string | null) => void;
@@ -76,11 +87,13 @@ type AppUiState = {
   setProjectOrder: (order: StateUpdater<string[]>) => void;
   setProjectRoots: (roots: StateUpdater<string[]>) => void;
   setSelectedProjectRoot: (root: StateUpdater<string | null | undefined>) => void;
+  setSessionItems: (sessions: StateUpdater<SessionSummary[]>) => void;
   setSettingsSidebarWidth: (width: number) => void;
   setSidebarOpen: (open: boolean) => void;
   setSidebarWidth: (width: number) => void;
   setTerminalHeight: (height: number) => void;
   setTerminalOpenForConversation: (conversationKey: string, open: boolean) => void;
+  setTimelineItems: (items: StateUpdater<TimelineItem[]>) => void;
   setUsageSnapshot: (snapshot: StateUpdater<UsageSnapshot | null>) => void;
   setViewMode: (mode: ViewMode) => void;
 };
@@ -106,6 +119,7 @@ function resolveUpdater<T>(updater: StateUpdater<T>, current: T): T {
 }
 
 export const useAppUiStore = create<AppUiState>((set, get) => ({
+  activeSessionId: null,
   appLang: loadAppLanguage(),
   composerImages: [],
   currentTurnId: null,
@@ -120,11 +134,13 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   projectOrder: loadStoredProjectOrder(),
   projectRoots: loadStoredProjectRoots(),
   selectedProjectRoot: loadStoredSelectedProjectRoot(),
+  sessionItems: [],
   settingsSidebarWidth: loadInitialPaneSize("settingsSidebar", SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY),
   sidebarOpen: true,
   sidebarWidth: loadInitialPaneSize("sidebar", SIDEBAR_WIDTH_STORAGE_KEY),
   terminalHeight: loadInitialPaneSize("terminal", TERMINAL_HEIGHT_STORAGE_KEY),
   terminalOpenByConversation: {},
+  timelineItems: [],
   usageSnapshot: null,
   viewMode: storedViewMode(),
   clearTurnState: () => set({
@@ -144,6 +160,7 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
       void applyGeneralSettings();
     }
   },
+  setActiveSessionId: (activeSessionId) => set({ activeSessionId }),
   setAppLang: (appLang) => {
     set({ appLang: normalizeAppLanguage(appLang) });
   },
@@ -185,6 +202,10 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     }
     set({ selectedProjectRoot });
   },
+  setSessionItems: (updater) => {
+    const sessionItems = resolveUpdater(updater, get().sessionItems);
+    set({ sessionItems });
+  },
   setSettingsSidebarWidth: (settingsSidebarWidth) => {
     localStorage.setItem(SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY, String(settingsSidebarWidth));
     set({ settingsSidebarWidth });
@@ -204,6 +225,10 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
       [conversationKey]: open
     }
   })),
+  setTimelineItems: (updater) => {
+    const timelineItems = resolveUpdater(updater, get().timelineItems);
+    set({ timelineItems });
+  },
   setUsageSnapshot: (updater) => {
     const usageSnapshot = resolveUpdater(updater, get().usageSnapshot);
     set({ usageSnapshot });

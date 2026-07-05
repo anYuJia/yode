@@ -174,6 +174,42 @@ describe("app UI store", () => {
 
     expect(useAppUiStore.getState().composerImages).toEqual([]);
   });
+
+  it("keeps session and timeline state in the shared store", async () => {
+    stubMemoryLocalStorage();
+
+    const { useAppUiStore } = await import("./appUiStore");
+    const store = useAppUiStore.getState();
+
+    expect(store.activeSessionId).toBeNull();
+    expect(store.sessionItems).toEqual([]);
+    expect(store.timelineItems).toEqual([]);
+
+    store.setActiveSessionId("session-1");
+    store.setSessionItems([
+      {
+        id: "session-1",
+        title: "会话",
+        provider: "openai",
+        model: "gpt-5",
+        updatedAt: "2026-07-05T12:00:00.000Z",
+        active: true,
+      }
+    ]);
+    store.setTimelineItems((current) => [
+      ...current,
+      {
+        id: "item-1",
+        kind: "assistant",
+        title: "助手",
+        body: "完成",
+      }
+    ]);
+
+    expect(useAppUiStore.getState().activeSessionId).toBe("session-1");
+    expect(useAppUiStore.getState().sessionItems).toHaveLength(1);
+    expect(useAppUiStore.getState().timelineItems).toHaveLength(1);
+  });
 });
 
 function stubMemoryLocalStorage(seed: Record<string, string> = {}) {

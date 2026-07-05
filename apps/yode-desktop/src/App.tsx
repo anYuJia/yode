@@ -201,9 +201,12 @@ export function App() {
   const setViewMode = useAppUiStore((state) => state.setViewMode);
   const appLang = useAppUiStore((state) => state.appLang);
   const setAppLang = useAppUiStore((state) => state.setAppLang);
-  const [sessionItems, setSessionItems] = useState<SessionSummary[]>([]);
-  const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const sessionItems = useAppUiStore((state) => state.sessionItems);
+  const setSessionItems = useAppUiStore((state) => state.setSessionItems);
+  const timelineItems = useAppUiStore((state) => state.timelineItems);
+  const setTimelineItems = useAppUiStore((state) => state.setTimelineItems);
+  const activeSessionId = useAppUiStore((state) => state.activeSessionId);
+  const setActiveSessionId = useAppUiStore((state) => state.setActiveSessionId);
   const draft = useAppUiStore((state) => state.draft);
   const setDraft = useAppUiStore((state) => state.setDraft);
   const projectRoots = useAppUiStore((state) => state.projectRoots);
@@ -548,7 +551,10 @@ export function App() {
         return;
       }
       setSessionItems((items) => items.filter((session) => session.id !== detail.sessionId));
-      setActiveSessionId((current) => current === detail.sessionId ? null : current);
+      if (activeSessionIdRef.current === detail.sessionId) {
+        activeSessionIdRef.current = null;
+        setActiveSessionId(null);
+      }
     };
     window.addEventListener(SESSION_UNARCHIVED_EVENT, handleUnarchive);
     window.addEventListener(DEFAULT_LLM_CHANGE_EVENT, handleDefaultLlmChange);
