@@ -182,17 +182,31 @@ pub(super) async fn setup_desktop_tooling(
         }
         let mcp_config = core_mcp_server_to_runtime(server_config);
 
-        if let Ok(client) = tauri::async_runtime::block_on(async {
+        match tauri::async_runtime::block_on(async {
             yode_mcp::McpClient::connect(name, &mcp_config).await
         }) {
-            if let Ok(wrappers) =
-                tauri::async_runtime::block_on(async { client.discover_wrapped_tools().await })
-            {
-                for wrapper in wrappers {
-                    tool_registry.register(wrapper);
+            Ok(client) => {
+                match tauri::async_runtime::block_on(async {
+                    client.discover_wrapped_tools().await
+                }) {
+                    Ok(wrappers) => {
+                        for wrapper in wrappers {
+                            tool_registry.register(wrapper);
+                        }
+                    }
+                    Err(err) => tracing::warn!(
+                        server = %name,
+                        error = %err,
+                        "Failed to discover MCP tools while loading desktop runtime"
+                    ),
                 }
+                mcp_clients.push(client);
             }
-            mcp_clients.push(client);
+            Err(err) => tracing::warn!(
+                server = %name,
+                error = %err,
+                "Failed to connect MCP server while loading desktop runtime"
+            ),
         }
     }
 
