@@ -1,16 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import { DesktopMessage, SessionSummary, TimelineItem } from "./desktopTypes";
+import { DesktopMessage, SessionSummary, TimelineItem, UsageSnapshot } from "./desktopTypes";
 import { messagesToTimelineItems, upsertActiveSession } from "../components/timelineUtils";
-
-export type UsageSnapshot = {
-  estimatedCost?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-  totalTokens?: number;
-  cacheWriteTokens?: number;
-  cacheReadTokens?: number;
-};
 
 type SessionExportResult = {
   path: string;

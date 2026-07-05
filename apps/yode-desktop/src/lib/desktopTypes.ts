@@ -173,6 +173,15 @@ export type PendingUserQuestion = {
   query?: UserQuery;
 };
 
+export type UsageSnapshot = {
+  estimatedCost?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  cacheWriteTokens?: number;
+  cacheReadTokens?: number;
+};
+
 export const fallbackBootstrap: Bootstrap = {
   appVersion: "",
   workspacePath: "",

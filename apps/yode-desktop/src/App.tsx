@@ -56,7 +56,8 @@ import {
   SessionSummary,
   TimelineItem,
   TurnAccepted,
-  ImageAttachment
+  ImageAttachment,
+  UsageSnapshot
 } from "./lib/desktopTypes";
 import { SettingsShell } from "./components/SettingsShell";
 import { TerminalDrawer } from "./components/TerminalDrawer";
@@ -74,8 +75,7 @@ import {
 import { KEYBOARD_SHORTCUTS_CHANGE_EVENT, findShortcutAction, loadShortcutBindings } from "./lib/keyboardShortcuts";
 import {
   executeLocalSlashCommand,
-  formatUsageSnapshot,
-  UsageSnapshot
+  formatUsageSnapshot
 } from "./lib/localSlashCommands";
 import { handleDesktopRuntimeEvent } from "./lib/desktopEventHandlers";
 import { GENERAL_SETTINGS_CHANGE_EVENT, toggleBottomPanelSetting } from "./lib/desktopSettings";

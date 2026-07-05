@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { handleDesktopRuntimeEvent } from "./desktopEventHandlers";
-import { TimelineItem } from "./desktopTypes";
-import { UsageSnapshot } from "./localSlashCommands";
+import { TimelineItem, UsageSnapshot } from "./desktopTypes";
 
 function handlerContext(overrides: Record<string, unknown> = {}) {
   let usage: UsageSnapshot | null = null;

@@ -1,8 +1,7 @@
 import { applyDesktopEventToTimelineItems } from "../components/timelineUtils";
 import { isUserQuery } from "./askUser";
 import type { UserQuery } from "./askUser";
-import { DesktopEvent, PendingUserQuestion, TimelineItem } from "./desktopTypes";
-import { UsageSnapshot } from "./localSlashCommands";
+import { DesktopEvent, PendingUserQuestion, TimelineItem, UsageSnapshot } from "./desktopTypes";
 
 type NotificationPolicy = "completion" | "permission" | "question";
 
