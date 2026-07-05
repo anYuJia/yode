@@ -1,5 +1,5 @@
-import type { TimelineItem } from "../../lib/desktopTypes";
-import { parseJsonObject, recordFromUnknown } from "../../lib/jsonUtils";
+import type { TimelineItem } from "./desktopTypes";
+import { parseJsonObject, recordFromUnknown } from "./jsonUtils";
 
 type ActivityToolItem = Extract<TimelineItem, { kind: "tool" }>;
 type CountedActivityToolItem = ActivityToolItem & { count?: number };

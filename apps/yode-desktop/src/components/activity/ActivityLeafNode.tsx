@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, CircleDot } from "lucide-react";
 import type { TimelineItem } from "../../lib/desktopTypes";
 import { parseJsonObject, recordFromUnknown } from "../../lib/jsonUtils";
 import { getFileIcon, getCommandIcon } from "../FileIcon";
-import { getActivityDescriptor, displayToolName } from "./ToolUtils";
+import { getActivityDescriptor, displayToolName } from "../../lib/activityToolUtils";
 
 type ActivityToolItem = Extract<TimelineItem, { kind: "tool" }> & { count?: number };
 

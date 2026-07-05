@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TimelineItem } from "./desktopTypes";
-import { activityGroupPreview, summarizeActivityItems } from "../components/activity/ToolUtils";
+import { activityGroupPreview, summarizeActivityItems } from "./activityToolUtils";
 import { applyDesktopEventToTimelineItems, compileInlineItems, messagesToTimelineItems, splitTurnVisibleItems } from "./timelineUtils";
 
 function expectActivityGroup(item: TimelineItem): Extract<TimelineItem, { kind: "activity_group" }> {

@@ -7,7 +7,7 @@ import {
   summarizeActivityItems,
   activityGroupPreview,
   getActivityDescriptor
-} from "../components/activity/ToolUtils";
+} from "./activityToolUtils";
 
 export function normalizeProcessNoteText(text: string) {
   return text

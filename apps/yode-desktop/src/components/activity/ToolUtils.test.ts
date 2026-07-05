@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildActivityGroupLabel } from "./ActivityGroupNode";
-import { activityGroupPreview, getActivityDescriptor, summarizeActivityItems } from "./ToolUtils";
+import { activityGroupPreview, getActivityDescriptor, summarizeActivityItems } from "../../lib/activityToolUtils";
 
 describe("ToolUtils activity descriptors", () => {
   it("prefers structured activity metadata", () => {

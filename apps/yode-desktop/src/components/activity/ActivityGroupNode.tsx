@@ -11,7 +11,7 @@ import {
   summarizeActivityItems,
   getActivityDescriptor,
   activityGroupPreview
-} from "./ToolUtils";
+} from "../../lib/activityToolUtils";
 
 type ActivityGroupItem = Extract<TimelineItem, { kind: "activity_group" }>;
 type ActivityToolItem = Extract<TimelineItem, { kind: "tool" }>;
