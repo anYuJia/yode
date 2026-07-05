@@ -22,6 +22,7 @@ import {
 import {
   INSPECTOR_WIDTH_STORAGE_KEY,
   loadInitialPaneSize,
+  type PaneKind,
   SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY,
   SIDEBAR_WIDTH_STORAGE_KEY,
   TERMINAL_HEIGHT_STORAGE_KEY
@@ -54,6 +55,7 @@ type AppUiState = {
   composerImages: ImageAttachment[];
   currentTurnId: string | null;
   draft: string;
+  draggingPane: PaneKind | null;
   generalSettings: GeneralSettings;
   inspectorOpen: boolean;
   inspectorWidth: number;
@@ -82,6 +84,7 @@ type AppUiState = {
   setComposerImages: (images: StateUpdater<ImageAttachment[]>) => void;
   setCurrentTurnId: (turnId: string | null) => void;
   setDraft: (draft: string) => void;
+  setDraggingPane: (pane: PaneKind | null) => void;
   setInspectorOpen: (open: boolean) => void;
   setInspectorWidth: (width: number) => void;
   setIsProcessing: (isProcessing: boolean) => void;
@@ -129,6 +132,7 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   composerImages: [],
   currentTurnId: null,
   draft: "",
+  draggingPane: null,
   generalSettings: loadGeneralSettings(),
   inspectorOpen: true,
   inspectorWidth: loadInitialPaneSize("inspector", INSPECTOR_WIDTH_STORAGE_KEY),
@@ -179,6 +183,7 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   },
   setCurrentTurnId: (currentTurnId) => set({ currentTurnId }),
   setDraft: (draft) => set({ draft }),
+  setDraggingPane: (draggingPane) => set({ draggingPane }),
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   setInspectorWidth: (inspectorWidth) => {
     localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));

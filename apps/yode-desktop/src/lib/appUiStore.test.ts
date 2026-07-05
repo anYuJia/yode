@@ -240,6 +240,22 @@ describe("app UI store", () => {
     expect(useAppUiStore.getState().bootstrap.permissionMode).toBe("accept-edits");
     expect(useAppUiStore.getState().bootstrap.sessions).toHaveLength(1);
   });
+
+  it("keeps pane drag state in the shared store", async () => {
+    stubMemoryLocalStorage();
+
+    const { useAppUiStore } = await import("./appUiStore");
+
+    expect(useAppUiStore.getState().draggingPane).toBeNull();
+
+    useAppUiStore.getState().setDraggingPane("inspector");
+
+    expect(useAppUiStore.getState().draggingPane).toBe("inspector");
+
+    useAppUiStore.getState().setDraggingPane(null);
+
+    expect(useAppUiStore.getState().draggingPane).toBeNull();
+  });
 });
 
 function stubMemoryLocalStorage(seed: Record<string, string> = {}) {

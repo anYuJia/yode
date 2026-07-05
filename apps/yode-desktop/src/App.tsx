@@ -253,7 +253,8 @@ export function App() {
   const setTerminalOpenForCurrentConversation = (open: boolean) => {
     setTerminalOpenForConversation(terminalConversationKey, open);
   };
-  const [draggingPane, setDraggingPane] = useState<PaneKind | null>(null);
+  const draggingPane = useAppUiStore((state) => state.draggingPane);
+  const setDraggingPane = useAppUiStore((state) => state.setDraggingPane);
   const dragStateRef = useRef<PaneDragState | null>(null);
   const dragCaptureRef = useRef<{ target: Element; pointerId: number } | null>(null);
 
