@@ -18,7 +18,7 @@ use yode_tools::runtime_tasks::{latest_transcript_artifact_path, RuntimeTaskStor
 use yode_tools::tool::{SubAgentOptions, SubAgentRunner};
 
 use crate::context::{AgentContext, QuerySource, SessionRuntime};
-use crate::hooks::{HookContext, HookEvent, HookManager};
+use crate::hooks::{HookContext, HookEvent, HookManager, HookResult};
 use crate::permission::PermissionManager;
 
 use super::{AgentEngine, EngineEvent};
@@ -890,7 +890,9 @@ async fn emit_subagent_hook(
         }),
         extra_metadata,
     )));
-    let _ = hook_manager.execute(event, &hook_context).await;
+    let event_label = event.to_string();
+    let results = hook_manager.execute(event, &hook_context).await;
+    warn_on_ignored_hook_results("subagent", &event_label, &results);
 }
 
 #[expect(
@@ -928,7 +930,9 @@ async fn emit_task_hook(
         }),
         extra_metadata,
     )));
-    let _ = hook_manager.execute(event, &hook_context).await;
+    let event_label = event.to_string();
+    let results = hook_manager.execute(event, &hook_context).await;
+    warn_on_ignored_hook_results("task", &event_label, &results);
 }
 
 fn merge_hook_metadata(
@@ -942,6 +946,27 @@ fn merge_hook_metadata(
         }
     }
     serde_json::Value::Object(base_object)
+}
+
+fn warn_on_ignored_hook_results(scope: &str, event: &str, results: &[HookResult]) {
+    for result in results {
+        if result.blocked
+            || result.deferred
+            || result.reason.is_some()
+            || result.modified_input.is_some()
+        {
+            warn!(
+                scope,
+                event,
+                blocked = result.blocked,
+                deferred = result.deferred,
+                reason = result.reason.as_deref().unwrap_or(""),
+                hook_command = result.source_hook_command.as_deref().unwrap_or(""),
+                modified_input = result.modified_input.is_some(),
+                "hook result is not enforced in this emission path"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
