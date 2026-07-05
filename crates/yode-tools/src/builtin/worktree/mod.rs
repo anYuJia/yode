@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::process::Output;
 use tokio::process::Command;
 
 use crate::path_format::display_slash;
@@ -221,25 +222,31 @@ impl Tool for ExitWorktreeTool {
 
         if action == "remove" {
             if !discard_changes {
-                let status = Command::new("git")
+                let output = Command::new("git")
                     .args(["status", "--porcelain"])
                     .current_dir(&worktree_dir)
                     .output()
-                    .await;
+                    .await
+                    .map_err(|err| anyhow::anyhow!("Failed to run git status: {}", err))?;
 
-                if let Ok(output) = status {
-                    let changes = String::from_utf8_lossy(&output.stdout);
-                    if !changes.trim().is_empty() {
-                        return Ok(ToolResult::error(format!(
-                            "Worktree has uncommitted changes:\n{}\n\
-                             Set discard_changes=true to force remove.",
-                            changes
-                        )));
-                    }
+                if !output.status.success() {
+                    return Ok(ToolResult::error(format_git_failure(
+                        "git status --porcelain",
+                        &output,
+                    )));
+                }
+
+                let changes = String::from_utf8_lossy(&output.stdout);
+                if !changes.trim().is_empty() {
+                    return Ok(ToolResult::error(format!(
+                        "Worktree has uncommitted changes:\n{}\n\
+                         Set discard_changes=true to force remove.",
+                        changes
+                    )));
                 }
             }
 
-            let _ = Command::new("git")
+            let remove_output = Command::new("git")
                 .args([
                     "worktree",
                     "remove",
@@ -248,13 +255,29 @@ impl Tool for ExitWorktreeTool {
                 ])
                 .current_dir(&original_dir)
                 .output()
-                .await;
+                .await
+                .map_err(|err| anyhow::anyhow!("Failed to run git worktree remove: {}", err))?;
 
-            let _ = Command::new("git")
+            if !remove_output.status.success() {
+                return Ok(ToolResult::error(format_git_failure(
+                    "git worktree remove --force",
+                    &remove_output,
+                )));
+            }
+
+            let branch_output = Command::new("git")
                 .args(["branch", "-D", &branch_name])
                 .current_dir(&original_dir)
                 .output()
-                .await;
+                .await
+                .map_err(|err| anyhow::anyhow!("Failed to run git branch -D: {}", err))?;
+
+            if !branch_output.status.success() {
+                return Ok(ToolResult::error(format_git_failure(
+                    "git branch -D",
+                    &branch_output,
+                )));
+            }
         }
 
         {
@@ -296,6 +319,16 @@ fn git_branch_prefix() -> String {
         .and_then(|raw| serde_json::from_str::<GitRuntimeSettings>(&raw).ok())
         .map(|settings| normalize_branch_prefix(&settings.branch_prefix))
         .unwrap_or_else(|| "yode/".to_string())
+}
+
+fn format_git_failure(command: &str, output: &Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let detail = [stderr.trim(), stdout.trim()]
+        .into_iter()
+        .find(|text| !text.is_empty())
+        .unwrap_or("no output");
+    format!("{command} failed: {detail}")
 }
 
 fn normalize_branch_prefix(value: &str) -> String {
