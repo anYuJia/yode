@@ -1,4 +1,5 @@
 use super::*;
+use crate::updater::config_state::parse_updater_config;
 
 #[test]
 fn test_version_compare() {
@@ -50,4 +51,12 @@ async fn sha256_file_hashes_contents() {
         sha256_file(&path).await.unwrap(),
         "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
     );
+}
+
+#[test]
+fn invalid_updater_config_falls_back_to_defaults() {
+    let config = parse_updater_config("last_checked = nope", &PathBuf::from("updater.toml"));
+
+    assert!(config.last_checked.is_none());
+    assert!(config.downloaded_version.is_none());
 }

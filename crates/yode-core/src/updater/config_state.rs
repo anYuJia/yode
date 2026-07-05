@@ -7,15 +7,30 @@ impl Updater {
 
     async fn read_config(&self) -> UpdaterConfig {
         let config_path = self.config_path();
-        if !fs::try_exists(&config_path).await.unwrap_or(false) {
-            return UpdaterConfig::default();
+        match fs::try_exists(&config_path).await {
+            Ok(false) => return UpdaterConfig::default(),
+            Ok(true) => {}
+            Err(err) => {
+                warn!(
+                    "Failed to check updater config existence at {}: {}",
+                    config_path.display(),
+                    err
+                );
+                return UpdaterConfig::default();
+            }
         }
 
-        fs::read_to_string(&config_path)
-            .await
-            .ok()
-            .and_then(|s| toml::from_str(&s).ok())
-            .unwrap_or_default()
+        match fs::read_to_string(&config_path).await {
+            Ok(content) => parse_updater_config(&content, &config_path),
+            Err(err) => {
+                warn!(
+                    "Failed to read updater config at {}: {}",
+                    config_path.display(),
+                    err
+                );
+                UpdaterConfig::default()
+            }
+        }
     }
 
     async fn write_config(&self, config: &UpdaterConfig, label: &str) {
@@ -134,5 +149,22 @@ impl Updater {
         }
 
         Ok(())
+    }
+}
+
+pub(in crate::updater) fn parse_updater_config(
+    content: &str,
+    config_path: &std::path::Path,
+) -> UpdaterConfig {
+    match toml::from_str(content) {
+        Ok(config) => config,
+        Err(err) => {
+            warn!(
+                "Failed to parse updater config at {}: {}",
+                config_path.display(),
+                err
+            );
+            UpdaterConfig::default()
+        }
     }
 }
