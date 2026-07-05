@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useLayoutEffect, useEffect } from "react";
 import { Bot } from "lucide-react";
-import { ImageAttachment, TimelineItem } from "../lib/desktopTypes";
+import { ImageAttachment, PendingUserQuestion, TimelineItem } from "../lib/desktopTypes";
 import {
   isIntermediateAssistantItem,
   compileInlineItems,
@@ -17,14 +17,6 @@ import { AskUserActions } from "./chat-workspace/AskUserActions";
 import { LiveStatusRow } from "./chat-workspace/LiveStatusRow";
 import { isUserQuery, parseUserQueryJson } from "../lib/askUser";
 import type { UserQuery } from "../lib/askUser";
-
-export type PendingUserQuestion = {
-  sessionId: string;
-  turnId: string;
-  title?: string;
-  question: string;
-  query?: UserQuery;
-};
 
 function hasLiveProcessItem(items: TimelineItem[]) {
   return items.some((item) => {

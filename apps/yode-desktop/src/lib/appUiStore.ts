@@ -1,8 +1,7 @@
 import { create } from "zustand";
 
-import type { PendingUserQuestion } from "../components/ChatWorkspace";
 import type { ViewMode } from "../components/Sidebar";
-import type { ImageAttachment } from "./desktopTypes";
+import type { ImageAttachment, PendingUserQuestion } from "./desktopTypes";
 import type { UsageSnapshot } from "./localSlashCommands";
 import {
   loadAppLanguage,

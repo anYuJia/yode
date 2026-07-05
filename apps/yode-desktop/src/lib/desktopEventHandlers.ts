@@ -1,8 +1,7 @@
-import { PendingUserQuestion } from "../components/ChatWorkspace";
 import { applyDesktopEventToTimelineItems } from "../components/timelineUtils";
 import { isUserQuery } from "./askUser";
 import type { UserQuery } from "./askUser";
-import { DesktopEvent, TimelineItem } from "./desktopTypes";
+import { DesktopEvent, PendingUserQuestion, TimelineItem } from "./desktopTypes";
 import { UsageSnapshot } from "./localSlashCommands";
 
 type NotificationPolicy = "completion" | "permission" | "question";

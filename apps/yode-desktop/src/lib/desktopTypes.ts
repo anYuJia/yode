@@ -1,3 +1,5 @@
+import type { UserQuery } from "./askUser";
+
 export type Bootstrap = {
   appVersion: string;
   workspacePath: string;
@@ -161,6 +163,14 @@ export type ImageAttachment = {
   base64: string;
   dataUrl: string;
   size: number;
+};
+
+export type PendingUserQuestion = {
+  sessionId: string;
+  turnId: string;
+  title?: string;
+  question: string;
+  query?: UserQuery;
 };
 
 export const fallbackBootstrap: Bootstrap = {

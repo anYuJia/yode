@@ -63,7 +63,7 @@ import { TerminalDrawer } from "./components/TerminalDrawer";
 import { PROVIDERS_META } from "./components/settings/ProvidersSettings";
 import { Sidebar, ViewMode } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
-import { ChatWorkspace, PendingUserQuestion } from "./components/ChatWorkspace";
+import { ChatWorkspace } from "./components/ChatWorkspace";
 import {
   messagesToTimelineItems,
   upsertActiveSession,
