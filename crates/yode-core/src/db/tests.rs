@@ -1,10 +1,106 @@
 use chrono::Utc;
+use rusqlite::Connection;
 use serde_json::json;
 use tempfile::tempdir;
 use yode_llm::types::{ImageData, Message};
 
 use super::{Database, SessionArtifacts};
 use crate::session::Session;
+
+#[test]
+fn open_migrates_legacy_database_columns() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("legacy.db");
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE sessions (
+                id TEXT PRIMARY KEY,
+                name TEXT,
+                provider TEXT NOT NULL,
+                model TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_calls_json TEXT,
+                tool_call_id TEXT,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE session_artifacts (
+                session_id TEXT PRIMARY KEY,
+                last_compaction_mode TEXT,
+                last_compaction_at TEXT,
+                last_compaction_summary_excerpt TEXT,
+                last_compaction_session_memory_path TEXT,
+                last_compaction_transcript_path TEXT,
+                last_session_memory_update_at TEXT,
+                last_session_memory_update_path TEXT,
+                last_session_memory_generated_summary INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL
+            );",
+        )
+        .unwrap();
+    }
+
+    let db = Database::open(&path).unwrap();
+    db.create_session(&Session {
+        id: "legacy-session".to_string(),
+        name: None,
+        project_root: Some("/tmp/legacy".to_string()),
+        provider: "mock".to_string(),
+        model: "mock-model".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    })
+    .unwrap();
+    db.save_message_with_metadata(
+        "legacy-session",
+        "assistant",
+        Some("ok"),
+        Some("reasoning"),
+        None,
+        None,
+        Some(&json!({"migrated": true})),
+    )
+    .unwrap();
+    db.upsert_session_artifacts(
+        "legacy-session",
+        &SessionArtifacts {
+            last_compaction_mode: None,
+            last_compaction_at: None,
+            last_compaction_summary_excerpt: None,
+            last_compaction_session_memory_path: None,
+            last_compaction_transcript_path: None,
+            last_compact_boundary_json: Some(r#"{"legacy":true}"#.to_string()),
+            last_session_memory_update_at: None,
+            last_session_memory_update_path: None,
+            last_session_memory_generated_summary: false,
+        },
+    )
+    .unwrap();
+
+    let messages = db.load_messages("legacy-session").unwrap();
+    assert_eq!(messages[0].reasoning.as_deref(), Some("reasoning"));
+    assert_eq!(
+        messages[0].metadata_json.as_deref(),
+        Some(r#"{"migrated":true}"#)
+    );
+
+    let sessions = db.list_sessions_with_artifacts(10).unwrap();
+    assert_eq!(
+        sessions[0].session.project_root.as_deref(),
+        Some("/tmp/legacy")
+    );
+    assert_eq!(
+        sessions[0].artifacts.last_compact_boundary_json.as_deref(),
+        Some(r#"{"legacy":true}"#)
+    );
+}
 
 #[test]
 fn replace_messages_overwrites_previous_session_history() {

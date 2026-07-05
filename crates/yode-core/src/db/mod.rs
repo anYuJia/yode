@@ -82,14 +82,16 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);",
         )?;
 
-        let _ = conn.execute("ALTER TABLE messages ADD COLUMN reasoning TEXT", []);
-        let _ = conn.execute("ALTER TABLE messages ADD COLUMN images_json TEXT", []);
-        let _ = conn.execute("ALTER TABLE messages ADD COLUMN metadata_json TEXT", []);
-        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN project_root TEXT", []);
-        let _ = conn.execute(
-            "ALTER TABLE session_artifacts ADD COLUMN last_compact_boundary_json TEXT",
-            [],
-        );
+        ensure_column(&conn, "messages", "reasoning", "reasoning TEXT")?;
+        ensure_column(&conn, "messages", "images_json", "images_json TEXT")?;
+        ensure_column(&conn, "messages", "metadata_json", "metadata_json TEXT")?;
+        ensure_column(&conn, "sessions", "project_root", "project_root TEXT")?;
+        ensure_column(
+            &conn,
+            "session_artifacts",
+            "last_compact_boundary_json",
+            "last_compact_boundary_json TEXT",
+        )?;
         Ok(())
     }
 
@@ -98,6 +100,37 @@ impl Database {
             .lock()
             .map_err(|_| anyhow::anyhow!("database connection lock poisoned"))
     }
+}
+
+fn ensure_column(
+    conn: &Connection,
+    table_name: &str,
+    column_name: &str,
+    column_definition: &str,
+) -> Result<()> {
+    if column_exists(conn, table_name, column_name)? {
+        return Ok(());
+    }
+    conn.execute(
+        &format!("ALTER TABLE {table_name} ADD COLUMN {column_definition}"),
+        [],
+    )
+    .with_context(|| format!("Failed to migrate database column {table_name}.{column_name}"))?;
+    Ok(())
+}
+
+fn column_exists(conn: &Connection, table_name: &str, column_name: &str) -> Result<bool> {
+    let mut stmt = conn
+        .prepare(&format!("PRAGMA table_info({table_name})"))
+        .with_context(|| format!("Failed to inspect database table '{table_name}'"))?;
+    let mut rows = stmt.query([])?;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == column_name {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub(super) fn parse_rfc3339_or_now(value: String) -> DateTime<Utc> {
