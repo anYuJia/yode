@@ -108,10 +108,7 @@ fn metadata_object(result: &mut ToolResult) -> &mut Map<String, Value> {
     if !metadata.is_object() {
         *metadata = Value::Object(Map::new());
     }
-    match metadata {
-        Value::Object(metadata) => metadata,
-        _ => unreachable!("metadata was just normalized to an object"),
-    }
+    metadata.as_object_mut().expect("metadata is an object")
 }
 
 fn tool_runtime_object(result: &mut ToolResult) -> &mut Map<String, Value> {
@@ -119,11 +116,10 @@ fn tool_runtime_object(result: &mut ToolResult) -> &mut Map<String, Value> {
     if !matches!(metadata.get("tool_runtime"), Some(Value::Object(_))) {
         metadata.insert("tool_runtime".to_string(), Value::Object(Map::new()));
     }
-
     metadata
         .get_mut("tool_runtime")
         .and_then(Value::as_object_mut)
-        .unwrap_or_else(|| unreachable!("tool_runtime was just normalized to an object"))
+        .expect("tool_runtime is an object")
 }
 
 pub(super) fn set_tool_runtime_truncation_metadata(
