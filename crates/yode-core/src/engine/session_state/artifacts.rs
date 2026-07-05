@@ -95,7 +95,8 @@ fn load_prompt_cache_state_artifact(
     session_id: &str,
 ) -> Option<PromptCacheArtifactState> {
     let path = prompt_cache_state_artifact_path(project_root, session_id);
-    serde_json::from_str::<PromptCacheArtifactState>(&std::fs::read_to_string(path).ok()?).ok()
+    let content = std::fs::read_to_string(path).ok()?;
+    parse_prompt_cache_state_artifact_content(&content)
 }
 
 async fn load_prompt_cache_state_artifact_async(
@@ -104,7 +105,11 @@ async fn load_prompt_cache_state_artifact_async(
 ) -> Option<PromptCacheArtifactState> {
     let path = prompt_cache_state_artifact_path(project_root, session_id);
     let content = tokio::fs::read_to_string(path).await.ok()?;
-    serde_json::from_str::<PromptCacheArtifactState>(&content).ok()
+    parse_prompt_cache_state_artifact_content(&content)
+}
+
+fn parse_prompt_cache_state_artifact_content(content: &str) -> Option<PromptCacheArtifactState> {
+    serde_json::from_str::<PromptCacheArtifactState>(content).ok()
 }
 
 impl AgentEngine {
