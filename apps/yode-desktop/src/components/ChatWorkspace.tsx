@@ -7,7 +7,7 @@ import {
   splitTurnVisibleItems,
   turnStaticDurationSeconds,
   ConversationTurn
-} from "./timelineUtils";
+} from "../lib/timelineUtils";
 import { Composer } from "./Composer";
 import { RunInspector } from "./RunInspector";
 import { TimelineNode } from "./chat-workspace/TimelineNode";

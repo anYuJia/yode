@@ -72,7 +72,7 @@ import {
   deriveSessionTitle,
   projectLabelFromPath,
   ConversationTurn
-} from "./components/timelineUtils";
+} from "./lib/timelineUtils";
 import { KEYBOARD_SHORTCUTS_CHANGE_EVENT, findShortcutAction, loadShortcutBindings } from "./lib/keyboardShortcuts";
 import {
   executeLocalSlashCommand,

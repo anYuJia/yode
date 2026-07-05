@@ -21,7 +21,7 @@ import {
   loadPetName,
   petFromChangeEvent
 } from "../lib/appearanceSettings";
-import { projectLabelFromPath } from "./timelineUtils";
+import { projectLabelFromPath } from "../lib/timelineUtils";
 
 interface SidebarProps {
   sessions: SessionSummary[];

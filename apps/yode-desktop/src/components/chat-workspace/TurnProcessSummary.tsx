@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { CircleDot, Check, ChevronDown } from "lucide-react";
-import { formatDurationZh } from "../timelineUtils";
+import { formatDurationZh } from "../../lib/timelineUtils";
 
 export function TurnProcessSummary({ turnId, isActive, isWaitingForUser, isExpanded, onToggle, durationSeconds, processCount, appLang }: {
   turnId: string;

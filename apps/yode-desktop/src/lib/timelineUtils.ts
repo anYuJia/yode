@@ -1,5 +1,5 @@
-import { TimelineItem, SessionSummary, DesktopMessage } from "../lib/desktopTypes";
-import { parseJsonArray, recordFromUnknown } from "../lib/jsonUtils";
+import { TimelineItem, SessionSummary, DesktopMessage } from "./desktopTypes";
+import { parseJsonArray, recordFromUnknown } from "./jsonUtils";
 import {
   isRuntimeNoticeText,
   parseToolDetails,
@@ -7,7 +7,7 @@ import {
   summarizeActivityItems,
   activityGroupPreview,
   getActivityDescriptor
-} from "./activity/ToolUtils";
+} from "../components/activity/ToolUtils";
 
 export function normalizeProcessNoteText(text: string) {
   return text

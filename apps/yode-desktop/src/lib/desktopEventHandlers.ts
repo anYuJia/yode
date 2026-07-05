@@ -1,4 +1,4 @@
-import { applyDesktopEventToTimelineItems } from "../components/timelineUtils";
+import { applyDesktopEventToTimelineItems } from "./timelineUtils";
 import { isUserQuery } from "./askUser";
 import type { UserQuery } from "./askUser";
 import { DesktopEvent, PendingUserQuestion, TimelineItem, UsageSnapshot } from "./desktopTypes";
