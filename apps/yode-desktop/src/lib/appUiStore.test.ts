@@ -210,6 +210,36 @@ describe("app UI store", () => {
     expect(useAppUiStore.getState().sessionItems).toHaveLength(1);
     expect(useAppUiStore.getState().timelineItems).toHaveLength(1);
   });
+
+  it("keeps bootstrap state in the shared store", async () => {
+    stubMemoryLocalStorage();
+
+    const { useAppUiStore } = await import("./appUiStore");
+    const store = useAppUiStore.getState();
+
+    expect(store.bootstrap.workspacePath).toBe("");
+
+    store.setBootstrap((current) => ({
+      ...current,
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+      permissionMode: "accept-edits",
+      sessions: [
+        {
+          id: "session-1",
+          title: "会话",
+          provider: "anthropic",
+          model: "claude-sonnet-4",
+          updatedAt: "2026-07-05T12:00:00.000Z",
+        }
+      ],
+    }));
+
+    expect(useAppUiStore.getState().bootstrap.provider).toBe("anthropic");
+    expect(useAppUiStore.getState().bootstrap.model).toBe("claude-sonnet-4");
+    expect(useAppUiStore.getState().bootstrap.permissionMode).toBe("accept-edits");
+    expect(useAppUiStore.getState().bootstrap.sessions).toHaveLength(1);
+  });
 });
 
 function stubMemoryLocalStorage(seed: Record<string, string> = {}) {

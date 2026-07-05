@@ -196,7 +196,8 @@ function formatDurationZh(totalSeconds: number) {
 }
 
 export function App() {
-  const [bootstrap, setBootstrap] = useState<Bootstrap>(fallbackBootstrap);
+  const bootstrap = useAppUiStore((state) => state.bootstrap);
+  const setBootstrap = useAppUiStore((state) => state.setBootstrap);
   const viewMode = useAppUiStore((state) => state.viewMode);
   const setViewMode = useAppUiStore((state) => state.setViewMode);
   const appLang = useAppUiStore((state) => state.appLang);

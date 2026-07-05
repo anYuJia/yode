@@ -1,6 +1,8 @@
 import { create } from "zustand";
 
+import { fallbackBootstrap } from "./desktopTypes";
 import type {
+  Bootstrap,
   ImageAttachment,
   PendingUserQuestion,
   SessionSummary,
@@ -48,6 +50,7 @@ export type QueuedComposerMessage = {
 type AppUiState = {
   activeSessionId: string | null;
   appLang: string;
+  bootstrap: Bootstrap;
   composerImages: ImageAttachment[];
   currentTurnId: string | null;
   draft: string;
@@ -75,6 +78,7 @@ type AppUiState = {
   refreshGeneralSettings: (options?: { apply?: boolean }) => void;
   setActiveSessionId: (sessionId: string | null) => void;
   setAppLang: (lang: string) => void;
+  setBootstrap: (bootstrap: StateUpdater<Bootstrap>) => void;
   setComposerImages: (images: StateUpdater<ImageAttachment[]>) => void;
   setCurrentTurnId: (turnId: string | null) => void;
   setDraft: (draft: string) => void;
@@ -121,6 +125,7 @@ function resolveUpdater<T>(updater: StateUpdater<T>, current: T): T {
 export const useAppUiStore = create<AppUiState>((set, get) => ({
   activeSessionId: null,
   appLang: loadAppLanguage(),
+  bootstrap: fallbackBootstrap,
   composerImages: [],
   currentTurnId: null,
   draft: "",
@@ -163,6 +168,10 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   setActiveSessionId: (activeSessionId) => set({ activeSessionId }),
   setAppLang: (appLang) => {
     set({ appLang: normalizeAppLanguage(appLang) });
+  },
+  setBootstrap: (updater) => {
+    const bootstrap = resolveUpdater(updater, get().bootstrap);
+    set({ bootstrap });
   },
   setComposerImages: (updater) => {
     const composerImages = resolveUpdater(updater, get().composerImages);
