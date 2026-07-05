@@ -231,11 +231,22 @@ impl DesktopRuntime {
     pub fn computer_use_open_accessibility(&self) -> Result<DesktopActionResult> {
         #[cfg(target_os = "macos")]
         {
-            let _ = Command::new("open")
+            match Command::new("open")
                 .arg(
                     "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
                 )
-                .status();
+                .status()
+            {
+                Ok(status) if status.success() => {}
+                Ok(status) => tracing::warn!(
+                    status = ?status,
+                    "Opening macOS accessibility settings exited unsuccessfully"
+                ),
+                Err(err) => tracing::warn!(
+                    error = %err,
+                    "Failed to open macOS accessibility settings"
+                ),
+            }
         }
         Ok(DesktopActionResult {
             ok: true,
@@ -373,8 +384,12 @@ pub(super) fn stop_sleep_guard(sleep_guard: &Arc<Mutex<Option<Child>>>) {
         return;
     };
     if let Some(mut child) = guard.take() {
-        let _ = child.kill();
-        let _ = child.wait();
+        if let Err(err) = child.kill() {
+            tracing::warn!(error = %err, "Failed to stop sleep guard process");
+        }
+        if let Err(err) = child.wait() {
+            tracing::warn!(error = %err, "Failed to wait for sleep guard process");
+        }
     }
 }
 
@@ -459,10 +474,7 @@ fn apply_menu_bar_setting(app: &AppHandle, enabled: bool) -> Result<()> {
         .menu(&menu)
         .on_menu_event(|app, event| match event.id().as_ref() {
             "show" => {
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                show_main_window(app);
             }
             "quit" => app.exit(0),
             _ => {}
@@ -477,12 +489,22 @@ fn apply_menu_bar_setting(app: &AppHandle, enabled: bool) -> Result<()> {
                 }
             ) {
                 let app = tray.app_handle();
-                if let Some(window) = app.get_webview_window("main") {
-                    let _ = window.show();
-                    let _ = window.set_focus();
-                }
+                show_main_window(app);
             }
         })
         .build(app)?;
     Ok(())
+}
+
+fn show_main_window(app: &AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        tracing::warn!("Main window was unavailable while showing Yode");
+        return;
+    };
+    if let Err(err) = window.show() {
+        tracing::warn!(error = %err, "Failed to show main Yode window");
+    }
+    if let Err(err) = window.set_focus() {
+        tracing::warn!(error = %err, "Failed to focus main Yode window");
+    }
 }
