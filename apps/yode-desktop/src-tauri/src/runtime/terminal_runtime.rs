@@ -109,8 +109,20 @@ impl DesktopRuntime {
             .map_err(|_| anyhow::anyhow!("pty session lock poisoned"))?
             .remove(&session_id)
         {
-            let _ = session.child.kill();
-            let _ = session.child.wait();
+            if let Err(err) = session.child.kill() {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %err,
+                    "Failed to kill terminal child process"
+                );
+            }
+            if let Err(err) = session.child.wait() {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %err,
+                    "Failed to wait for terminal child process"
+                );
+            }
         }
         Ok(())
     }
@@ -178,23 +190,30 @@ impl DesktopRuntime {
                     Ok(0) => break,
                     Ok(n) => {
                         let data = String::from_utf8_lossy(&buffer[..n]).to_string();
-                        let _ = app_for_output.emit(
-                            "terminal-output",
+                        emit_terminal_output(
+                            &app_for_output,
                             TerminalOutputEvent {
                                 session_id: session_id.clone(),
                                 data,
                             },
                         );
                     }
-                    Err(_) => break,
+                    Err(err) => {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            error = %err,
+                            "Failed to read terminal output"
+                        );
+                        break;
+                    }
                 }
             }
 
             if let Ok(mut sessions) = sessions.lock() {
                 sessions.remove(&session_id);
             }
-            let _ = app.emit(
-                "terminal-exit",
+            emit_terminal_exit(
+                &app,
                 TerminalExitEvent {
                     session_id,
                     exit_code: None,
@@ -267,6 +286,28 @@ impl DesktopRuntime {
                 env: std::env::vars().collect(),
             })
             .clone())
+    }
+}
+
+fn emit_terminal_output(app: &AppHandle, event: TerminalOutputEvent) {
+    let session_id = event.session_id.clone();
+    if let Err(err) = app.emit("terminal-output", event) {
+        tracing::warn!(
+            session_id = %session_id,
+            error = %err,
+            "Failed to emit terminal output event"
+        );
+    }
+}
+
+fn emit_terminal_exit(app: &AppHandle, event: TerminalExitEvent) {
+    let session_id = event.session_id.clone();
+    if let Err(err) = app.emit("terminal-exit", event) {
+        tracing::warn!(
+            session_id = %session_id,
+            error = %err,
+            "Failed to emit terminal exit event"
+        );
     }
 }
 
