@@ -6,6 +6,11 @@ import {
   normalizeAppLanguage
 } from "./appearanceSettings";
 import {
+  applyGeneralSettings,
+  loadGeneralSettings,
+  type GeneralSettings
+} from "./desktopSettings";
+import {
   INSPECTOR_WIDTH_STORAGE_KEY,
   loadInitialPaneSize,
   SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY,
@@ -30,6 +35,7 @@ type StateUpdater<T> = T | ((current: T) => T);
 
 type AppUiState = {
   appLang: string;
+  generalSettings: GeneralSettings;
   inspectorOpen: boolean;
   inspectorWidth: number;
   projectOrder: string[];
@@ -42,6 +48,7 @@ type AppUiState = {
   terminalOpenByConversation: Record<string, boolean>;
   viewMode: ViewMode;
   reloadProjectStorage: () => void;
+  refreshGeneralSettings: (options?: { apply?: boolean }) => void;
   setAppLang: (lang: string) => void;
   setInspectorOpen: (open: boolean) => void;
   setInspectorWidth: (width: number) => void;
@@ -78,6 +85,7 @@ function resolveUpdater<T>(updater: StateUpdater<T>, current: T): T {
 
 export const useAppUiStore = create<AppUiState>((set, get) => ({
   appLang: loadAppLanguage(),
+  generalSettings: loadGeneralSettings(),
   inspectorOpen: true,
   inspectorWidth: loadInitialPaneSize("inspector", INSPECTOR_WIDTH_STORAGE_KEY),
   projectOrder: loadStoredProjectOrder(),
@@ -94,6 +102,12 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     projectRoots: loadStoredProjectRoots(),
     selectedProjectRoot: loadStoredSelectedProjectRoot(),
   }),
+  refreshGeneralSettings: (options) => {
+    set({ generalSettings: loadGeneralSettings() });
+    if (options?.apply !== false) {
+      void applyGeneralSettings();
+    }
+  },
   setAppLang: (appLang) => {
     set({ appLang: normalizeAppLanguage(appLang) });
   },

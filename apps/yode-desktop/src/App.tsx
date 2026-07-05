@@ -78,7 +78,7 @@ import {
   UsageSnapshot
 } from "./lib/localSlashCommands";
 import { handleDesktopRuntimeEvent } from "./lib/desktopEventHandlers";
-import { applyGeneralSettings, loadGeneralSettings, toggleBottomPanelSetting } from "./lib/desktopSettings";
+import { GENERAL_SETTINGS_CHANGE_EVENT, toggleBottomPanelSetting } from "./lib/desktopSettings";
 import {
   PROJECT_ROOTS_CHANGED_EVENT,
   SESSION_DELETED_PERMANENTLY_EVENT,
@@ -221,9 +221,10 @@ export function App() {
   const setTerminalHeight = useAppUiStore((state) => state.setTerminalHeight);
   const terminalOpenByConversation = useAppUiStore((state) => state.terminalOpenByConversation);
   const setTerminalOpenForConversation = useAppUiStore((state) => state.setTerminalOpenForConversation);
+  const generalSettings = useAppUiStore((state) => state.generalSettings);
+  const refreshGeneralSettings = useAppUiStore((state) => state.refreshGeneralSettings);
   const [isProcessing, setIsProcessing] = useState(false);
   const [messageQueue, setMessageQueue] = useState<Array<{ content: string; images: ImageAttachment[] }>>([]);
-  const [generalSettings, setGeneralSettings] = useState(loadGeneralSettings);
   const [composerImages, setComposerImages] = useState<ImageAttachment[]>([]);
   const [currentTurnId, setCurrentTurnId] = useState<string | null>(null);
   const [permissionMode, setPermissionMode] = useState<string>("default");
@@ -413,13 +414,12 @@ export function App() {
 
   useEffect(() => {
     const handleGeneralSettingsChange = () => {
-      setGeneralSettings(loadGeneralSettings());
-      void applyGeneralSettings();
+      refreshGeneralSettings();
     };
-    void applyGeneralSettings();
-    window.addEventListener("yode-general-settings-change", handleGeneralSettingsChange);
-    return () => window.removeEventListener("yode-general-settings-change", handleGeneralSettingsChange);
-  }, []);
+    refreshGeneralSettings();
+    window.addEventListener(GENERAL_SETTINGS_CHANGE_EVENT, handleGeneralSettingsChange);
+    return () => window.removeEventListener(GENERAL_SETTINGS_CHANGE_EVENT, handleGeneralSettingsChange);
+  }, [refreshGeneralSettings]);
 
   const sendSystemNotification = useCallback((title: string, body: string, policy: "completion" | "permission" | "question") => {
     if (!("Notification" in window)) return;

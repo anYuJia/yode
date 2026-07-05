@@ -23,6 +23,13 @@ export type GeneralSettingsPayload = GeneralSettings & {
   preventSleep: boolean;
 };
 
+export const GENERAL_SETTINGS_CHANGE_EVENT = "yode-general-settings-change";
+
+export type GeneralSettingsChangeDetail = {
+  key: string;
+  value: string | boolean;
+};
+
 export type ConfigurationSettings = {
   scope: string;
   approvalPolicy: string;
@@ -628,7 +635,7 @@ export function savePersistedMcpServers(servers: McpServer[]): Promise<void> {
 
 export function saveGeneralSettingValue(key: string, value: string | boolean) {
   localStorage.setItem(key, String(value));
-  window.dispatchEvent(new CustomEvent("yode-general-settings-change", { detail: { key, value } }));
+  window.dispatchEvent(new CustomEvent<GeneralSettingsChangeDetail>(GENERAL_SETTINGS_CHANGE_EVENT, { detail: { key, value } }));
 }
 
 export async function applyGeneralSettings(): Promise<void> {
