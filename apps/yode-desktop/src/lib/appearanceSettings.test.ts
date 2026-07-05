@@ -10,10 +10,12 @@ import {
   PET_CHANGE_EVENT,
   dispatchAppearanceChange,
   dispatchPetChange,
+  languageFromChangeEvent,
   loadAppLanguage,
   loadAppearanceSettings,
   loadPetName,
   normalizeAppLanguage,
+  petFromChangeEvent,
   saveAppLanguage,
   themePresetForMode
 } from "./appearanceSettings";
@@ -55,6 +57,9 @@ describe("appearance settings helpers", () => {
       type: LANGUAGE_CHANGE_EVENT,
       detail: "en"
     }));
+    expect(languageFromChangeEvent(new CustomEvent(LANGUAGE_CHANGE_EVENT, { detail: "en" }))).toBe("en");
+    expect(languageFromChangeEvent(new CustomEvent(LANGUAGE_CHANGE_EVENT, { detail: "fr" }))).toBe(DEFAULT_APP_LANGUAGE);
+    expect(languageFromChangeEvent(new Event(LANGUAGE_CHANGE_EVENT))).toBe(DEFAULT_APP_LANGUAGE);
   });
 
   it("loads pet names and dispatches appearance events through shared helpers", () => {
@@ -72,6 +77,9 @@ describe("appearance settings helpers", () => {
       type: PET_CHANGE_EVENT,
       detail: "Yode"
     }));
+    expect(petFromChangeEvent(new CustomEvent(PET_CHANGE_EVENT, { detail: "Ada" }))).toBe("Ada");
+    expect(petFromChangeEvent(new CustomEvent(PET_CHANGE_EVENT, { detail: "" }))).toBe("Ada");
+    expect(petFromChangeEvent(new Event(PET_CHANGE_EVENT))).toBe("Ada");
   });
 
   it("selects light presets in system light mode", () => {

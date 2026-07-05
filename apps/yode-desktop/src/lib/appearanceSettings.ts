@@ -113,6 +113,13 @@ export function loadPetName() {
   return localStorage.getItem("yode-pet") || DEFAULT_PET_NAME;
 }
 
+export function petFromChangeEvent(event: Event): string {
+  if (!(event instanceof CustomEvent)) return loadPetName();
+  return typeof event.detail === "string" && event.detail.trim()
+    ? event.detail
+    : loadPetName();
+}
+
 export function dispatchLanguageChange(appLang: AppLanguage) {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(LANGUAGE_CHANGE_EVENT, { detail: appLang }));

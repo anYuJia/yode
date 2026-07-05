@@ -18,7 +18,8 @@ import { SessionSummary } from "../lib/desktopTypes";
 import {
   PET_CHANGE_EVENT,
   loadAppLanguage,
-  loadPetName
+  loadPetName,
+  petFromChangeEvent
 } from "../lib/appearanceSettings";
 import { projectLabelFromPath } from "./timelineUtils";
 
@@ -124,8 +125,7 @@ export function Sidebar({
 
   useEffect(() => {
     const handlePetChange = (event: Event) => {
-      const nextPet = (event as CustomEvent<string>).detail;
-      setPet(nextPet || loadPetName());
+      setPet(petFromChangeEvent(event));
     };
     window.addEventListener(PET_CHANGE_EVENT, handlePetChange);
     return () => window.removeEventListener(PET_CHANGE_EVENT, handlePetChange);

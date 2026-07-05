@@ -58,6 +58,7 @@ import {
 import { ProvidersSettings } from "./settings/ProvidersSettings";
 import {
   LANGUAGE_CHANGE_EVENT,
+  languageFromChangeEvent,
   loadAppLanguage,
   saveAppLanguage
 } from "../lib/appearanceSettings";
@@ -107,8 +108,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
 
   useEffect(() => {
     const handleLangChange = (e: Event) => {
-      const newLang = (e as CustomEvent).detail;
-      setCurrentLang(newLang);
+      setCurrentLang(languageFromChangeEvent(e));
     };
     window.addEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
     return () => window.removeEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);

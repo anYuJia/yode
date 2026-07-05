@@ -18,6 +18,7 @@ import {
   dispatchPetChange,
   DiffMarkerMode,
   LANGUAGE_CHANGE_EVENT,
+  languageFromChangeEvent,
   loadAppLanguage,
   loadAppearanceSettings,
   ReduceMotionMode,
@@ -182,8 +183,7 @@ export function AppearanceSettings() {
 
   useEffect(() => {
     const handleLangChange = (e: Event) => {
-      const newLang = (e as CustomEvent).detail;
-      setCurrentLang(newLang);
+      setCurrentLang(languageFromChangeEvent(e));
     };
     window.addEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
     return () => window.removeEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
