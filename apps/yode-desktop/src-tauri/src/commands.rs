@@ -1,3 +1,4 @@
+mod session;
 mod settings;
 mod terminal;
 mod worktree;
@@ -7,14 +8,14 @@ use crate::{protocol, runtime};
 pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
         app_get_bootstrap,
-        sessions_list,
-        sessions_create,
-        sessions_messages,
-        sessions_clear_messages,
-        sessions_rename,
-        sessions_export_markdown,
-        sessions_compact_local,
-        sessions_compact_engine,
+        session::sessions_list,
+        session::sessions_create,
+        session::sessions_messages,
+        session::sessions_clear_messages,
+        session::sessions_rename,
+        session::sessions_export_markdown,
+        session::sessions_compact_local,
+        session::sessions_compact_engine,
         project_folder_pick,
         runtime_state_get,
         edit_diff_artifact_read,
@@ -61,8 +62,8 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         terminal::terminal_write,
         terminal::terminal_resize,
         terminal::terminal_close,
-        sessions_delete,
-        sessions_update_llm,
+        session::sessions_delete,
+        session::sessions_update_llm,
         config_get_providers,
         config_save_providers,
         config_get_default_llm,
@@ -76,78 +77,6 @@ fn app_get_bootstrap(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::Bootstrap, String> {
     runtime.bootstrap().map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn sessions_list(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<Vec<protocol::DesktopSession>, String> {
-    runtime.sessions_list().map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn sessions_create(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    request: protocol::CreateSessionRequest,
-) -> Result<protocol::DesktopSession, String> {
-    runtime
-        .sessions_create(request)
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn sessions_messages(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    session_id: String,
-) -> Result<Vec<protocol::DesktopMessage>, String> {
-    runtime
-        .sessions_messages(session_id)
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn sessions_clear_messages(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    session_id: String,
-) -> Result<(), String> {
-    runtime
-        .sessions_clear_messages(session_id)
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn sessions_rename(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    session_id: String,
-    title: String,
-) -> Result<protocol::DesktopSession, String> {
-    runtime
-        .sessions_rename(session_id, title)
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn sessions_export_markdown(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    session_id: String,
-) -> Result<protocol::SessionExportResult, String> {
-    runtime
-        .sessions_export_markdown(session_id)
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn sessions_compact_local(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    session_id: String,
-) -> Result<protocol::SessionCompactResult, String> {
-    runtime
-        .sessions_compact_local(session_id)
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn sessions_compact_engine(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    session_id: String,
-) -> Result<protocol::SessionCompactResult, String> {
-    runtime
-        .sessions_compact_engine(session_id)
-        .await
-        .map_err(|err| err.to_string())
 }
 #[tauri::command]
 fn project_folder_pick() -> Option<String> {
@@ -376,26 +305,6 @@ async fn mcp_servers_reload(
     runtime
         .mcp_servers_reload()
         .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn sessions_delete(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    session_id: String,
-) -> Result<(), String> {
-    runtime
-        .sessions_delete(session_id)
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn sessions_update_llm(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    session_id: String,
-    provider: String,
-    model: String,
-) -> Result<(), String> {
-    runtime
-        .sessions_update_llm(session_id, provider, model)
         .map_err(|err| err.to_string())
 }
 #[tauri::command]
