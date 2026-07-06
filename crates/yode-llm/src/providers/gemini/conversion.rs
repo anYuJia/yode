@@ -22,6 +22,21 @@ fn parse_tool_call_args(tool_name: &str, arguments: &str) -> serde_json::Value {
     }
 }
 
+fn tool_result_name(tool_call_id: Option<&str>, message_index: usize) -> String {
+    match tool_call_id.filter(|id| !id.trim().is_empty()) {
+        Some(id) => id.to_string(),
+        None => {
+            let fallback = format!("missing_function_response_{message_index}");
+            tracing::warn!(
+                message_index,
+                fallback,
+                "Gemini tool result is missing tool_call_id; using stable fallback"
+            );
+            fallback
+        }
+    }
+}
+
 pub(super) fn convert_messages(
     messages: &[Message],
     restore_system_blocks: &[RestoreSystemBlockHint],
@@ -29,7 +44,7 @@ pub(super) fn convert_messages(
     let mut system_parts = Vec::new();
     let mut contents = Vec::new();
 
-    for message in messages {
+    for (message_index, message) in messages.iter().enumerate() {
         match message.role {
             Role::System => {
                 if let Some(text) = &message.content {
@@ -85,11 +100,7 @@ pub(super) fn convert_messages(
             }
             Role::Tool => {
                 if let Some(text) = &message.content {
-                    let name = message
-                        .tool_call_id
-                        .as_deref()
-                        .unwrap_or("function")
-                        .to_string();
+                    let name = tool_result_name(message.tool_call_id.as_deref(), message_index);
                     contents.push(GeminiContent {
                         role: Some("user".into()),
                         parts: vec![GeminiPart::FunctionResponse {
@@ -333,6 +344,30 @@ mod tests {
                 assert_eq!(function_call.args["raw_arguments"], "{not-json");
             }
             other => panic!("expected function call, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gemini_conversion_uses_stable_tool_result_name_fallback() {
+        let tool_message = Message {
+            role: crate::types::Role::Tool,
+            content: Some("tool result".to_string()),
+            content_blocks: Vec::new(),
+            reasoning: None,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            images: Vec::new(),
+        };
+
+        let (_system, contents) = convert_messages(&[tool_message], &[]);
+
+        assert_eq!(contents.len(), 1);
+        match &contents[0].parts[0] {
+            GeminiPart::FunctionResponse { function_response } => {
+                assert_eq!(function_response.name, "missing_function_response_0");
+                assert_eq!(function_response.response["result"], "tool result");
+            }
+            other => panic!("expected function response, got {other:?}"),
         }
     }
 

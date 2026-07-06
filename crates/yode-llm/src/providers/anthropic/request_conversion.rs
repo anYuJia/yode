@@ -46,6 +46,21 @@ fn parse_tool_call_input(tool_name: &str, arguments: &str) -> serde_json::Value 
     }
 }
 
+fn tool_result_id(tool_call_id: Option<&str>, message_index: usize) -> String {
+    match tool_call_id.filter(|id| !id.trim().is_empty()) {
+        Some(id) => id.to_string(),
+        None => {
+            let fallback = format!("missing_tool_result_{message_index}");
+            tracing::warn!(
+                message_index,
+                fallback,
+                "Anthropic tool result is missing tool_call_id; using stable fallback"
+            );
+            fallback
+        }
+    }
+}
+
 fn insert_cache_edits_after_tool_results(blocks: &mut Vec<ContentBlock>, deleted_refs: &[String]) {
     if deleted_refs.is_empty() {
         return;
@@ -188,7 +203,7 @@ impl AnthropicProvider {
         let mut system_blocks = Vec::new();
         let mut anthropic_msgs: Vec<AnthropicMessage> = Vec::new();
 
-        for msg in messages {
+        for (message_index, msg) in messages.iter().enumerate() {
             match msg.role {
                 Role::System => {
                     if let Some(text) = msg.content.as_ref().filter(|text| !text.is_empty()) {
@@ -267,7 +282,7 @@ impl AnthropicProvider {
                 }
                 Role::Tool => {
                     let block = ContentBlock::ToolResult {
-                        tool_use_id: msg.tool_call_id.clone().unwrap_or_default(),
+                        tool_use_id: tool_result_id(msg.tool_call_id.as_deref(), message_index),
                         content: msg.content.clone().unwrap_or_default(),
                         cache_reference: None,
                     };
@@ -464,6 +479,31 @@ mod tests {
                 assert_eq!(tool_use["raw_arguments"], "{not-json");
             }
             AnthropicContent::Text(_) => panic!("expected tool use blocks"),
+        }
+    }
+
+    #[test]
+    fn anthropic_conversion_uses_stable_tool_result_id_fallback() {
+        let tool_message = Message {
+            role: crate::types::Role::Tool,
+            content: Some("tool result".to_string()),
+            content_blocks: Vec::new(),
+            reasoning: None,
+            tool_calls: Vec::new(),
+            tool_call_id: None,
+            images: Vec::new(),
+        };
+
+        let (_system, converted) = AnthropicProvider::convert_messages(&[tool_message], None, &[]);
+
+        match &converted[0].content {
+            AnthropicContent::Blocks(blocks) => {
+                assert!(blocks.iter().any(|block| matches!(
+                    block,
+                    ContentBlock::ToolResult { tool_use_id, .. } if tool_use_id == "missing_tool_result_0"
+                )));
+            }
+            AnthropicContent::Text(_) => panic!("expected tool result blocks"),
         }
     }
 
