@@ -32,6 +32,20 @@ fn ensure_blocks(content: &mut AnthropicContent) -> &mut Vec<ContentBlock> {
     }
 }
 
+fn parse_tool_call_input(tool_name: &str, arguments: &str) -> serde_json::Value {
+    match serde_json::from_str(arguments) {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::warn!(
+                tool_name,
+                error = %err,
+                "failed to parse Anthropic tool call arguments as JSON; preserving raw arguments"
+            );
+            serde_json::json!({ "raw_arguments": arguments })
+        }
+    }
+}
+
 fn insert_cache_edits_after_tool_results(blocks: &mut Vec<ContentBlock>, deleted_refs: &[String]) {
     if deleted_refs.is_empty() {
         return;
@@ -231,8 +245,7 @@ impl AnthropicProvider {
                     }
 
                     for tc in &msg.tool_calls {
-                        let input: serde_json::Value =
-                            serde_json::from_str(&tc.arguments).unwrap_or_default();
+                        let input = parse_tool_call_input(&tc.name, &tc.arguments);
                         blocks.push(ContentBlock::ToolUse {
                             id: tc.id.clone(),
                             name: tc.name.clone(),
@@ -425,6 +438,33 @@ mod tests {
         assert!(system[1].cache_control.is_none());
         assert!(system[2].cache_control.is_some());
         assert_eq!(converted.len(), 1);
+    }
+
+    #[test]
+    fn anthropic_conversion_preserves_invalid_tool_arguments_as_raw_payload() {
+        let mut assistant = Message::assistant("");
+        assistant.tool_calls.push(crate::types::ToolCall {
+            id: "call-1".to_string(),
+            name: "broken_tool".to_string(),
+            arguments: "{not-json".to_string(),
+        });
+
+        let (_system, converted) = AnthropicProvider::convert_messages(&[assistant], None, &[]);
+
+        match &converted[0].content {
+            AnthropicContent::Blocks(blocks) => {
+                let tool_use = blocks
+                    .iter()
+                    .find_map(|block| match block {
+                        ContentBlock::ToolUse { input, .. } => Some(input),
+                        _ => None,
+                    })
+                    .expect("tool use block");
+
+                assert_eq!(tool_use["raw_arguments"], "{not-json");
+            }
+            AnthropicContent::Text(_) => panic!("expected tool use blocks"),
+        }
     }
 
     #[test]
