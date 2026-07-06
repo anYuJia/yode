@@ -148,6 +148,7 @@ describe("llm provider storage helpers", () => {
       model: "gpt"
     });
     expect(parseDefaultLlmChangeDetail({ provider: "openai" })).toBeNull();
+    expect(parseDefaultLlmChangeDetail(["openai", "gpt"])).toBeNull();
     expect(parseDefaultLlmChangeDetail(null)).toBeNull();
     expect(detailFromDefaultLlmChangeEvent(new CustomEvent(DEFAULT_LLM_CHANGE_EVENT, {
       detail: { provider: "local", model: "llama" }

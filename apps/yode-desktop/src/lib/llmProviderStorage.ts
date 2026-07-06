@@ -1,3 +1,5 @@
+import { recordFromUnknown } from "./jsonUtils";
+
 export const LLM_PROVIDERS_STORAGE_KEY = "yode-llm-providers";
 export const LLM_PROVIDERS_CHANGE_EVENT = "yode-llm-providers-change";
 export const DEFAULT_LLM_CHANGE_EVENT = "yode-default-llm-change";
@@ -89,8 +91,8 @@ export function loadStoredProviderValues() {
 }
 
 export function parseDefaultLlmChangeDetail(detail: unknown): DefaultLlmChangeDetail | null {
-  if (!detail || typeof detail !== "object") return null;
-  const record = detail as Record<string, unknown>;
+  const record = recordFromUnknown(detail);
+  if (!record) return null;
   return typeof record.provider === "string" && typeof record.model === "string"
     ? { provider: record.provider, model: record.model }
     : null;
@@ -185,7 +187,7 @@ export function modelsForProviderFromStorage(
 }
 
 function isStoredProvider(value: unknown): value is StoredProvider {
-  if (!value || typeof value !== "object") return false;
-  const provider = value as Record<string, unknown>;
+  const provider = recordFromUnknown(value);
+  if (!provider) return false;
   return typeof provider.id === "string" && Array.isArray(provider.models);
 }
