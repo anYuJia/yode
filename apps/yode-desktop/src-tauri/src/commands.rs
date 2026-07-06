@@ -3,6 +3,7 @@ mod provider;
 mod session;
 mod settings;
 mod terminal;
+mod turn;
 mod worktree;
 
 use crate::{protocol, runtime};
@@ -21,11 +22,11 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         project_folder_pick,
         runtime_state_get,
         edit_diff_artifact_read,
-        turn_send_message,
-        permission_respond,
-        ask_user_respond,
-        turn_cancel,
-        permission_mode_set,
+        turn::turn_send_message,
+        turn::permission_respond,
+        turn::ask_user_respond,
+        turn::turn_cancel,
+        turn::permission_mode_set,
         general_settings_apply,
         open_target,
         import_ai_sessions,
@@ -100,59 +101,6 @@ async fn edit_diff_artifact_read(
     runtime
         .edit_diff_artifact_read(path)
         .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn turn_send_message(
-    app: tauri::AppHandle,
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    request: protocol::SendMessageRequest,
-) -> Result<protocol::TurnAccepted, String> {
-    runtime
-        .turn_send_message(app, request)
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn permission_respond(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    session_id: String,
-    turn_id: String,
-    allow: bool,
-    always_allow: Option<bool>,
-) -> Result<(), String> {
-    runtime
-        .permission_respond(session_id, turn_id, allow, always_allow.unwrap_or(false))
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn ask_user_respond(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    session_id: String,
-    turn_id: String,
-    answer: String,
-) -> Result<(), String> {
-    runtime
-        .ask_user_respond(session_id, turn_id, answer)
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn turn_cancel(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    session_id: String,
-    turn_id: String,
-) -> Result<(), String> {
-    runtime
-        .turn_cancel(session_id, turn_id)
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn permission_mode_set(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    mode: String,
-) -> Result<(), String> {
-    runtime
-        .permission_mode_set(mode)
         .map_err(|err| err.to_string())
 }
 #[tauri::command]
