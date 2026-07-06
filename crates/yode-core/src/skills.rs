@@ -148,16 +148,7 @@ impl SkillRegistry {
     fn discover_dir(&mut self, dir: &Path) {
         if !dir.is_dir() {
             for skill_path in candidate_skill_files(dir) {
-                if let Some(skill) = Self::parse_skill_file(&skill_path) {
-                    if !self.skills.iter().any(|s| s.name == skill.name) {
-                        tracing::debug!(
-                            name = %skill.name,
-                            path = %skill_path.display(),
-                            "Discovered skill"
-                        );
-                        self.skills.push(skill);
-                    }
-                }
+                self.parse_and_push_skill(&skill_path);
             }
             if !dir.exists() && looks_like_skill_file_reference(dir) {
                 self.diagnostics.push(SkillDiagnostic {
@@ -179,17 +170,7 @@ impl SkillRegistry {
 
         for path in entries {
             for skill_path in candidate_skill_files(&path) {
-                if let Some(skill) = Self::parse_skill_file(&skill_path) {
-                    // Avoid duplicates (project-level overrides global).
-                    if !self.skills.iter().any(|s| s.name == skill.name) {
-                        tracing::debug!(
-                            name = %skill.name,
-                            path = %skill_path.display(),
-                            "Discovered skill"
-                        );
-                        self.skills.push(skill);
-                    }
-                }
+                self.parse_and_push_skill(&skill_path);
             }
         }
     }
@@ -202,9 +183,7 @@ impl SkillRegistry {
             .unwrap_or(true)
         {
             for skill_path in candidate_skill_files(dir) {
-                if let Some(skill) = Self::parse_skill_file_async(&skill_path).await {
-                    self.push_unique_skill(skill, &skill_path);
-                }
+                self.parse_and_push_skill_async(&skill_path).await;
             }
             if tokio::fs::metadata(dir).await.is_err() && looks_like_skill_file_reference(dir) {
                 self.diagnostics.push(SkillDiagnostic {
@@ -227,10 +206,24 @@ impl SkillRegistry {
 
         for path in paths {
             for skill_path in candidate_skill_files(&path) {
-                if let Some(skill) = Self::parse_skill_file_async(&skill_path).await {
-                    self.push_unique_skill(skill, &skill_path);
-                }
+                self.parse_and_push_skill_async(&skill_path).await;
             }
+        }
+    }
+
+    fn parse_and_push_skill(&mut self, skill_path: &Path) {
+        match Self::parse_skill_file(skill_path) {
+            Ok(Some(skill)) => self.push_unique_skill(skill, skill_path),
+            Ok(None) => {}
+            Err(message) => self.push_diagnostic(skill_path, message),
+        }
+    }
+
+    async fn parse_and_push_skill_async(&mut self, skill_path: &Path) {
+        match Self::parse_skill_file_async(skill_path).await {
+            Ok(Some(skill)) => self.push_unique_skill(skill, skill_path),
+            Ok(None) => {}
+            Err(message) => self.push_diagnostic(skill_path, message),
         }
     }
 
@@ -245,40 +238,53 @@ impl SkillRegistry {
         }
     }
 
+    fn push_diagnostic(&mut self, path: &Path, message: impl Into<String>) {
+        self.diagnostics.push(SkillDiagnostic {
+            path: path.to_path_buf(),
+            message: message.into(),
+        });
+    }
+
     /// Parse a single SKILL.md file into a Skill.
-    fn parse_skill_file(path: &Path) -> Option<Skill> {
-        let content = std::fs::read_to_string(path).ok()?;
+    fn parse_skill_file(path: &Path) -> Result<Option<Skill>, String> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|error| format!("failed to read skill file: {error}"))?;
         Self::parse_skill_content(path, content)
     }
 
     /// Parse a single SKILL.md file into a Skill without blocking the async runtime.
-    async fn parse_skill_file_async(path: &Path) -> Option<Skill> {
-        let content = tokio::fs::read_to_string(path).await.ok()?;
+    async fn parse_skill_file_async(path: &Path) -> Result<Option<Skill>, String> {
+        let content = tokio::fs::read_to_string(path)
+            .await
+            .map_err(|error| format!("failed to read skill file: {error}"))?;
         Self::parse_skill_content(path, content)
     }
 
-    fn parse_skill_content(path: &Path, content: String) -> Option<Skill> {
+    fn parse_skill_content(path: &Path, content: String) -> Result<Option<Skill>, String> {
         // Parse YAML frontmatter between --- delimiters
         if !content.starts_with("---") {
-            return None;
+            return Err("missing YAML frontmatter opener".to_string());
         }
 
         let rest = &content[3..];
-        let end = rest.find("---")?;
+        let end = rest
+            .find("---")
+            .ok_or_else(|| "missing YAML frontmatter closer".to_string())?;
         let frontmatter_str = &rest[..end];
         let body = rest[end + 3..].trim_start().to_string();
 
-        let fm: SkillFrontmatter = serde_yaml_ng::from_str(frontmatter_str).ok()?;
+        let fm: SkillFrontmatter = serde_yaml_ng::from_str(frontmatter_str)
+            .map_err(|error| format!("invalid YAML frontmatter: {error}"))?;
 
         let metadata = fm.metadata();
 
-        Some(Skill {
+        Ok(Some(Skill {
             name: fm.name,
             description: fm.description,
             content: body,
             source: path.to_path_buf(),
             metadata,
-        })
+        }))
     }
 
     /// Get a skill by name.
@@ -756,6 +762,60 @@ skills = ["skills/missing/SKILL.md"]
             .to_string()
             .contains("skills/missing/SKILL.md"));
         assert!(registry.diagnostics()[0].message.contains("missing"));
+    }
+
+    #[test]
+    fn invalid_skill_files_emit_diagnostics_and_are_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing_opener = dir.path().join("missing-opener.md");
+        let missing_closer = dir.path().join("missing-closer.md");
+        let invalid_yaml = dir.path().join("invalid-yaml.md");
+        let valid = dir.path().join("valid.md");
+
+        std::fs::write(&missing_opener, "name: missing-opener\nbody").unwrap();
+        std::fs::write(&missing_closer, "---\nname: missing-closer\nbody").unwrap();
+        std::fs::write(&invalid_yaml, "---\nname: [broken\n---\nbody").unwrap();
+        write_skill(&valid, "valid", "Valid skill", "valid body");
+
+        let registry = SkillRegistry::discover(&[dir.path().to_path_buf()]);
+
+        assert_eq!(registry.list().len(), 1);
+        assert!(registry.get("valid").is_some());
+        assert_eq!(registry.diagnostics().len(), 3);
+
+        let messages = registry
+            .diagnostics()
+            .iter()
+            .map(|diagnostic| diagnostic.message.as_str())
+            .collect::<Vec<_>>();
+        assert!(messages
+            .iter()
+            .any(|message| message.contains("missing YAML frontmatter opener")));
+        assert!(messages
+            .iter()
+            .any(|message| message.contains("missing YAML frontmatter closer")));
+        assert!(messages
+            .iter()
+            .any(|message| message.contains("invalid YAML frontmatter")));
+    }
+
+    #[tokio::test]
+    async fn invalid_skill_files_emit_async_diagnostics_and_are_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let invalid_yaml = dir.path().join("invalid-yaml.md");
+        let valid = dir.path().join("valid.md");
+
+        std::fs::write(&invalid_yaml, "---\nname: [broken\n---\nbody").unwrap();
+        write_skill(&valid, "valid", "Valid skill", "valid body");
+
+        let registry = SkillRegistry::discover_async(&[dir.path().to_path_buf()]).await;
+
+        assert_eq!(registry.list().len(), 1);
+        assert!(registry.get("valid").is_some());
+        assert_eq!(registry.diagnostics().len(), 1);
+        assert!(registry.diagnostics()[0]
+            .message
+            .contains("invalid YAML frontmatter"));
     }
 
     #[test]
