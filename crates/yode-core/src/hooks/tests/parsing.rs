@@ -1,10 +1,11 @@
-use crate::hooks::parsing::parse_structured_hook_output;
+use crate::hooks::parsing::parse_structured_hook_output_result;
 
 #[test]
 fn test_parse_structured_hook_output_supports_memory_sections() {
-    let output = parse_structured_hook_output(
+    let output = parse_structured_hook_output_result(
         "{\"hookSpecificOutput\":{\"memorySections\":{\"goals\":[\"Goal one\"],\"findings\":[\"Finding one\"],\"confidence\":[\"Medium\"]}}}",
     )
+    .unwrap()
     .unwrap();
     let stdout = output.stdout.unwrap();
     assert!(stdout.contains("### Goals"));
@@ -16,9 +17,10 @@ fn test_parse_structured_hook_output_supports_memory_sections() {
 
 #[test]
 fn test_parse_structured_hook_output_merges_text_outputs_in_order() {
-    let output = parse_structured_hook_output(
+    let output = parse_structured_hook_output_result(
         "{\"systemMessage\":\"primary\",\"additional_context\":\"secondary\",\"hookSpecificOutput\":{\"additionalContext\":\"tertiary\",\"memorySections\":{\"goals\":[\"Goal one\"]}}}",
     )
+    .unwrap()
     .unwrap();
     let stdout = output.stdout.unwrap();
     let primary_idx = stdout.find("primary").unwrap();
@@ -28,4 +30,11 @@ fn test_parse_structured_hook_output_merges_text_outputs_in_order() {
     assert!(primary_idx < secondary_idx);
     assert!(secondary_idx < tertiary_idx);
     assert!(tertiary_idx < goals_idx);
+}
+
+#[test]
+fn test_parse_structured_hook_output_result_reports_invalid_json() {
+    let error = parse_structured_hook_output_result("{not-json").unwrap_err();
+
+    assert!(error.contains("invalid hook JSON"));
 }

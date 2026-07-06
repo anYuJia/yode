@@ -192,6 +192,47 @@ async fn test_hook_manager_parses_structured_json_output() {
 }
 
 #[tokio::test]
+async fn test_hook_manager_records_invalid_structured_json_output() {
+    let mut mgr = HookManager::new(hook_working_dir());
+    let command = hook_json_command("{not-json");
+    mgr.register(HookDefinition {
+        command: command.clone(),
+        events: vec!["pre_tool_use".into()],
+        tool_filter: None,
+        timeout_secs: 5,
+        can_block: false,
+    });
+    let ctx = HookContext {
+        event: "pre_tool_use".into(),
+        session_id: "test".into(),
+        working_dir: "/tmp".into(),
+        tool_name: Some("bash".into()),
+        tool_input: None,
+        tool_output: None,
+        error: None,
+        user_prompt: None,
+        metadata: None,
+    };
+
+    let results = mgr.execute(HookEvent::PreToolUse, &ctx).await;
+
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].blocked);
+    assert_eq!(results[0].stdout.as_deref(), Some("{not-json"));
+    let stats = mgr.stats_snapshot();
+    assert_eq!(stats.execution_error_count, 1);
+    assert_eq!(stats.last_failure_event.as_deref(), Some("pre_tool_use"));
+    assert_eq!(
+        stats.last_failure_command.as_deref(),
+        Some(command.as_str())
+    );
+    assert!(stats
+        .last_failure_reason
+        .as_deref()
+        .is_some_and(|reason| reason.contains("invalid structured hook output")));
+}
+
+#[tokio::test]
 async fn test_hook_manager_parses_defer_output() {
     let mut mgr = HookManager::new(hook_working_dir());
     let command = hook_json_command(

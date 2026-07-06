@@ -1,6 +1,6 @@
 use super::*;
 
-use super::parsing::parse_structured_hook_output;
+use super::parsing::parse_structured_hook_output_result;
 
 impl HookManager {
     pub fn new(working_dir: PathBuf) -> Self {
@@ -115,7 +115,15 @@ impl HookManager {
             Ok(Ok(output)) => {
                 let stdout = normalize_hook_output(&output.stdout);
                 let stderr = normalize_hook_output(&output.stderr);
-                let mut structured = parse_structured_hook_output(&stdout);
+                let mut structured = match parse_structured_hook_output_result(&stdout) {
+                    Ok(parsed) => parsed,
+                    Err(message) => {
+                        let reason = format!("invalid structured hook output: {message}");
+                        tracing::warn!(command = %hook.command, event = %context.event, "{reason}");
+                        self.record_hook_failure(&context.event, &hook.command, reason, false);
+                        None
+                    }
+                };
                 if let Some(ref mut parsed) = structured {
                     if parsed.blocked && !hook.can_block {
                         parsed.blocked = false;

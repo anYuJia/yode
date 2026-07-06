@@ -1,14 +1,23 @@
 use super::*;
 
-pub(in crate::hooks) fn parse_structured_hook_output(stdout: &str) -> Option<HookResult> {
+pub(in crate::hooks) fn parse_structured_hook_output_result(
+    stdout: &str,
+) -> Result<Option<HookResult>, String> {
     let trimmed = stdout.trim();
     if !trimmed.starts_with('{') {
-        return None;
+        return Ok(None);
     }
 
-    let value: Value = serde_json::from_str(trimmed).ok()?;
-    let object = value.as_object()?;
+    let value: Value =
+        serde_json::from_str(trimmed).map_err(|err| format!("invalid hook JSON: {err}"))?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "structured hook output must be a JSON object".to_string())?;
 
+    Ok(Some(parse_structured_hook_object(object)))
+}
+
+fn parse_structured_hook_object(object: &serde_json::Map<String, Value>) -> HookResult {
     let continue_flag = object.get("continue").and_then(|v| v.as_bool());
     let decision = object
         .get("decision")
@@ -62,7 +71,7 @@ pub(in crate::hooks) fn parse_structured_hook_output(stdout: &str) -> Option<Hoo
         .and_then(render_memory_sections_markdown);
     let stdout = merge_hook_output_parts(stdout, memory_sections);
 
-    Some(HookResult {
+    HookResult {
         blocked,
         deferred,
         reason,
@@ -70,7 +79,7 @@ pub(in crate::hooks) fn parse_structured_hook_output(stdout: &str) -> Option<Hoo
         stdout,
         wake_notification,
         source_hook_command: None,
-    })
+    }
 }
 
 fn collect_hook_text_outputs(object: &serde_json::Map<String, Value>) -> Option<String> {
