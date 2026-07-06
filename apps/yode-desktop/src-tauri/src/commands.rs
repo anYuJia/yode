@@ -1,3 +1,4 @@
+mod settings;
 mod terminal;
 mod worktree;
 
@@ -39,22 +40,22 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         mcp_servers_save,
         mcp_server_test,
         mcp_servers_reload,
-        browser_clear_data,
-        browser_settings_get,
-        browser_settings_apply,
-        hooks_settings_get,
-        hooks_settings_apply,
+        settings::browser_clear_data,
+        settings::browser_settings_get,
+        settings::browser_settings_apply,
+        settings::hooks_settings_get,
+        settings::hooks_settings_apply,
         worktree::git_settings_get,
         worktree::git_settings_apply,
         worktree::git_current_branch,
         worktree::worktrees_list,
         worktree::worktrees_prune_idle,
         worktree::worktree_delete,
-        computer_use_open_accessibility,
-        computer_use_open_chrome,
-        computer_use_pick_application,
-        computer_use_settings_get,
-        computer_use_settings_apply,
+        settings::computer_use_open_accessibility,
+        settings::computer_use_open_chrome,
+        settings::computer_use_pick_application,
+        settings::computer_use_settings_get,
+        settings::computer_use_settings_apply,
         terminal::terminal_run,
         terminal::terminal_open,
         terminal::terminal_write,
@@ -374,96 +375,6 @@ async fn mcp_servers_reload(
 ) -> Result<protocol::DesktopMcpState, String> {
     runtime
         .mcp_servers_reload()
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn browser_clear_data(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::DesktopActionResult, String> {
-    runtime
-        .browser_clear_data()
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn browser_settings_get(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::BrowserSettings, String> {
-    runtime
-        .browser_settings_get()
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn browser_settings_apply(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    settings: protocol::BrowserSettings,
-) -> Result<protocol::BrowserSettings, String> {
-    runtime
-        .browser_settings_apply(settings)
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn hooks_settings_get(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::HooksSettings, String> {
-    runtime
-        .hooks_settings_get()
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn hooks_settings_apply(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    settings: protocol::HooksSettings,
-) -> Result<protocol::HooksSettings, String> {
-    runtime
-        .hooks_settings_apply(settings)
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn computer_use_open_accessibility(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::DesktopActionResult, String> {
-    runtime
-        .computer_use_open_accessibility()
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn computer_use_open_chrome(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::DesktopActionResult, String> {
-    runtime
-        .computer_use_open_chrome()
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn computer_use_pick_application(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::DesktopActionResult, String> {
-    runtime
-        .computer_use_pick_application()
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn computer_use_settings_get(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::ComputerUseSettings, String> {
-    runtime
-        .computer_use_settings_get()
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn computer_use_settings_apply(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    settings: protocol::ComputerUseSettings,
-) -> Result<protocol::ComputerUseSettings, String> {
-    runtime
-        .computer_use_settings_apply(settings)
         .await
         .map_err(|err| err.to_string())
 }
