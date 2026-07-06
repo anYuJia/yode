@@ -1,4 +1,5 @@
 use super::*;
+use std::io::ErrorKind;
 
 #[derive(Debug, Default, serde::Deserialize)]
 struct PromptCacheArtifactState {
@@ -95,8 +96,95 @@ fn load_prompt_cache_state_artifact(
     session_id: &str,
 ) -> Option<PromptCacheArtifactState> {
     let path = prompt_cache_state_artifact_path(project_root, session_id);
-    let content = std::fs::read_to_string(path).ok()?;
-    parse_prompt_cache_state_artifact_content(&content)
+    let content = match std::fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == ErrorKind::NotFound => return None,
+        Err(error) => {
+            warn!(
+                path = %path.display(),
+                "Failed to read prompt cache state artifact: {}",
+                error
+            );
+            return None;
+        }
+    };
+    match parse_prompt_cache_state_artifact_content(&content) {
+        Ok(cache) => Some(cache),
+        Err(error) => {
+            warn!(
+                path = %path.display(),
+                "Failed to parse prompt cache state artifact: {}",
+                error
+            );
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_prompt_cache_state_artifact_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let cache = load_prompt_cache_state_artifact(dir.path(), "session-12345678");
+
+        assert!(cache.is_none());
+    }
+
+    #[test]
+    fn invalid_prompt_cache_state_artifact_is_ignored_without_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = prompt_cache_state_artifact_path(dir.path(), "session-12345678");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "{not-json").unwrap();
+
+        let cache = load_prompt_cache_state_artifact(dir.path(), "session-12345678");
+
+        assert!(cache.is_none());
+    }
+
+    #[tokio::test]
+    async fn async_prompt_cache_state_artifact_loader_preserves_valid_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = prompt_cache_state_artifact_path(dir.path(), "session-12345678");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            r#"{
+  "pending_cache_edit_refs": 2,
+  "pinned_cache_edit_refs": 1,
+  "pending_cache_edit_ref_values": ["pending-b", "pending-a"],
+  "pinned_cache_edit_ref_values": ["pinned-a"],
+  "prompt_cache_break_count": 3,
+  "last_prompt_cache_break_reason": "unexpected_drop",
+  "reported_turns": 4,
+  "cache_write_tokens_total": 120
+}"#,
+        )
+        .unwrap();
+
+        let cache = load_prompt_cache_state_artifact_async(dir.path(), "session-12345678")
+            .await
+            .unwrap();
+
+        assert_eq!(cache.pending_cache_edit_refs, 2);
+        assert_eq!(cache.pinned_cache_edit_refs, 1);
+        assert_eq!(
+            cache.pending_cache_edit_ref_values,
+            vec!["pending-b".to_string(), "pending-a".to_string()]
+        );
+        assert_eq!(cache.pinned_cache_edit_ref_values, vec!["pinned-a"]);
+        assert_eq!(cache.prompt_cache_break_count, 3);
+        assert_eq!(
+            cache.last_prompt_cache_break_reason.as_deref(),
+            Some("unexpected_drop")
+        );
+        assert_eq!(cache.reported_turns, 4);
+        assert_eq!(cache.cache_write_tokens_total, 120);
+    }
 }
 
 async fn load_prompt_cache_state_artifact_async(
@@ -104,12 +192,35 @@ async fn load_prompt_cache_state_artifact_async(
     session_id: &str,
 ) -> Option<PromptCacheArtifactState> {
     let path = prompt_cache_state_artifact_path(project_root, session_id);
-    let content = tokio::fs::read_to_string(path).await.ok()?;
-    parse_prompt_cache_state_artifact_content(&content)
+    let content = match tokio::fs::read_to_string(&path).await {
+        Ok(content) => content,
+        Err(error) if error.kind() == ErrorKind::NotFound => return None,
+        Err(error) => {
+            warn!(
+                path = %path.display(),
+                "Failed to read prompt cache state artifact: {}",
+                error
+            );
+            return None;
+        }
+    };
+    match parse_prompt_cache_state_artifact_content(&content) {
+        Ok(cache) => Some(cache),
+        Err(error) => {
+            warn!(
+                path = %path.display(),
+                "Failed to parse prompt cache state artifact: {}",
+                error
+            );
+            None
+        }
+    }
 }
 
-fn parse_prompt_cache_state_artifact_content(content: &str) -> Option<PromptCacheArtifactState> {
-    serde_json::from_str::<PromptCacheArtifactState>(content).ok()
+fn parse_prompt_cache_state_artifact_content(
+    content: &str,
+) -> Result<PromptCacheArtifactState, serde_json::Error> {
+    serde_json::from_str::<PromptCacheArtifactState>(content)
 }
 
 impl AgentEngine {
