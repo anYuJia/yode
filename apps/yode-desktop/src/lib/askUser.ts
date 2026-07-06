@@ -1,3 +1,5 @@
+import { recordFromUnknown } from "./jsonUtils";
+
 export interface UserQueryOption {
   label: string;
   description: string;
@@ -16,10 +18,8 @@ export interface UserQuery {
 }
 
 export function isUserQuery(value: unknown): value is UserQuery {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
+  const record = recordFromUnknown(value);
+  if (!record) return false;
   return Array.isArray(record.questions) && record.questions.every(isUserQuestion);
 }
 
@@ -35,10 +35,9 @@ export function parseUserQueryJson(raw: string): UserQuery | null {
 export function formatAskUserAnswerForDisplay(answer: string): string {
   try {
     const parsed: unknown = JSON.parse(answer);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return answer;
-    }
-    const values = Object.values(parsed as Record<string, unknown>)
+    const record = recordFromUnknown(parsed);
+    if (!record) return answer;
+    const values = Object.values(record)
       .map(formatAnswerValue)
       .filter((value) => value.length > 0);
     return values.length > 0 ? values.join(", ") : answer;
@@ -48,10 +47,8 @@ export function formatAskUserAnswerForDisplay(answer: string): string {
 }
 
 function isUserQuestion(value: unknown): value is UserQuestion {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
+  const record = recordFromUnknown(value);
+  if (!record) return false;
   return (
     typeof record.question === "string" &&
     typeof record.header === "string" &&
@@ -62,10 +59,8 @@ function isUserQuestion(value: unknown): value is UserQuestion {
 }
 
 function isUserQueryOption(value: unknown): value is UserQueryOption {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
-  const record = value as Record<string, unknown>;
+  const record = recordFromUnknown(value);
+  if (!record) return false;
   return (
     typeof record.label === "string" &&
     typeof record.description === "string" &&

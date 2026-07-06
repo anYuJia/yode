@@ -17,6 +17,8 @@ describe("ask user helpers", () => {
 
     expect(isUserQuery(query)).toBe(true);
     expect(isUserQuery({ questions: [{ header: "Missing options", question: "Nope" }] })).toBe(false);
+    expect(isUserQuery(["not", "an", "object"])).toBe(false);
+    expect(isUserQuery({ questions: [{ header: "Bad", question: "Nope", options: [null] }] })).toBe(false);
   });
 
   it("parses structured user query JSON safely", () => {
