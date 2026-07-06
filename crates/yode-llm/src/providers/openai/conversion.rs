@@ -65,10 +65,11 @@ pub(super) fn openai_message_to_internal(msg: &OpenAiMessage) -> Message {
         .as_ref()
         .map(|tcs| {
             tcs.iter()
-                .map(|tc| ToolCall {
-                    id: tc.id.clone().unwrap_or_default(),
-                    name: tc.function.name.clone().unwrap_or_default(),
-                    arguments: tc.function.arguments.clone().unwrap_or_default(),
+                .enumerate()
+                .map(|(index, tc)| ToolCall {
+                    id: openai_tool_call_id(tc, index),
+                    name: openai_tool_call_name(tc, index),
+                    arguments: openai_tool_call_arguments(tc, index),
                 })
                 .collect()
         })
@@ -95,6 +96,50 @@ pub(super) fn openai_message_to_internal(msg: &OpenAiMessage) -> Message {
         images: Vec::new(),
     }
     .normalized()
+}
+
+fn openai_tool_call_id(tc: &OpenAiToolCall, index: usize) -> String {
+    match tc.id.as_deref().filter(|id| !id.trim().is_empty()) {
+        Some(id) => id.to_string(),
+        None => {
+            let fallback = format!("openai_tool_call_{index}");
+            warn!(
+                index,
+                fallback, "OpenAI tool call is missing id; using stable fallback"
+            );
+            fallback
+        }
+    }
+}
+
+fn openai_tool_call_name(tc: &OpenAiToolCall, index: usize) -> String {
+    match tc
+        .function
+        .name
+        .as_deref()
+        .filter(|name| !name.trim().is_empty())
+    {
+        Some(name) => name.to_string(),
+        None => {
+            warn!(index, "OpenAI tool call is missing function name");
+            "unknown_tool".to_string()
+        }
+    }
+}
+
+fn openai_tool_call_arguments(tc: &OpenAiToolCall, index: usize) -> String {
+    match tc
+        .function
+        .arguments
+        .as_deref()
+        .filter(|arguments| !arguments.trim().is_empty())
+    {
+        Some(arguments) => arguments.to_string(),
+        None => {
+            warn!(index, "OpenAI tool call is missing function arguments");
+            "{}".to_string()
+        }
+    }
 }
 
 pub(super) fn openai_content_text(content: &Option<Value>) -> Option<String> {
@@ -217,7 +262,10 @@ mod tests {
 
     use crate::types::{ImageData, Message, ToolDefinition};
 
-    use super::{message_to_openai, openai_content_text, tool_to_openai};
+    use super::{
+        message_to_openai, openai_content_text, openai_message_to_internal, tool_to_openai,
+    };
+    use crate::providers::openai::types::{OpenAiFunction, OpenAiMessage, OpenAiToolCall};
 
     #[test]
     fn message_to_openai_preserves_user_images_as_content_parts() {
@@ -239,6 +287,32 @@ mod tests {
             parts[1]["image_url"]["url"],
             "data:image/png;base64,ZmFrZQ=="
         );
+    }
+
+    #[test]
+    fn openai_message_to_internal_uses_stable_tool_call_fallbacks() {
+        let message = OpenAiMessage {
+            role: "assistant".to_string(),
+            content: None,
+            reasoning_content: None,
+            tool_calls: Some(vec![OpenAiToolCall {
+                id: None,
+                call_type: Some("function".to_string()),
+                function: OpenAiFunction {
+                    name: None,
+                    arguments: None,
+                },
+                index: None,
+            }]),
+            tool_call_id: None,
+        };
+
+        let converted = openai_message_to_internal(&message);
+
+        assert_eq!(converted.tool_calls.len(), 1);
+        assert_eq!(converted.tool_calls[0].id, "openai_tool_call_0");
+        assert_eq!(converted.tool_calls[0].name, "unknown_tool");
+        assert_eq!(converted.tool_calls[0].arguments, "{}");
     }
 
     #[test]
