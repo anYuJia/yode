@@ -5,7 +5,7 @@ use rmcp::model::*;
 use rmcp::service::RequestContext;
 use rmcp::{ErrorData as McpError, RoleServer};
 use serde_json::Value;
-use tracing::info;
+use tracing::{info, warn};
 
 use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::{ToolAnnotations, ToolContext, ToolDefinition, ToolResult};
@@ -71,13 +71,26 @@ fn definitions_to_mcp_tools(definitions: Vec<ToolDefinition>) -> Vec<rmcp::model
     definitions
         .into_iter()
         .map(|td| {
-            let input_schema: Arc<JsonObject> =
-                serde_json::from_value(td.parameters).unwrap_or_default();
+            let input_schema = tool_parameters_to_mcp_schema(&td.name, td.parameters);
             let annotations = annotations_to_mcp(td.annotations);
             rmcp::model::Tool::new(td.name, td.description, input_schema)
                 .with_annotations(annotations)
         })
         .collect()
+}
+
+fn tool_parameters_to_mcp_schema(tool_name: &str, parameters: Value) -> Arc<JsonObject> {
+    match serde_json::from_value(parameters) {
+        Ok(schema) => schema,
+        Err(err) => {
+            warn!(
+                tool = %tool_name,
+                error = %err,
+                "Failed to convert tool parameters to MCP schema"
+            );
+            Arc::default()
+        }
+    }
 }
 
 fn annotations_to_mcp(annotations: ToolAnnotations) -> rmcp::model::ToolAnnotations {
@@ -110,7 +123,10 @@ pub async fn run_mcp_server(registry: Arc<ToolRegistry>) -> anyhow::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{annotations_to_mcp, definitions_to_mcp_tools, tool_result_to_call_result};
+    use super::{
+        annotations_to_mcp, definitions_to_mcp_tools, tool_parameters_to_mcp_schema,
+        tool_result_to_call_result,
+    };
     use yode_tools::tool::{ToolAnnotations, ToolDefinition, ToolResult};
 
     #[test]
@@ -139,6 +155,13 @@ mod tests {
         assert_eq!(annotations.read_only_hint, Some(true));
         assert_eq!(annotations.destructive_hint, Some(false));
         assert_eq!(annotations.open_world_hint, Some(false));
+    }
+
+    #[test]
+    fn invalid_tool_parameters_fall_back_to_empty_schema() {
+        let schema =
+            tool_parameters_to_mcp_schema("invalid", serde_json::json!(["not", "an", "object"]));
+        assert!(schema.is_empty());
     }
 
     #[test]

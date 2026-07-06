@@ -380,7 +380,11 @@ impl McpClient {
                     .clone()
                     .map(|c| c.to_string())
                     .unwrap_or_default(),
-                input_schema: serde_json::to_value(&tool.input_schema).unwrap_or_default(),
+                input_schema: mcp_input_schema_to_value(
+                    &self.server_name,
+                    &tool.name,
+                    &tool.input_schema,
+                ),
                 annotations: annotations_from_mcp(tool.annotations.as_ref()),
                 server_name: self.server_name.clone(),
                 connection: self.connection.clone(),
@@ -799,9 +803,51 @@ fn load_oauth_access_token_from_home(home: &Path, server: &str) -> Option<String
         .join(".yode")
         .join("mcp-auth")
         .join(format!("{}.token.json", sanitize_server_name(server)));
-    let token: StoredMcpOAuthToken =
-        serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    let content = match std::fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(err) => {
+            warn!(
+                server = %server,
+                path = %path.display(),
+                error = %err,
+                "Failed to read MCP OAuth token file"
+            );
+            return None;
+        }
+    };
+    let token: StoredMcpOAuthToken = match serde_json::from_str(&content) {
+        Ok(token) => token,
+        Err(err) => {
+            warn!(
+                server = %server,
+                path = %path.display(),
+                error = %err,
+                "Failed to parse MCP OAuth token file"
+            );
+            return None;
+        }
+    };
     (!token.access_token.trim().is_empty()).then_some(token.access_token)
+}
+
+fn mcp_input_schema_to_value(
+    server: &str,
+    tool_name: &str,
+    input_schema: &Arc<rmcp::model::JsonObject>,
+) -> serde_json::Value {
+    match serde_json::to_value(input_schema) {
+        Ok(value) => value,
+        Err(err) => {
+            warn!(
+                server = %server,
+                tool = %tool_name,
+                error = %err,
+                "Failed to serialize MCP tool input schema"
+            );
+            serde_json::json!({"type": "object"})
+        }
+    }
 }
 
 fn sanitize_server_name(server: &str) -> String {
@@ -827,8 +873,9 @@ mod tests {
     use super::tool_wrapper::wrapper_tool_name;
     use super::{
         approx_base64_decoded_len, data_uri_prefix, load_oauth_access_token_from_home,
-        mcp_elicitation_diagnostics, mcp_reconnect_diagnostics, record_mcp_connect_result,
-        record_mcp_elicitation_declined, render_resource_contents, ElicitationRequestKind,
+        mcp_elicitation_diagnostics, mcp_input_schema_to_value, mcp_reconnect_diagnostics,
+        record_mcp_connect_result, record_mcp_elicitation_declined, render_resource_contents,
+        ElicitationRequestKind,
     };
     use crate::config::{McpServerConfig, McpTransportConfig};
     use rmcp::model::ResourceContents;
@@ -968,6 +1015,38 @@ mod tests {
 
         let token = load_oauth_access_token_from_home(tempdir.path(), "github");
         assert_eq!(token.as_deref(), Some("secret-token"));
+    }
+
+    #[test]
+    fn load_oauth_access_token_ignores_missing_or_invalid_session() {
+        let tempdir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            load_oauth_access_token_from_home(tempdir.path(), "github"),
+            None
+        );
+
+        let token_path = tempdir
+            .path()
+            .join(".yode")
+            .join("mcp-auth")
+            .join("github.token.json");
+        fs::create_dir_all(token_path.parent().unwrap()).unwrap();
+        fs::write(&token_path, r#"{"access_token":"#).unwrap();
+
+        assert_eq!(
+            load_oauth_access_token_from_home(tempdir.path(), "github"),
+            None
+        );
+    }
+
+    #[test]
+    fn mcp_input_schema_serializes_to_value() {
+        let input_schema: Arc<rmcp::model::JsonObject> =
+            serde_json::from_value(json!({"type":"object"})).unwrap();
+        assert_eq!(
+            mcp_input_schema_to_value("github", "search_issues", &input_schema),
+            json!({"type":"object"})
+        );
     }
 
     #[test]
