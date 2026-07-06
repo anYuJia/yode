@@ -1,3 +1,4 @@
+mod app;
 mod configuration;
 mod mcp;
 mod provider;
@@ -7,11 +8,9 @@ mod terminal;
 mod turn;
 mod worktree;
 
-use crate::{protocol, runtime};
-
 pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Send + Sync + 'static {
     tauri::generate_handler![
-        app_get_bootstrap,
+        app::app_get_bootstrap,
         session::sessions_list,
         session::sessions_create,
         session::sessions_messages,
@@ -20,18 +19,18 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         session::sessions_export_markdown,
         session::sessions_compact_local,
         session::sessions_compact_engine,
-        project_folder_pick,
-        runtime_state_get,
-        edit_diff_artifact_read,
+        app::project_folder_pick,
+        app::runtime_state_get,
+        app::edit_diff_artifact_read,
         turn::turn_send_message,
         turn::permission_respond,
         turn::ask_user_respond,
         turn::turn_cancel,
         turn::permission_mode_set,
-        general_settings_apply,
-        open_target,
-        import_ai_sessions,
-        license_notices,
+        app::general_settings_apply,
+        app::open_target,
+        app::import_ai_sessions,
+        app::license_notices,
         configuration::configuration_state_get,
         configuration::configuration_update,
         configuration::configuration_open_file,
@@ -74,68 +73,4 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         provider::config_set_default_llm,
         provider::config_test_provider
     ]
-}
-
-#[tauri::command]
-fn app_get_bootstrap(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::Bootstrap, String> {
-    runtime.bootstrap().map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn project_folder_pick() -> Option<String> {
-    rfd::FileDialog::new()
-        .pick_folder()
-        .map(|path| path.display().to_string())
-}
-#[tauri::command]
-fn runtime_state_get(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::RuntimeState, String> {
-    runtime.runtime_state().map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn edit_diff_artifact_read(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    path: String,
-) -> Result<String, String> {
-    runtime
-        .edit_diff_artifact_read(path)
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn general_settings_apply(
-    app: tauri::AppHandle,
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    settings: protocol::GeneralSettings,
-) -> Result<protocol::GeneralSettings, String> {
-    runtime
-        .general_settings_apply(&app, settings)
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn open_target(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    request: protocol::OpenTargetRequest,
-) -> Result<(), String> {
-    runtime.open_target(request).map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn import_ai_sessions(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::ImportAiSessionsResult, String> {
-    runtime
-        .import_ai_sessions()
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn license_notices(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<Vec<protocol::LicenseNotice>, String> {
-    runtime
-        .license_notices()
-        .await
-        .map_err(|err| err.to_string())
 }
