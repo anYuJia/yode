@@ -642,7 +642,13 @@ impl McpConnection {
         let mut old_service = std::mem::replace(&mut state.service, new_state.service);
         state.peer = new_peer.clone();
         drop(state);
-        let _ = old_service.close().await;
+        if let Err(err) = old_service.close().await {
+            warn!(
+                server = %self.server_name,
+                error = %err,
+                "failed to close stale MCP service after reconnect"
+            );
+        }
         Ok(new_peer)
     }
 }
