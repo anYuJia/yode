@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { recordFromUnknown } from "./jsonUtils";
 
 export type GeneralSettings = {
   bottomPanel: boolean;
@@ -500,8 +501,8 @@ export function saveComputerUseSettings(settings: ComputerUseSettings): void {
 }
 
 export function normalizeHookEntry(raw: unknown): HookEntry | null {
-  if (!raw || typeof raw !== "object") return null;
-  const entry = raw as Record<string, unknown>;
+  const entry = recordFromUnknown(raw);
+  if (!entry) return null;
   const name = String(entry.name || "").trim();
   const command = String(entry.command || "").trim();
   const events = Array.isArray(entry.events) ? entry.events.map(String).filter(Boolean) : [];
@@ -565,17 +566,18 @@ function normalizeStringArray(value: unknown): string[] {
 }
 
 function normalizeEnv(value: unknown): Record<string, string> {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const record = recordFromUnknown(value);
+  if (!record) return {};
   return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
+    Object.entries(record)
       .filter(([key]) => key.trim().length > 0)
       .map(([key, item]) => [key, String(item)])
   );
 }
 
 export function normalizeMcpServer(raw: unknown): McpServer | null {
-  if (!raw || typeof raw !== "object") return null;
-  const server = raw as Record<string, unknown>;
+  const server = recordFromUnknown(raw);
+  if (!server) return null;
   const name = String(server.name || "").trim();
   const transportRaw = String(server.transport || "stdio");
   if (!name || !isMcpTransport(transportRaw)) return null;

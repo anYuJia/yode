@@ -535,7 +535,7 @@ describe("desktop settings helpers", () => {
   it("uses default hooks when stored hook list normalizes empty", () => {
     stubLocalStorage((key) => {
       const values: Record<string, string> = {
-        "yode-hooks-list": JSON.stringify([{ name: "", events: [], command: "" }])
+        "yode-hooks-list": JSON.stringify([{ name: "", events: [], command: "" }, null, ["bad"]])
       };
       return values[key] ?? null;
     });
@@ -572,7 +572,9 @@ describe("desktop settings helpers", () => {
           },
           { name: "", transport: "stdio", command: "node" },
           { name: "bad", transport: "smtp", url: "x" },
-          { name: "missing-command", transport: "stdio" }
+          { name: "missing-command", transport: "stdio" },
+          null,
+          ["not-a-server"]
         ])
       };
       return values[key] ?? null;
