@@ -1,8 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
+use tracing::warn;
 use yode_llm::types::{Message, RestoreSystemBlockHint, Role};
 use yode_tools::builtin::skill::SkillInvocation;
 use yode_tools::RuntimeTask;
@@ -732,8 +734,29 @@ pub(super) fn load_post_compact_restore_state_artifact(
     session_id: &str,
 ) -> Option<Vec<(RestoreBlockKind, String)>> {
     let path = post_compact_restore_state_artifact_path(project_root, session_id);
-    let content = std::fs::read_to_string(path).ok()?;
-    parse_post_compact_restore_state_content(&content)
+    let content = match std::fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == ErrorKind::NotFound => return None,
+        Err(error) => {
+            warn!(
+                path = %path.display(),
+                "Failed to read post-compact restore state artifact: {}",
+                error
+            );
+            return None;
+        }
+    };
+    match parse_post_compact_restore_state_content(&content) {
+        Ok(blocks) => blocks,
+        Err(error) => {
+            warn!(
+                path = %path.display(),
+                "Failed to parse post-compact restore state artifact: {}",
+                error
+            );
+            None
+        }
+    }
 }
 
 pub(super) async fn load_post_compact_restore_state_artifact_async(
@@ -741,11 +764,35 @@ pub(super) async fn load_post_compact_restore_state_artifact_async(
     session_id: &str,
 ) -> Option<Vec<(RestoreBlockKind, String)>> {
     let path = post_compact_restore_state_artifact_path(project_root, session_id);
-    let content = tokio::fs::read_to_string(path).await.ok()?;
-    parse_post_compact_restore_state_content(&content)
+    let content = match tokio::fs::read_to_string(&path).await {
+        Ok(content) => content,
+        Err(error) if error.kind() == ErrorKind::NotFound => return None,
+        Err(error) => {
+            warn!(
+                path = %path.display(),
+                "Failed to read post-compact restore state artifact: {}",
+                error
+            );
+            return None;
+        }
+    };
+    match parse_post_compact_restore_state_content(&content) {
+        Ok(blocks) => blocks,
+        Err(error) => {
+            warn!(
+                path = %path.display(),
+                "Failed to parse post-compact restore state artifact: {}",
+                error
+            );
+            None
+        }
+    }
 }
 
-fn post_compact_restore_state_artifact_path(project_root: &Path, session_id: &str) -> PathBuf {
+pub(super) fn post_compact_restore_state_artifact_path(
+    project_root: &Path,
+    session_id: &str,
+) -> PathBuf {
     let short_session = session_id.chars().take(8).collect::<String>();
     project_root
         .join(".yode")
@@ -755,18 +802,24 @@ fn post_compact_restore_state_artifact_path(project_root: &Path, session_id: &st
 
 fn parse_post_compact_restore_state_content(
     content: &str,
-) -> Option<Vec<(RestoreBlockKind, String)>> {
-    let value = serde_json::from_str::<serde_json::Value>(content).ok()?;
+) -> Result<Option<Vec<(RestoreBlockKind, String)>>, String> {
+    let value = serde_json::from_str::<serde_json::Value>(content)
+        .map_err(|error| format!("invalid JSON: {error}"))?;
     parse_post_compact_restore_state(value)
 }
 
 fn parse_post_compact_restore_state(
     value: serde_json::Value,
-) -> Option<Vec<(RestoreBlockKind, String)>> {
-    let blocks = value.get("blocks")?.as_array()?;
+) -> Result<Option<Vec<(RestoreBlockKind, String)>>, String> {
+    let blocks = value
+        .get("blocks")
+        .ok_or_else(|| "missing blocks array".to_string())?
+        .as_array()
+        .ok_or_else(|| "blocks is not an array".to_string())?;
     let mut restored = Vec::new();
     for block in blocks {
-        let owned = serde_json::from_value::<OwnedRestoreBlockArtifact>(block.clone()).ok()?;
+        let owned = serde_json::from_value::<OwnedRestoreBlockArtifact>(block.clone())
+            .map_err(|error| format!("invalid restore block: {error}"))?;
         let kind = match owned.kind.as_str() {
             "runtime" => RestoreBlockKind::Runtime,
             "files" => RestoreBlockKind::Files,
@@ -781,5 +834,5 @@ fn parse_post_compact_restore_state(
         };
         restored.push((kind, owned.content));
     }
-    (!restored.is_empty()).then_some(restored)
+    Ok((!restored.is_empty()).then_some(restored))
 }

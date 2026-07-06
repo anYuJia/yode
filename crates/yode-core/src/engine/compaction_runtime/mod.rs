@@ -1391,7 +1391,10 @@ impl AgentEngine {
 mod tests {
     use yode_llm::types::Message;
 
-    use super::blocks::RestoreBlockKind;
+    use super::blocks::{
+        load_post_compact_restore_state_artifact, load_post_compact_restore_state_artifact_async,
+        post_compact_restore_state_artifact_path, RestoreBlockKind,
+    };
     use super::budget::apply_restore_budget;
     use super::summarizer::{
         format_llm_compaction_summary_content, parse_prompt_too_long_token_gap,
@@ -1456,5 +1459,78 @@ mod tests {
         let files_block = &blocks[0].1;
         assert!(files_block.contains("Restore budget: truncated"));
         assert!(files_block.contains("Re-read the named files"));
+    }
+
+    #[test]
+    fn missing_restore_state_artifact_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let restored = load_post_compact_restore_state_artifact(dir.path(), "session-12345678");
+
+        assert!(restored.is_none());
+    }
+
+    #[test]
+    fn invalid_restore_state_artifact_is_ignored_without_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = post_compact_restore_state_artifact_path(dir.path(), "session-12345678");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "{not-json").unwrap();
+
+        let restored = load_post_compact_restore_state_artifact(dir.path(), "session-12345678");
+
+        assert!(restored.is_none());
+    }
+
+    #[test]
+    fn malformed_restore_state_blocks_are_ignored_without_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = post_compact_restore_state_artifact_path(dir.path(), "session-12345678");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            r#"{
+  "blocks": [
+    {
+      "kind": "runtime",
+      "fingerprint": "abc"
+    }
+  ]
+}"#,
+        )
+        .unwrap();
+
+        let restored = load_post_compact_restore_state_artifact(dir.path(), "session-12345678");
+
+        assert!(restored.is_none());
+    }
+
+    #[tokio::test]
+    async fn async_restore_state_loader_preserves_valid_blocks() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = post_compact_restore_state_artifact_path(dir.path(), "session-12345678");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            r#"{
+  "blocks": [
+    {
+      "kind": "runtime",
+      "content": "[Post-compact restore: runtime]\n- Continue work.",
+      "fingerprint": "abc"
+    }
+  ]
+}"#,
+        )
+        .unwrap();
+
+        let restored =
+            load_post_compact_restore_state_artifact_async(dir.path(), "session-12345678")
+                .await
+                .unwrap();
+
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].0, RestoreBlockKind::Runtime);
+        assert!(restored[0].1.contains("Continue work."));
     }
 }
