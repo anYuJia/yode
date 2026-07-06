@@ -110,6 +110,12 @@ describe("project storage helpers", () => {
     expect(detailFromSessionIdEvent(new CustomEvent(SESSION_DELETED_PERMANENTLY_EVENT, {
       detail: { sessionId: "" }
     }))).toBeNull();
+    expect(detailFromSessionIdEvent(new CustomEvent(SESSION_DELETED_PERMANENTLY_EVENT, {
+      detail: ["s-1"]
+    }))).toBeNull();
+    expect(detailFromSessionIdEvent(new CustomEvent(SESSION_DELETED_PERMANENTLY_EVENT, {
+      detail: null
+    }))).toBeNull();
     expect(detailFromSessionIdEvent(new Event(SESSION_DELETED_PERMANENTLY_EVENT))).toBeNull();
   });
 

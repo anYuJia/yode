@@ -1,4 +1,5 @@
 import { SessionSummary } from "./desktopTypes";
+import { recordFromUnknown } from "./jsonUtils";
 
 export const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
 export const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";
@@ -76,9 +77,8 @@ export function dispatchSessionDeletedPermanently(sessionId: string) {
 
 export function detailFromSessionIdEvent(event: Event): SessionIdEventDetail | null {
   if (!(event instanceof CustomEvent)) return null;
-  const detail = event.detail;
-  if (!detail || typeof detail !== "object") return null;
-  const sessionId = (detail as Record<string, unknown>).sessionId;
+  const detail = recordFromUnknown(event.detail);
+  const sessionId = detail?.sessionId;
   return typeof sessionId === "string" && sessionId.length > 0 ? { sessionId } : null;
 }
 
@@ -199,8 +199,8 @@ export function visibleSessions(sessions: SessionSummary[]) {
 }
 
 export function isArchivedChat(value: unknown): value is ArchivedChatInfo {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const record = value as Record<string, unknown>;
+  const record = recordFromUnknown(value);
+  if (!record) return false;
   return (
     typeof record.id === "string" &&
     typeof record.title === "string" &&
