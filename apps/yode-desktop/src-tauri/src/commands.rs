@@ -1,3 +1,4 @@
+mod provider;
 mod session;
 mod settings;
 mod terminal;
@@ -64,11 +65,11 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         terminal::terminal_close,
         session::sessions_delete,
         session::sessions_update_llm,
-        config_get_providers,
-        config_save_providers,
-        config_get_default_llm,
-        config_set_default_llm,
-        config_test_provider
+        provider::config_get_providers,
+        provider::config_save_providers,
+        provider::config_get_default_llm,
+        provider::config_set_default_llm,
+        provider::config_test_provider
     ]
 }
 
@@ -306,49 +307,4 @@ async fn mcp_servers_reload(
         .mcp_servers_reload()
         .await
         .map_err(|err| err.to_string())
-}
-#[tauri::command]
-fn config_get_providers(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<Vec<protocol::DesktopProvider>, String> {
-    runtime
-        .config_get_providers()
-        .map_err(|err: anyhow::Error| err.to_string())
-}
-#[tauri::command]
-fn config_save_providers(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    providers: Vec<protocol::DesktopProvider>,
-) -> Result<(), String> {
-    runtime
-        .config_save_providers(providers)
-        .map_err(|err: anyhow::Error| err.to_string())
-}
-#[tauri::command]
-fn config_get_default_llm(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::DefaultLlm, String> {
-    runtime
-        .config_get_default_llm()
-        .map_err(|err: anyhow::Error| err.to_string())
-}
-#[tauri::command]
-fn config_set_default_llm(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    provider: String,
-    model: String,
-) -> Result<protocol::DefaultLlm, String> {
-    runtime
-        .config_set_default_llm(provider, model)
-        .map_err(|err: anyhow::Error| err.to_string())
-}
-#[tauri::command]
-async fn config_test_provider(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    provider: protocol::DesktopProvider,
-) -> Result<(), String> {
-    runtime
-        .config_test_provider(provider)
-        .await
-        .map_err(|err: anyhow::Error| err.to_string())
 }
