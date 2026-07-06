@@ -12,7 +12,7 @@ use tracing::debug;
 use self::conversion::{convert_messages, convert_tools, parse_response};
 use self::streaming::stream_response;
 use self::types::{GeminiError, GeminiRequest, GeminiResponse, GenerationConfig};
-use crate::providers::error_shared::format_api_error;
+use crate::providers::error_shared::{format_api_error, read_error_body};
 use crate::providers::http_client::provider_http_client;
 use crate::providers::retry::send_with_retry;
 use crate::providers::write_debug_artifact;
@@ -132,7 +132,7 @@ impl LlmProvider for GeminiProvider {
 
         let status = resp.status();
         if !status.is_success() {
-            let text = resp.text().await.unwrap_or_default();
+            let text = read_error_body("Gemini", status, resp).await;
             let parsed = serde_json::from_str::<GeminiError>(&text)
                 .ok()
                 .map(|err| err.error.message);

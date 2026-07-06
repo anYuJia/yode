@@ -14,7 +14,7 @@ use self::types::{
     AnthropicErrorResponse, AnthropicRequest, AnthropicResponse, AnthropicThinkingConfig,
     ContentBlock,
 };
-use crate::providers::error_shared::format_api_error;
+use crate::providers::error_shared::{format_api_error, read_error_body};
 use crate::providers::http_client::provider_http_client;
 use crate::providers::retry::send_with_retry;
 use crate::providers::streaming_shared::map_stop_reason;
@@ -111,7 +111,7 @@ impl LlmProvider for AnthropicProvider {
 
         let status = resp.status();
         if !status.is_success() {
-            let error_text = resp.text().await.unwrap_or_default();
+            let error_text = read_error_body("Anthropic", status, resp).await;
             let parsed = serde_json::from_str::<AnthropicErrorResponse>(&error_text)
                 .ok()
                 .map(|err_resp| err_resp.error.message);

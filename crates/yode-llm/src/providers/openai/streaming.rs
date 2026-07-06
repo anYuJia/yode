@@ -4,7 +4,7 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::{debug, trace, warn};
 
-use crate::providers::error_shared::format_api_error;
+use crate::providers::error_shared::{format_api_error, read_error_body};
 use crate::providers::retry::send_with_retry;
 use crate::providers::streaming_shared::emit_usage_update;
 use crate::providers::write_debug_artifact;
@@ -77,7 +77,7 @@ impl OpenAiProvider {
 
         let status = resp.status();
         if !status.is_success() {
-            let error_text = resp.text().await.unwrap_or_default();
+            let error_text = read_error_body("OpenAI", status, resp).await;
             let err = format_api_error(
                 "OpenAI",
                 status,

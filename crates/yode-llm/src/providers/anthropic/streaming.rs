@@ -4,6 +4,7 @@ use futures::StreamExt;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
+use crate::providers::error_shared::read_error_body;
 use crate::providers::retry::send_with_retry;
 use crate::providers::write_debug_artifact;
 use crate::types::{ChatRequest, StreamEvent};
@@ -74,7 +75,7 @@ impl AnthropicProvider {
 
         let status = resp.status();
         if !status.is_success() {
-            let error_text = resp.text().await.unwrap_or_default();
+            let error_text = read_error_body("Anthropic", status, resp).await;
             if let Ok(err_resp) = serde_json::from_str::<AnthropicErrorResponse>(&error_text) {
                 let msg = format!(
                     "Anthropic API error ({}): {}",

@@ -17,7 +17,7 @@ use self::types::{
     OpenAiErrorResponse, OpenAiMessage, OpenAiModelsResponse, OpenAiRequest, OpenAiResponse,
     OpenAiTool, StreamOptions,
 };
-use crate::providers::error_shared::format_api_error;
+use crate::providers::error_shared::{format_api_error, read_error_body};
 use crate::providers::http_client::provider_http_client;
 use crate::providers::retry::send_with_retry;
 use crate::providers::streaming_shared::map_stop_reason;
@@ -217,7 +217,7 @@ impl LlmProvider for OpenAiProvider {
 
         let status = resp.status();
         if !status.is_success() {
-            let error_text = resp.text().await.unwrap_or_default();
+            let error_text = read_error_body("OpenAI", status, resp).await;
             let parsed = serde_json::from_str::<OpenAiErrorResponse>(&error_text)
                 .ok()
                 .map(|err_resp| {
@@ -304,7 +304,7 @@ impl LlmProvider for OpenAiProvider {
 
         let status = resp.status();
         if !status.is_success() {
-            let error_text = resp.text().await.unwrap_or_default();
+            let error_text = read_error_body("OpenAI", status, resp).await;
             if let Ok(err_resp) = serde_json::from_str::<OpenAiErrorResponse>(&error_text) {
                 return Err(anyhow!(
                     "OpenAI API error ({}): {} (code: {})",
