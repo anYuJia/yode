@@ -160,7 +160,7 @@ impl LlmProvider for AnthropicProvider {
                     tool_calls.push(ToolCall {
                         id: id.clone(),
                         name: name.clone(),
-                        arguments: serde_json::to_string(input).unwrap_or_default(),
+                        arguments: input.to_string(),
                     });
                 }
                 _ => {}

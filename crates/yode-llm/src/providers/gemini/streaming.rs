@@ -81,8 +81,7 @@ pub(super) async fn stream_response(
                                 let tool_call = ToolCall {
                                     id: format!("gemini_tc_{}", tool_call_counter),
                                     name: function_call.name.clone(),
-                                    arguments: serde_json::to_string(&function_call.args)
-                                        .unwrap_or_default(),
+                                    arguments: function_call.args.to_string(),
                                 };
                                 send_tool_call_events(&tx, &tool_call).await;
                                 all_tool_calls.push(tool_call);

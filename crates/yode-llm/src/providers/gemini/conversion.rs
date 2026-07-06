@@ -154,8 +154,7 @@ pub(super) fn parse_response(resp: &GeminiResponse) -> (Message, Usage, Option<S
                             tool_calls.push(ToolCall {
                                 id: format!("gemini_tc_{}", tool_call_counter),
                                 name: function_call.name.clone(),
-                                arguments: serde_json::to_string(&function_call.args)
-                                    .unwrap_or_default(),
+                                arguments: function_call.args.to_string(),
                             });
                         }
                         GeminiPart::FunctionResponse { .. } | GeminiPart::InlineData { .. } => {}
