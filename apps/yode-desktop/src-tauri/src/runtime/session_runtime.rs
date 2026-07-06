@@ -23,7 +23,7 @@ use crate::protocol::{
 };
 use crate::session_helpers::{
     build_local_compaction_summary, render_session_markdown, short_session_id, stored_images,
-    stored_message_to_message,
+    stored_message_to_message, stored_metadata,
 };
 
 impl DesktopRuntime {
@@ -70,25 +70,26 @@ impl DesktopRuntime {
             .db
             .load_messages(&session_id)?
             .into_iter()
-            .map(|message| DesktopMessage {
-                images: stored_images(&message)
+            .map(|message| {
+                let images = stored_images(&message)
                     .into_iter()
                     .map(|image| DesktopImageOutput {
                         base64: image.base64,
                         media_type: image.media_type,
                     })
-                    .collect(),
-                id: message.id,
-                role: message.role,
-                content: message.content,
-                reasoning: message.reasoning,
-                tool_calls_json: message.tool_calls_json,
-                tool_call_id: message.tool_call_id,
-                metadata: message
-                    .metadata_json
-                    .as_deref()
-                    .and_then(|json| serde_json::from_str(json).ok()),
-                created_at: message.created_at.to_rfc3339(),
+                    .collect();
+                let metadata = stored_metadata(&message);
+                DesktopMessage {
+                    images,
+                    id: message.id,
+                    role: message.role,
+                    content: message.content,
+                    reasoning: message.reasoning,
+                    tool_calls_json: message.tool_calls_json,
+                    tool_call_id: message.tool_call_id,
+                    metadata,
+                    created_at: message.created_at.to_rfc3339(),
+                }
             })
             .collect())
     }

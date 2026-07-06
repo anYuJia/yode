@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
 use chrono::Utc;
+use serde::de::DeserializeOwned;
+use serde_json::Value;
 use yode_core::db::StoredMessage;
 use yode_core::session::Session;
 
@@ -160,7 +162,7 @@ pub(super) fn stored_message_to_message(
     let tool_calls: Vec<yode_llm::types::ToolCall> = message
         .tool_calls_json
         .as_deref()
-        .and_then(|json| serde_json::from_str(json).ok())
+        .and_then(|json| parse_stored_json(&message, "tool_calls_json", json))
         .unwrap_or_default();
     let mut blocks = Vec::new();
     if let Some(reasoning) = &message.reasoning {
@@ -195,6 +197,95 @@ pub(super) fn stored_images(message: &StoredMessage) -> Vec<yode_llm::types::Ima
     message
         .images_json
         .as_deref()
-        .and_then(|json| serde_json::from_str(json).ok())
+        .and_then(|json| parse_stored_json(message, "images_json", json))
         .unwrap_or_default()
+}
+
+pub(super) fn stored_metadata(message: &StoredMessage) -> Option<Value> {
+    message
+        .metadata_json
+        .as_deref()
+        .and_then(|json| parse_stored_json(message, "metadata_json", json))
+}
+
+fn parse_stored_json<T>(message: &StoredMessage, field: &str, json: &str) -> Option<T>
+where
+    T: DeserializeOwned,
+{
+    match serde_json::from_str(json) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            tracing::warn!(
+                message_id = message.id,
+                session_id = %message.session_id,
+                field,
+                "Failed to parse stored desktop session message JSON: {}",
+                error
+            );
+            None
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use yode_core::db::StoredMessage;
+
+    use super::{stored_images, stored_message_to_message, stored_metadata};
+
+    fn stored_message_with_json(
+        tool_calls_json: Option<&str>,
+        images_json: Option<&str>,
+        metadata_json: Option<&str>,
+    ) -> StoredMessage {
+        StoredMessage {
+            id: 42,
+            session_id: "session-1".to_string(),
+            role: "assistant".to_string(),
+            content: Some("hello".to_string()),
+            reasoning: None,
+            tool_calls_json: tool_calls_json.map(ToString::to_string),
+            tool_call_id: None,
+            images_json: images_json.map(ToString::to_string),
+            metadata_json: metadata_json.map(ToString::to_string),
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn stored_message_json_parse_failures_fallback_without_dropping_message() {
+        let message =
+            stored_message_with_json(Some("{not-json"), Some("{not-json"), Some("{not-json"));
+
+        let converted = stored_message_to_message(message.clone()).unwrap();
+
+        assert!(converted.tool_calls.is_empty());
+        assert!(converted.images.is_empty());
+        assert!(stored_images(&message).is_empty());
+        assert!(stored_metadata(&message).is_none());
+    }
+
+    #[test]
+    fn stored_message_helpers_preserve_valid_json_fields() {
+        let message = stored_message_with_json(
+            Some(r#"[{"id":"call-1","name":"read_file","arguments":"{}"}]"#),
+            Some(r#"[{"base64":"ZmFrZQ==","media_type":"image/png"}]"#),
+            Some(r#"{"source":"desktop"}"#),
+        );
+
+        let converted = stored_message_to_message(message.clone()).unwrap();
+
+        assert_eq!(converted.tool_calls.len(), 1);
+        assert_eq!(converted.tool_calls[0].id, "call-1");
+        assert_eq!(converted.images.len(), 1);
+        assert_eq!(converted.images[0].media_type, "image/png");
+        assert_eq!(
+            stored_metadata(&message)
+                .and_then(|value| value.get("source").cloned())
+                .and_then(|value| value.as_str().map(ToString::to_string))
+                .as_deref(),
+            Some("desktop")
+        );
+    }
 }
