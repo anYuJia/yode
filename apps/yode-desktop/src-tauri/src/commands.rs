@@ -1,4 +1,5 @@
 mod terminal;
+mod worktree;
 
 use crate::{protocol, runtime};
 
@@ -43,12 +44,12 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         browser_settings_apply,
         hooks_settings_get,
         hooks_settings_apply,
-        git_settings_get,
-        git_settings_apply,
-        git_current_branch,
-        worktrees_list,
-        worktrees_prune_idle,
-        worktree_delete,
+        worktree::git_settings_get,
+        worktree::git_settings_apply,
+        worktree::git_current_branch,
+        worktree::worktrees_list,
+        worktree::worktrees_prune_idle,
+        worktree::worktree_delete,
         computer_use_open_accessibility,
         computer_use_open_chrome,
         computer_use_pick_application,
@@ -420,63 +421,6 @@ async fn hooks_settings_apply(
 ) -> Result<protocol::HooksSettings, String> {
     runtime
         .hooks_settings_apply(settings)
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn git_settings_get(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::GitSettings, String> {
-    runtime
-        .git_settings_get()
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn git_settings_apply(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    settings: protocol::GitSettings,
-) -> Result<protocol::GitSettings, String> {
-    runtime
-        .git_settings_apply(settings)
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn git_current_branch(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    workspace_path: Option<String>,
-) -> Result<Option<String>, String> {
-    runtime
-        .git_current_branch(workspace_path)
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn worktrees_list(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<Vec<protocol::DesktopWorktree>, String> {
-    runtime
-        .worktrees_list()
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn worktrees_prune_idle(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-) -> Result<protocol::DesktopActionResult, String> {
-    runtime
-        .worktrees_prune_idle()
-        .await
-        .map_err(|err| err.to_string())
-}
-#[tauri::command]
-async fn worktree_delete(
-    runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    path: String,
-) -> Result<protocol::DesktopActionResult, String> {
-    runtime
-        .worktree_delete(path)
         .await
         .map_err(|err| err.to_string())
 }
