@@ -59,6 +59,7 @@ pub fn persist_agent_team_runtime(
             member.last_updated_at = Some(now_string());
         }
     }
+    let latest_message_count = load_team_messages(working_dir, &team_id)?.len();
     let state = AgentTeamState {
         kind: "agent_team".to_string(),
         team_id: team_id.clone(),
@@ -79,9 +80,7 @@ pub fn persist_agent_team_runtime(
             .iter()
             .filter(|member| member.status == "failed")
             .count(),
-        latest_message_count: load_team_messages(working_dir, &team_id)
-            .map(|messages| messages.len())
-            .unwrap_or(0),
+        latest_message_count,
         latest_message_artifact: Some(
             team_messages_path(working_dir, &team_id)
                 .display()
@@ -110,7 +109,7 @@ pub fn load_agent_team_messages(
     working_dir: &Path,
     team_id: &str,
 ) -> Result<Vec<AgentTeamMessage>> {
-    Ok(load_team_messages(working_dir, team_id).unwrap_or_default())
+    load_team_messages(working_dir, team_id)
 }
 
 pub fn load_agent_team_snapshot(
@@ -122,7 +121,7 @@ pub fn load_agent_team_snapshot(
     };
     Ok(Some(AgentTeamSnapshot {
         state: Some(state),
-        messages: load_team_messages(working_dir, team_id).unwrap_or_default(),
+        messages: load_team_messages(working_dir, team_id)?,
     }))
 }
 
@@ -161,7 +160,7 @@ pub fn hydrate_agent_team_manager(
 ) -> Result<Option<AgentTeamSnapshot>> {
     if manager.snapshot(team_id).is_none() {
         if let Some(state) = load_agent_team_state(working_dir, team_id)? {
-            let messages = load_team_messages(working_dir, team_id).unwrap_or_default();
+            let messages = load_team_messages(working_dir, team_id)?;
             manager.upsert_snapshot(state, messages);
         }
     }
@@ -349,7 +348,7 @@ pub fn append_agent_team_message(
         kind: kind.to_string(),
         message: message.to_string(),
     };
-    let mut messages = load_team_messages(working_dir, team_id).unwrap_or_default();
+    let mut messages = load_team_messages(working_dir, team_id)?;
     messages.push(entry.clone());
     let body = format!(
         "# Agent Team Messages\n\n{}\n",
@@ -391,8 +390,7 @@ pub fn consume_agent_team_messages(
     member_id: &str,
     max_items: usize,
 ) -> Result<Vec<AgentTeamMessage>> {
-    let messages = load_team_messages(working_dir, team_id)
-        .unwrap_or_default()
+    let messages = load_team_messages(working_dir, team_id)?
         .into_iter()
         .filter(|message| message.target == "all" || message.target == member_id)
         .rev()
@@ -445,7 +443,7 @@ pub fn render_agent_team_monitor(
     let state = load_agent_team_state(working_dir, &team_id)?
         .ok_or_else(|| anyhow::anyhow!("Team '{}' not found.", team_id))?;
     let messages = if include_messages {
-        load_team_messages(working_dir, &team_id).unwrap_or_default()
+        load_team_messages(working_dir, &team_id)?
     } else {
         Vec::new()
     };
@@ -936,8 +934,7 @@ impl Tool for TeamReceiveTool {
             let team_id = team_id.to_string();
             let member_id = member_id.to_string();
             run_team_disk_io("load_team_messages", move || {
-                Ok(load_team_messages(&working_dir, &team_id)
-                    .unwrap_or_default()
+                Ok(load_team_messages(&working_dir, &team_id)?
                     .into_iter()
                     .filter(|message| message.target == "all" || message.target == member_id)
                     .rev()
@@ -1415,9 +1412,17 @@ fn find_team_route_for_recipient(working_dir: &Path, recipient: &str) -> Option<
     None
 }
 
-fn load_team_messages(working_dir: &Path, team_id: &str) -> Option<Vec<AgentTeamMessage>> {
+fn load_team_messages(working_dir: &Path, team_id: &str) -> Result<Vec<AgentTeamMessage>> {
     let path = team_messages_path(working_dir, team_id);
-    let body = std::fs::read_to_string(path).ok()?;
+    let body = match std::fs::read_to_string(&path) {
+        Ok(body) => body,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(err) => {
+            return Err(err).with_context(|| {
+                format!("failed to read agent team messages at {}", path.display())
+            });
+        }
+    };
     let mut messages = Vec::new();
     for line in body.lines() {
         let line = line.trim();
@@ -1438,7 +1443,7 @@ fn load_team_messages(working_dir: &Path, team_id: &str) -> Option<Vec<AgentTeam
             message: parts[3..].join(" | "),
         });
     }
-    Some(messages)
+    Ok(messages)
 }
 
 fn default_team_id(goal: &str) -> String {
@@ -1482,8 +1487,9 @@ mod tests {
 
     use super::{
         append_agent_team_message, latest_agent_team_file, persist_agent_team_runtime,
-        render_agent_team_monitor, update_agent_team_member, AgentTeamMemberState, SendMessageTool,
-        TeamCreateTool, TeamDeleteTool, TeamMonitorTool, TeamReceiveTool, TeamRunReadyTool,
+        render_agent_team_monitor, team_messages_path, update_agent_team_member,
+        AgentTeamMemberState, SendMessageTool, TeamCreateTool, TeamDeleteTool, TeamMonitorTool,
+        TeamReceiveTool, TeamRunReadyTool,
     };
     use crate::runtime_tasks::RuntimeTaskStore;
     use crate::tool::{SubAgentOptions, SubAgentRunner, Tool, ToolContext};
@@ -1590,6 +1596,47 @@ mod tests {
         assert!(rendered.contains("check tests"));
         assert!(rendered.contains("- Ready: none"));
         assert!(rendered.contains("member:review"));
+    }
+
+    #[test]
+    fn corrupted_team_messages_surface_read_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        persist_agent_team_runtime(
+            dir.path(),
+            "ship feature",
+            Some("team-demo"),
+            "manual",
+            vec![AgentTeamMemberState {
+                member_id: "review".to_string(),
+                description: "review".to_string(),
+                subagent_type: None,
+                model: None,
+                run_in_background: true,
+                allowed_tools: vec![],
+                permission_inheritance: "parent_tool_pool".to_string(),
+                status: "planned".to_string(),
+                runtime_task_id: None,
+                last_result_preview: None,
+                result_artifact_path: None,
+                last_updated_at: Some("2026-01-01 00:00:00".to_string()),
+                pending_message_count: 0,
+                last_message_at: None,
+            }],
+        )
+        .unwrap();
+
+        let messages_path = team_messages_path(dir.path(), "team-demo");
+        match std::fs::remove_file(&messages_path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => panic!("failed to remove test messages file: {err}"),
+        }
+        std::fs::create_dir(&messages_path).unwrap();
+
+        let err = render_agent_team_monitor(dir.path(), Some("team-demo"), None, true).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("failed to read agent team messages"));
     }
 
     #[tokio::test]
