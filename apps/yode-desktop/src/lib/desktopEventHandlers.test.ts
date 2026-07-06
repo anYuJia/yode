@@ -62,6 +62,25 @@ describe("desktop runtime event handling", () => {
     expect(context.setTimelineItems).not.toHaveBeenCalled();
   });
 
+  it("does not treat incomplete desktop event envelopes as trusted session events", () => {
+    const { context, getUsage } = handlerContext({
+      eventKind: "usage_update",
+      payload: {
+        kind: "usage_update",
+        payload: { inputTokens: 11, outputTokens: 7 }
+      }
+    });
+
+    handleDesktopRuntimeEvent(context);
+
+    expect(getUsage()).toMatchObject({
+      inputTokens: 11,
+      outputTokens: 7,
+      totalTokens: 18
+    });
+    expect(context.setTimelineItems).toHaveBeenCalled();
+  });
+
   it("sets pending user question for ask_user events", () => {
     const { context } = handlerContext({
       payload: {

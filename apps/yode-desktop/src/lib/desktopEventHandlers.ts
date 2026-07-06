@@ -85,7 +85,7 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
 
 function desktopEventEnvelope(payload: unknown, eventKind?: string): DesktopEventEnvelope {
   const raw = objectRecord(payload) ?? {};
-  const desktopEvent = isDesktopEvent(raw) ? (raw as DesktopEvent) : undefined;
+  const desktopEvent = isDesktopEvent(raw) ? raw : undefined;
   const nestedPayload = objectRecord(desktopEvent?.payload ?? raw.payload) ?? {};
   const kind = desktopEvent?.kind ?? eventKind ?? stringField(raw, "kind", "");
   return {
@@ -120,7 +120,15 @@ function mergeUsageSnapshot(
 }
 
 function isDesktopEvent(value: Record<string, unknown> | undefined): value is DesktopEvent {
-  return Boolean(value && typeof value.kind === "string" && typeof value.payload === "object");
+  return Boolean(
+    value &&
+      typeof value.sessionId === "string" &&
+      typeof value.turnId === "string" &&
+      typeof value.seq === "number" &&
+      typeof value.kind === "string" &&
+      typeof value.timestamp === "string" &&
+      objectRecord(value.payload)
+  );
 }
 
 function objectRecord(value: unknown): Record<string, unknown> | undefined {
