@@ -8,6 +8,20 @@ use super::types::{
     GeminiInlineData, GeminiPart, GeminiResponse, GeminiToolDeclaration, GeminiUsage,
 };
 
+fn parse_tool_call_args(tool_name: &str, arguments: &str) -> serde_json::Value {
+    match serde_json::from_str(arguments) {
+        Ok(value) => value,
+        Err(err) => {
+            tracing::warn!(
+                tool_name,
+                error = %err,
+                "failed to parse Gemini tool call arguments as JSON; preserving raw arguments"
+            );
+            serde_json::json!({ "raw_arguments": arguments })
+        }
+    }
+}
+
 pub(super) fn convert_messages(
     messages: &[Message],
     restore_system_blocks: &[RestoreSystemBlockHint],
@@ -54,8 +68,7 @@ pub(super) fn convert_messages(
                     }
                 }
                 for tool_call in &message.tool_calls {
-                    let args: serde_json::Value = serde_json::from_str(&tool_call.arguments)
-                        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+                    let args = parse_tool_call_args(&tool_call.name, &tool_call.arguments);
                     parts.push(GeminiPart::FunctionCall {
                         function_call: GeminiFunctionCall {
                             name: tool_call.name.clone(),
@@ -216,7 +229,7 @@ pub(super) fn assistant_message(text: String, tool_calls: Vec<ToolCall>) -> Mess
 
 #[cfg(test)]
 mod tests {
-    use crate::types::{ImageData, Message, RestoreSystemBlockHint, StopReason};
+    use crate::types::{ImageData, Message, RestoreSystemBlockHint, StopReason, ToolCall};
 
     use super::{
         convert_messages, map_gemini_finish_reason, parse_response, GeminiContent,
@@ -301,6 +314,27 @@ mod tests {
             GeminiPart::InlineData { inline_data }
                 if inline_data.mime_type == "image/png" && inline_data.data == "ZmFrZQ=="
         ));
+    }
+
+    #[test]
+    fn gemini_conversion_preserves_invalid_tool_arguments_as_raw_payload() {
+        let mut assistant = Message::assistant("");
+        assistant.tool_calls.push(ToolCall {
+            id: "call-1".to_string(),
+            name: "broken_tool".to_string(),
+            arguments: "{not-json".to_string(),
+        });
+
+        let (_system, contents) = convert_messages(&[assistant], &[]);
+
+        assert_eq!(contents.len(), 1);
+        match &contents[0].parts[0] {
+            GeminiPart::FunctionCall { function_call } => {
+                assert_eq!(function_call.name, "broken_tool");
+                assert_eq!(function_call.args["raw_arguments"], "{not-json");
+            }
+            other => panic!("expected function call, got {other:?}"),
+        }
     }
 
     #[test]
