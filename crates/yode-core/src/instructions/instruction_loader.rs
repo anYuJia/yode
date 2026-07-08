@@ -121,13 +121,33 @@ fn discover_instruction_entries(
 
     let rules_dir = project_root.join(".claude").join("rules");
     if rules_dir.exists() {
-        let mut rule_files = fs::read_dir(&rules_dir)
-            .ok()
-            .into_iter()
-            .flat_map(|entries| entries.filter_map(Result::ok))
-            .map(|entry| entry.path())
-            .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
-            .collect::<Vec<_>>();
+        let mut rule_files = Vec::new();
+        match fs::read_dir(&rules_dir) {
+            Ok(entries) => {
+                for entry in entries {
+                    let entry = match entry {
+                        Ok(entry) => entry,
+                        Err(err) => {
+                            warn!(
+                                "Failed to inspect instruction rule entry in {}: {err}",
+                                rules_dir.display()
+                            );
+                            continue;
+                        }
+                    };
+                    let path = entry.path();
+                    if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+                        rule_files.push(path);
+                    }
+                }
+            }
+            Err(err) => {
+                warn!(
+                    "Failed to read instruction rules directory {}: {err}",
+                    rules_dir.display()
+                );
+            }
+        }
         rule_files.sort();
 
         for path in rule_files {
@@ -229,11 +249,30 @@ fn resolve_include_path(raw_path: &str, base_dir: &Path, home_dir: Option<&Path>
 }
 
 fn read_text_file(path: &Path) -> Option<String> {
-    let bytes = fs::read(path).ok()?;
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!("Failed to read instruction file {}: {err}", path.display());
+            return None;
+        }
+    };
     if bytes.contains(&0) {
+        warn!(
+            "Skipping instruction file with NUL byte content: {}",
+            path.display()
+        );
         return None;
     }
-    String::from_utf8(bytes).ok()
+    match String::from_utf8(bytes) {
+        Ok(content) => Some(content),
+        Err(err) => {
+            warn!(
+                "Skipping instruction file with invalid UTF-8 {}: {err}",
+                path.display()
+            );
+            None
+        }
+    }
 }
 
 fn is_supported_text_file(path: &Path) -> bool {

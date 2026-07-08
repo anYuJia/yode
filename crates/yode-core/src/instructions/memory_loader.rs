@@ -86,14 +86,31 @@ pub fn load_memory_context(project_root: &Path) -> Option<String> {
 
 fn has_visible_project_content(project_root: &Path) -> bool {
     let Ok(entries) = fs::read_dir(project_root) else {
+        warn!(
+            "Failed to read project root while checking visible memory content: {}",
+            project_root.display()
+        );
         return false;
     };
 
-    entries.filter_map(Result::ok).any(|entry| {
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                warn!(
+                    "Failed to inspect project root entry in {}: {err}",
+                    project_root.display()
+                );
+                continue;
+            }
+        };
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        !name.starts_with('.') && name != "memory" && name != "MEMORY.md"
-    })
+        if !name.starts_with('.') && name != "memory" && name != "MEMORY.md" {
+            return true;
+        }
+    }
+    false
 }
 
 fn load_memory_dir(project_root: &Path, memory_dir: &Path) -> Vec<(String, String)> {
@@ -103,11 +120,20 @@ fn load_memory_dir(project_root: &Path, memory_dir: &Path) -> Vec<(String, Strin
 
     let mut entries = Vec::new();
 
-    for entry in WalkDir::new(memory_dir)
-        .into_iter()
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_file())
-    {
+    for entry in WalkDir::new(memory_dir).into_iter() {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                warn!(
+                    "Failed to inspect memory directory entry in {}: {err}",
+                    memory_dir.display()
+                );
+                continue;
+            }
+        };
+        if !entry.file_type().is_file() {
+            continue;
+        }
         let path = entry.path();
         if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
             continue;
@@ -246,11 +272,30 @@ fn limit_memory_content(mut content: String, path: &Path) -> String {
 }
 
 fn read_text_file(path: &Path) -> Option<String> {
-    let bytes = fs::read(path).ok()?;
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            warn!("Failed to read memory file {}: {err}", path.display());
+            return None;
+        }
+    };
     if bytes.contains(&0) {
+        warn!(
+            "Skipping memory file with NUL byte content: {}",
+            path.display()
+        );
         return None;
     }
-    String::from_utf8(bytes).ok()
+    match String::from_utf8(bytes) {
+        Ok(content) => Some(content),
+        Err(err) => {
+            warn!(
+                "Skipping memory file with invalid UTF-8 {}: {err}",
+                path.display()
+            );
+            None
+        }
+    }
 }
 
 fn display_path(path: &Path, project_root: &Path, home_dir: Option<&Path>) -> String {

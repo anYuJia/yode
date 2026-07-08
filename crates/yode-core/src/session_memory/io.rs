@@ -1,4 +1,5 @@
 use super::*;
+use tracing::warn;
 
 pub fn session_memory_path(project_root: &Path) -> PathBuf {
     project_root.join(SESSION_MEMORY_RELATIVE_PATH)
@@ -503,7 +504,17 @@ async fn read_existing_session_memory_async(path: &Path) -> Result<String> {
 }
 
 fn load_memory_excerpt(path: &Path, max_chars: usize) -> Option<String> {
-    let content = fs::read_to_string(path).ok()?;
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(err) => {
+            warn!(
+                "Failed to read session memory excerpt {}: {err}",
+                path.display()
+            );
+            return None;
+        }
+    };
     let mut lines = Vec::new();
 
     for raw_line in content.lines() {

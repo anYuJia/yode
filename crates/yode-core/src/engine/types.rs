@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 
+use tracing::warn;
 use yode_llm::types::{ChatResponse, ToolCall};
 use yode_tools::registry::ToolPoolSnapshot;
 use yode_tools::tool::{ToolProgress, ToolResult};
@@ -414,15 +415,46 @@ pub(super) fn latest_transcript_runtime_state(
     project_root: &std::path::Path,
 ) -> Option<(std::path::PathBuf, TranscriptArtifactRuntimeState)> {
     let dir = project_root.join(".yode").join("transcripts");
-    let mut entries = std::fs::read_dir(&dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("md"))
-        .collect::<Vec<_>>();
+    let read_dir = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(err) => {
+            warn!(
+                "Failed to read transcript artifact directory {}: {err}",
+                dir.display()
+            );
+            return None;
+        }
+    };
+    let mut entries = Vec::new();
+    for entry in read_dir {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                warn!(
+                    "Failed to inspect transcript artifact entry in {}: {err}",
+                    dir.display()
+                );
+                continue;
+            }
+        };
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+            entries.push(path);
+        }
+    }
     entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
     let path = entries.into_iter().next()?;
-    let content = std::fs::read_to_string(&path).ok()?;
+    let content = match std::fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(err) => {
+            warn!(
+                "Failed to read transcript artifact {}: {err}",
+                path.display()
+            );
+            return None;
+        }
+    };
 
     Some((path, parse_transcript_runtime_state(&content)))
 }
@@ -431,17 +463,48 @@ pub(in crate::engine) async fn latest_transcript_runtime_state_async(
     project_root: &std::path::Path,
 ) -> Option<(std::path::PathBuf, TranscriptArtifactRuntimeState)> {
     let dir = project_root.join(".yode").join("transcripts");
-    let mut entries = tokio::fs::read_dir(&dir).await.ok()?;
+    let mut entries = match tokio::fs::read_dir(&dir).await {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(err) => {
+            warn!(
+                "Failed to read transcript artifact directory {}: {err}",
+                dir.display()
+            );
+            return None;
+        }
+    };
     let mut paths = Vec::new();
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
-            paths.push(path);
+    loop {
+        match entries.next_entry().await {
+            Ok(Some(entry)) => {
+                let path = entry.path();
+                if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+                    paths.push(path);
+                }
+            }
+            Ok(None) => break,
+            Err(err) => {
+                warn!(
+                    "Failed to inspect transcript artifact entry in {}: {err}",
+                    dir.display()
+                );
+                break;
+            }
         }
     }
     paths.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
     let path = paths.into_iter().next()?;
-    let content = tokio::fs::read_to_string(&path).await.ok()?;
+    let content = match tokio::fs::read_to_string(&path).await {
+        Ok(content) => content,
+        Err(err) => {
+            warn!(
+                "Failed to read transcript artifact {}: {err}",
+                path.display()
+            );
+            return None;
+        }
+    };
 
     Some((path, parse_transcript_runtime_state(&content)))
 }
