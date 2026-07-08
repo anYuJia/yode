@@ -10,7 +10,7 @@ use yode_tools::registry::ToolRegistry;
 
 use super::edit_diff_runtime::read_edit_diff_artifact_from_roots;
 use super::settings_runtime::default_general_settings;
-use super::terminal_runtime::{
+use super::terminal_helpers::{
     apply_terminal_color_env, parse_terminal_run_stdout, terminal_shell_command,
 };
 use super::{find_workspace_root, DesktopRuntime};
