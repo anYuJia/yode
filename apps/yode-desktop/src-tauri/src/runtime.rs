@@ -31,6 +31,8 @@ mod settings_runtime;
 mod terminal_runtime;
 #[cfg(test)]
 mod tests;
+mod turn_events;
+mod turn_permissions;
 mod turn_runtime;
 mod worktree_runtime;
 

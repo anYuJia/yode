@@ -4,20 +4,21 @@ use std::sync::atomic::Ordering;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use serde_json::json;
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 use tokio::sync::mpsc::unbounded_channel;
 use uuid::Uuid;
 
-use yode_core::config::Config;
 use yode_core::context::AgentContext;
 use yode_core::db::Database;
 use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
-use yode_core::permission::{PermissionManager, PermissionRule, RuleBehavior, RuleSource};
+use yode_core::permission::{PermissionRule, RuleBehavior, RuleSource};
 use yode_core::session::Session;
 
 use super::{
     personalization_runtime::build_personalization_prompt,
     settings_runtime::{start_sleep_guard, stop_sleep_guard},
+    turn_events::emit_desktop_event,
+    turn_permissions::configure_desktop_permissions,
     DesktopRuntime, PendingConfirmation,
 };
 use crate::hook_settings::build_desktop_hook_manager;
@@ -499,53 +500,4 @@ impl DesktopRuntime {
         }
         Ok(())
     }
-}
-
-fn emit_desktop_event(app: &AppHandle, desktop_event: DesktopEvent) {
-    let session_id = desktop_event.session_id.clone();
-    let turn_id = desktop_event.turn_id.clone();
-    let kind = desktop_event.kind.clone();
-    if let Err(err) = app.emit("desktop-event", desktop_event) {
-        tracing::warn!(
-            session_id = %session_id,
-            turn_id = %turn_id,
-            kind = %kind,
-            error = %err,
-            "Failed to emit desktop runtime event"
-        );
-    }
-}
-
-pub(super) fn configure_desktop_permissions(
-    config: &Config,
-    _workdir: &std::path::Path,
-) -> PermissionManager {
-    let mut permissions =
-        PermissionManager::from_confirmation_list(config.tools.require_confirmation.clone());
-    if let Some(mode_str) = &config.permissions.default_mode {
-        if let Ok(mode) = mode_str.parse::<yode_core::permission::PermissionMode>() {
-            permissions.set_mode(mode);
-        }
-    }
-    for rule in &config.permissions.always_allow {
-        permissions.add_rule(PermissionRule {
-            source: RuleSource::UserConfig,
-            behavior: RuleBehavior::Allow,
-            tool_name: rule.tool.clone(),
-            category: rule.category.clone(),
-            pattern: rule.pattern.clone(),
-            description: rule.description.clone(),
-        });
-    }
-    for rule in &config.permissions.always_deny {
-        permissions.add_rule(PermissionRule {
-            source: RuleSource::UserConfig,
-            behavior: RuleBehavior::Deny,
-            tool_name: rule.tool.clone(),
-            category: rule.category.clone(),
-            pattern: rule.pattern.clone(),
-            description: rule.description.clone(),
-        });
-    }
-    permissions
 }

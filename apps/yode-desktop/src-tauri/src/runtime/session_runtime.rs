@@ -13,7 +13,7 @@ use yode_core::session::Session;
 
 use super::{
     personalization_runtime::build_personalization_prompt,
-    provider_runtime::normalized_provider_model, turn_runtime::configure_desktop_permissions,
+    provider_runtime::normalized_provider_model, turn_permissions::configure_desktop_permissions,
     DesktopRuntime,
 };
 use crate::hook_settings::build_desktop_hook_manager;
