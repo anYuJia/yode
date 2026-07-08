@@ -2,6 +2,7 @@ import { applyDesktopEventToTimelineItems } from "./timelineUtils";
 import { isUserQuery } from "./askUser";
 import type { UserQuery } from "./askUser";
 import { DesktopEvent, PendingUserQuestion, TimelineItem, UsageSnapshot } from "./desktopTypes";
+import { recordFromUnknown } from "./jsonUtils";
 
 type NotificationPolicy = "completion" | "permission" | "question";
 
@@ -84,9 +85,9 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
 }
 
 function desktopEventEnvelope(payload: unknown, eventKind?: string): DesktopEventEnvelope {
-  const raw = objectRecord(payload) ?? {};
+  const raw = recordFromUnknown(payload) ?? {};
   const desktopEvent = isDesktopEvent(raw) ? raw : undefined;
-  const nestedPayload = objectRecord(desktopEvent?.payload ?? raw.payload) ?? {};
+  const nestedPayload = recordFromUnknown(desktopEvent?.payload ?? raw.payload) ?? {};
   const kind = desktopEvent?.kind ?? eventKind ?? stringField(raw, "kind", "");
   return {
     desktopEvent,
@@ -127,19 +128,8 @@ function isDesktopEvent(value: Record<string, unknown> | undefined): value is De
       typeof value.seq === "number" &&
       typeof value.kind === "string" &&
       typeof value.timestamp === "string" &&
-      objectRecord(value.payload)
+      recordFromUnknown(value.payload)
   );
-}
-
-function objectRecord(value: unknown): Record<string, unknown> | undefined {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  return value as Record<string, unknown>;
-}
-
-function objectField(value: Record<string, unknown>, key: string): Record<string, unknown> | undefined {
-  return objectRecord(value[key]);
 }
 
 function userQueryField(value: Record<string, unknown>, key: string): UserQuery | undefined {

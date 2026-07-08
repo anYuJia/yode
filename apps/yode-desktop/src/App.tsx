@@ -116,6 +116,7 @@ import {
   applyTranslucentSidebarSetting,
   languageFromChangeEvent
 } from "./lib/appearanceSettings";
+import { recordFromUnknown } from "./lib/jsonUtils";
 
 function imageToRequestPayload(image: ImageAttachment) {
   return {
@@ -155,12 +156,6 @@ function parseDurationFromTitle(title?: string) {
   const seconds = title.match(/(\d+)\s*(?:秒|s|sec|seconds?)/i);
   if (seconds) return Number(seconds[1]);
   return null;
-}
-
-function recordFromUnknown(value: unknown): Record<string, unknown> | undefined {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined;
 }
 
 function timelineCreatedAt(item: TimelineItem | null | undefined): number | undefined {

@@ -24,6 +24,7 @@ import {
   saveLastModelForProvider,
   saveStoredProviders
 } from "../../lib/llmProviderStorage";
+import { recordFromUnknown } from "../../lib/jsonUtils";
 
 interface ProviderConfigData {
   id: string;
@@ -356,7 +357,7 @@ function templateFor(id: string) {
 }
 
 function normalizeProvider(raw: unknown): ProviderConfigData {
-  const provider = raw && typeof raw === "object" ? raw as Record<string, unknown> : {};
+  const provider = recordFromUnknown(raw) ?? {};
   const rawId = typeof provider.id === "string" ? provider.id : "";
   const rawName = typeof provider.name === "string" ? provider.name : "";
   const rawFormat = typeof provider.format === "string" ? provider.format : "";
