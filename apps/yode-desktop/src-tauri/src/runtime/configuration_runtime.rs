@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use yode_core::config::Config;
 
-use super::{settings_runtime::open_with_destination, DesktopRuntime};
+use super::{settings_system::open_with_destination, DesktopRuntime};
 use crate::protocol::{
     ConfigurationState, ConfigurationUpdateRequest, DiagnosticCheck, WorkspaceDiagnosticsResult,
 };

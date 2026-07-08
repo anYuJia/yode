@@ -28,6 +28,7 @@ mod personalization_runtime;
 mod provider_runtime;
 mod session_runtime;
 mod settings_runtime;
+mod settings_system;
 mod terminal_runtime;
 #[cfg(test)]
 mod tests;

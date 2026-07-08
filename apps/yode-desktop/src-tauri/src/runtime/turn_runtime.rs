@@ -16,7 +16,7 @@ use yode_core::session::Session;
 
 use super::{
     personalization_runtime::build_personalization_prompt,
-    settings_runtime::{start_sleep_guard, stop_sleep_guard},
+    settings_system::{start_sleep_guard, stop_sleep_guard},
     turn_events::emit_desktop_event,
     turn_permissions::configure_desktop_permissions,
     DesktopRuntime, PendingConfirmation,
