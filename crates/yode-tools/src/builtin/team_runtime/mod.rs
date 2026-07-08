@@ -258,24 +258,49 @@ pub fn persist_agent_team_snapshot(
 
 pub fn latest_agent_team_file(working_dir: &Path, suffix: &str) -> Option<PathBuf> {
     let dir = teams_dir(working_dir);
-    let mut entries = std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.ends_with(suffix))
-        })
-        .collect::<Vec<_>>();
+    let read_dir = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(err) => {
+            warn!(
+                suffix,
+                directory = %dir.display(),
+                error = %err,
+                "failed to read agent team artifact directory"
+            );
+            return None;
+        }
+    };
+    let mut entries = Vec::new();
+    for entry in read_dir {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                warn!(
+                    suffix,
+                    directory = %dir.display(),
+                    error = %err,
+                    "failed to inspect agent team artifact entry"
+                );
+                continue;
+            }
+        };
+        let path = entry.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with(suffix))
+        {
+            entries.push(path);
+        }
+    }
     entries.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
     entries.into_iter().next()
 }
 
 fn latest_team_id_from_disk(working_dir: &Path) -> Option<String> {
     latest_agent_team_file(working_dir, "agent-team-state.json")
-        .and_then(|path| std::fs::read_to_string(path).ok())
-        .and_then(|body| serde_json::from_str::<AgentTeamState>(&body).ok())
+        .and_then(|path| read_agent_team_state_from_path(&path))
         .map(|state| state.team_id)
 }
 
@@ -1379,30 +1404,54 @@ fn find_team_route_for_recipient(working_dir: &Path, recipient: &str) -> Option<
     if recipient.is_empty() {
         return None;
     }
-    let mut states = std::fs::read_dir(teams_dir(working_dir))
-        .ok()?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.ends_with("-agent-team-state.json"))
-        })
-        .collect::<Vec<_>>();
+    let dir = teams_dir(working_dir);
+    let read_dir = match std::fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(err) => {
+            warn!(
+                recipient,
+                directory = %dir.display(),
+                error = %err,
+                "failed to read agent team directory while resolving recipient"
+            );
+            return None;
+        }
+    };
+    let mut states = Vec::new();
+    for entry in read_dir {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                warn!(
+                    recipient,
+                    directory = %dir.display(),
+                    error = %err,
+                    "failed to inspect agent team entry while resolving recipient"
+                );
+                continue;
+            }
+        };
+        let path = entry.path();
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.ends_with("-agent-team-state.json"))
+        {
+            states.push(path);
+        }
+    }
     states.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
 
     if recipient == "*" || recipient.eq_ignore_ascii_case("all") {
         let state = states
             .first()
-            .and_then(|path| std::fs::read_to_string(path).ok())
-            .and_then(|body| serde_json::from_str::<AgentTeamState>(&body).ok())?;
+            .and_then(|path| read_agent_team_state_from_path(path))?;
         return Some((state.team_id, "all".to_string()));
     }
 
     for path in states {
-        let state = std::fs::read_to_string(path)
-            .ok()
-            .and_then(|body| serde_json::from_str::<AgentTeamState>(&body).ok())?;
+        let state = read_agent_team_state_from_path(&path)?;
         if let Some(member) = state.members.iter().find(|member| {
             member.member_id == recipient || member.runtime_task_id.as_deref() == Some(recipient)
         }) {
@@ -1410,6 +1459,31 @@ fn find_team_route_for_recipient(working_dir: &Path, recipient: &str) -> Option<
         }
     }
     None
+}
+
+fn read_agent_team_state_from_path(path: &Path) -> Option<AgentTeamState> {
+    let body = match std::fs::read_to_string(path) {
+        Ok(body) => body,
+        Err(err) => {
+            warn!(
+                path = %path.display(),
+                error = %err,
+                "failed to read agent team state artifact"
+            );
+            return None;
+        }
+    };
+    match serde_json::from_str::<AgentTeamState>(&body) {
+        Ok(state) => Some(state),
+        Err(err) => {
+            warn!(
+                path = %path.display(),
+                error = %err,
+                "failed to parse agent team state artifact"
+            );
+            None
+        }
+    }
 }
 
 fn load_team_messages(working_dir: &Path, team_id: &str) -> Result<Vec<AgentTeamMessage>> {

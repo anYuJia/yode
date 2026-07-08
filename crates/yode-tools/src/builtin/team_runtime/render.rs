@@ -187,8 +187,20 @@ pub(super) fn render_team_summary(state: &AgentTeamState) -> String {
 }
 
 pub(super) fn render_team_bundle(state: &AgentTeamState, messages_path: &Path) -> String {
-    let messages = std::fs::read_to_string(messages_path)
-        .unwrap_or_else(|_| "# Agent Team Messages\n\n- none\n".to_string());
+    let messages = match std::fs::read_to_string(messages_path) {
+        Ok(messages) => messages,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            "# Agent Team Messages\n\n- none\n".to_string()
+        }
+        Err(err) => {
+            tracing::warn!(
+                path = %messages_path.display(),
+                error = %err,
+                "failed to read agent team messages while rendering bundle"
+            );
+            "# Agent Team Messages\n\n- none\n".to_string()
+        }
+    };
     format!(
         "# Agent Team Bundle\n\n- Team: {}\n- Goal: {}\n- State updated: {}\n- Message artifact: {}\n\n## Team Summary\n\n{}\n\n## Messages\n\n{}\n",
         state.team_id,
