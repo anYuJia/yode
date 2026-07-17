@@ -49,9 +49,11 @@ export function Topbar({
   const [providerVersion, setProviderVersion] = useState(0);
   const providerOptions = useMemo(() => {
     return providerOptionsFromStoredProviders(PROVIDERS_META);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providerVersion]);
   const providerName = useMemo(() => {
     return providerDisplayNameFromStorage(currentProvider, PROVIDERS_META);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProvider, providerVersion]);
 
   useEffect(() => {
@@ -69,7 +71,10 @@ export function Topbar({
     setCurrentBranch(null);
     if (!workspacePath || !("__TAURI_INTERNALS__" in window)) return;
 
-    invoke<string | null>("git_current_branch", { workspacePath })
+    invoke<string | null>("git_current_branch", {
+      workspacePath,
+      workspace_path: workspacePath
+    })
       .then((branch) => {
         if (alive) setCurrentBranch(branch);
       })
@@ -89,7 +94,7 @@ export function Topbar({
         {workspacePath && (
           <div className="workspace-path" data-tauri-drag-region>
             <span data-tauri-drag-region>{workspacePath}</span>
-            {currentBranch ? <span>{currentBranch}</span> : null}
+            {currentBranch ? <span className="branch-name" data-tauri-drag-region>{currentBranch}</span> : null}
           </div>
         )}
       </div>

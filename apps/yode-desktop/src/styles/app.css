@@ -887,11 +887,15 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   white-space: nowrap;
 }
 
-.workspace-path span:last-child {
+.workspace-path .branch-name {
   border: 1px solid var(--line-soft);
   border-radius: 999px;
   color: var(--text-muted);
   padding: 0 6px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .runtime-strip {
