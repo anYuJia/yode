@@ -70,3 +70,15 @@ pub async fn license_notices(
         .await
         .map_err(|err| err.to_string())
 }
+
+#[tauri::command]
+pub async fn app_restart(app: tauri::AppHandle) -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    std::process::Command::new(exe)
+        .args(&args)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    app.exit(0);
+    Ok(())
+}

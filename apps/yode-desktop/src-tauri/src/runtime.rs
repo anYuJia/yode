@@ -21,9 +21,13 @@ use crate::git_settings::{apply_git_settings_env, git_settings_from_desktop_sett
 use crate::license_notices::read_license_notices;
 use crate::protocol::{Bootstrap, GeneralSettings, LicenseNotice, RuntimeState};
 
+mod browser_settings_runtime;
+mod computer_use_settings_runtime;
 mod configuration_runtime;
 mod edit_diff_runtime;
 mod engine_setup;
+mod git_settings_runtime;
+mod hooks_settings_runtime;
 mod import_runtime;
 mod mcp_config;
 mod mcp_runtime;
