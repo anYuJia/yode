@@ -29,6 +29,7 @@ export const GENERAL_SETTINGS_CHANGE_EVENT = "yode-general-settings-change";
 export type GeneralSettingsChangeDetail = {
   key: string;
   value: string | boolean;
+  payload: GeneralSettingsPayload;
 };
 
 export type ConfigurationSettings = {
@@ -265,16 +266,17 @@ export async function saveDesktopSetting<T>(key: string, value: T): Promise<void
 }
 
 export function loadGeneralSettings(): GeneralSettings {
+  const payload = loadGeneralSettingsPayload();
   return {
-    bottomPanel: localStorage.getItem("yode-bottom-panel") !== "false",
-    suggestedPrompts: localStorage.getItem("yode-suggested-prompts") !== "false",
-    contextUsage: localStorage.getItem("yode-context-usage") === "true",
-    requireOptEnter: localStorage.getItem("yode-require-opt-enter") === "true",
-    followUpBehavior: localStorage.getItem("yode-follow-up-behavior") || "queue",
-    codeReviewPolicy: localStorage.getItem("yode-code-review-policy") || "inline",
-    completionNotification: localStorage.getItem("yode-completion-notif") || "Only when unfocused",
-    permissionNotification: localStorage.getItem("yode-perm-notif") !== "false",
-    questionNotification: localStorage.getItem("yode-question-notif") !== "false"
+    bottomPanel: payload.bottomPanel,
+    suggestedPrompts: payload.suggestedPrompts,
+    contextUsage: payload.contextUsage,
+    requireOptEnter: payload.requireOptEnter,
+    followUpBehavior: payload.followUpBehavior,
+    codeReviewPolicy: payload.codeReviewPolicy,
+    completionNotification: payload.completionNotification,
+    permissionNotification: payload.permissionNotification,
+    questionNotification: payload.questionNotification
   };
 }
 
@@ -637,7 +639,11 @@ export function savePersistedMcpServers(servers: McpServer[]): Promise<void> {
 
 export function saveGeneralSettingValue(key: string, value: string | boolean) {
   localStorage.setItem(key, String(value));
-  window.dispatchEvent(new CustomEvent<GeneralSettingsChangeDetail>(GENERAL_SETTINGS_CHANGE_EVENT, { detail: { key, value } }));
+  window.dispatchEvent(
+    new CustomEvent<GeneralSettingsChangeDetail>(GENERAL_SETTINGS_CHANGE_EVENT, {
+      detail: { key, value, payload: loadGeneralSettingsPayload() }
+    })
+  );
 }
 
 export async function applyGeneralSettings(): Promise<void> {
