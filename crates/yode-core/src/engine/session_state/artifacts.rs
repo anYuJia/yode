@@ -316,10 +316,19 @@ impl AgentEngine {
             last_compaction_summary_excerpt: self.last_compaction_summary_excerpt.clone(),
             last_compaction_session_memory_path: self.last_compaction_session_memory_path.clone(),
             last_compaction_transcript_path: self.last_compaction_transcript_path.clone(),
-            last_compact_boundary_json: self
-                .last_compact_boundary
-                .as_ref()
-                .and_then(|boundary| serde_json::to_string(boundary).ok()),
+            last_compact_boundary_json: self.last_compact_boundary.as_ref().and_then(|boundary| {
+                match serde_json::to_string(boundary) {
+                    Ok(json) => Some(json),
+                    Err(err) => {
+                        warn!(
+                            session_id = %self.context.session_id,
+                            error = %err,
+                            "Failed to serialize compact boundary for session artifacts"
+                        );
+                        None
+                    }
+                }
+            }),
             last_session_memory_update_at: shared.as_ref().and_then(|shared| shared.0.clone()),
             last_session_memory_update_path: shared.as_ref().and_then(|shared| shared.1.clone()),
             last_session_memory_generated_summary: shared.map(|shared| shared.2).unwrap_or(false),

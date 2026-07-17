@@ -541,8 +541,7 @@ pub(super) async fn write_post_compact_restore_artifact_async(
         blocks,
         compact_boundary,
         restore_budget,
-    )
-    .context("failed to render post-compact restore artifact")?;
+    );
 
     tokio::fs::write(&path, body)
         .await
@@ -556,7 +555,7 @@ fn render_post_compact_restore_artifact_body(
     blocks: &[(RestoreBlockKind, String)],
     compact_boundary: Option<&CompactBoundaryRuntimeState>,
     restore_budget: Option<&RestoreBudgetRuntimeState>,
-) -> Option<String> {
+) -> String {
     let mut body = format!(
         "# Post-compact Restore\n\n- Session: {}\n- Mode: {}\n- Timestamp: {}\n\n",
         session_id,
@@ -571,7 +570,15 @@ fn render_post_compact_restore_artifact_body(
     }
     if let Some(boundary) = compact_boundary {
         body.push_str("## Compact Boundary\n\n```json\n");
-        body.push_str(&serde_json::to_string_pretty(boundary).ok()?);
+        match serde_json::to_string_pretty(boundary) {
+            Ok(json) => body.push_str(&json),
+            Err(err) => {
+                tracing::warn!(error = %err, "Failed to serialize compact boundary for summary");
+                body.push_str("(serialization error: ");
+                body.push_str(&err.to_string());
+                body.push(')');
+            }
+        }
         body.push_str("\n```\n\n");
     }
     if let Some(budget) = restore_budget {
@@ -579,7 +586,7 @@ fn render_post_compact_restore_artifact_body(
         body.push_str("\n\n");
     }
 
-    Some(body)
+    body
 }
 
 pub(super) async fn write_post_compact_restore_state_artifact_async(

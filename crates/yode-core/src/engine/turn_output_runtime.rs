@@ -4,7 +4,18 @@ impl AgentEngine {
     pub(super) fn push_and_persist_assistant_message(&mut self, message: &Message) {
         self.messages.push(message.clone());
         let tc_json = if !message.tool_calls.is_empty() {
-            serde_json::to_string(&message.tool_calls).ok()
+            match serde_json::to_string(&message.tool_calls) {
+                Ok(json) => Some(json),
+                Err(err) => {
+                    tracing::warn!(
+                        session_id = %self.context.session_id,
+                        tool_call_count = message.tool_calls.len(),
+                        error = %err,
+                        "Failed to serialize assistant tool_calls for persistence; storing without tool_calls_json"
+                    );
+                    None
+                }
+            }
         } else {
             None
         };
