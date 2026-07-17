@@ -411,3 +411,11 @@ pub struct DesktopMcpState {
     pub servers: Vec<DesktopMcpServer>,
     pub statuses: Vec<DesktopMcpServerStatus>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateCheckResult {
+    pub version: String,
+    pub release_url: String,
+    pub published_at: String,
+}

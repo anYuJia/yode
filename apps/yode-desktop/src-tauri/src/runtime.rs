@@ -10,6 +10,7 @@ use yode_core::config::Config;
 use yode_core::db::Database;
 use yode_core::engine::ConfirmResponse;
 use yode_core::permission::PermissionRule;
+use yode_core::updater::Updater;
 use yode_llm::registry::ProviderRegistry;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
@@ -66,6 +67,7 @@ pub struct DesktopRuntime {
     pty_sessions: Arc<Mutex<HashMap<String, PtySessionState>>>,
     general_settings: Mutex<GeneralSettings>,
     sleep_guard: Arc<Mutex<Option<Child>>>,
+    updater: Updater,
 }
 
 type TurnKey = (String, String);
@@ -136,6 +138,13 @@ impl DesktopRuntime {
             pty_sessions: Arc::new(Mutex::new(HashMap::new())),
             general_settings: Mutex::new(default_general_settings()),
             sleep_guard: Arc::new(Mutex::new(None)),
+            updater: Updater::new(
+                dirs::home_dir()
+                    .unwrap_or_else(|| PathBuf::from("."))
+                    .join(".yode"),
+                true,
+                true,
+            ),
         })
     }
 
@@ -209,6 +218,28 @@ impl DesktopRuntime {
 
     fn project_config_path(&self) -> PathBuf {
         self.workspace_path.join(".yode").join("config.toml")
+    }
+
+    pub async fn check_for_updates(&self) -> Result<Option<yode_core::updater::UpdateCheckResult>> {
+        self.updater.check_for_updates().await
+    }
+
+    pub async fn download_update(&self) -> Result<String> {
+        let update = self
+            .updater
+            .check_for_updates()
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("no update available"))?;
+        let result = self.updater.download_update(&update).await?;
+        Ok(result.display().to_string())
+    }
+
+    pub async fn has_pending_update(&self) -> bool {
+        self.updater.has_pending_update().await
+    }
+
+    pub async fn apply_downloaded_update(&self) -> Result<bool> {
+        self.updater.apply_downloaded_update().await
     }
 }
 

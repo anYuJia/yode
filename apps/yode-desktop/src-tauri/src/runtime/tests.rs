@@ -5,6 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use yode_core::config::Config;
 use yode_core::db::Database;
+use yode_core::updater::Updater;
 use yode_llm::registry::ProviderRegistry;
 use yode_tools::registry::ToolRegistry;
 
@@ -45,6 +46,13 @@ fn test_runtime(name: &str) -> (DesktopRuntime, PathBuf) {
         pty_sessions: Arc::new(Mutex::new(HashMap::new())),
         general_settings: Mutex::new(default_general_settings()),
         sleep_guard: Arc::new(Mutex::new(None)),
+        updater: Updater::new(
+            dirs::home_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join(".yode"),
+            false,
+            false,
+        ),
     };
     (runtime, dir)
 }
