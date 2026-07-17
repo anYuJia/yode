@@ -22,6 +22,7 @@ use crate::protocol::{Bootstrap, GeneralSettings, LicenseNotice, RuntimeState};
 
 mod configuration_runtime;
 mod edit_diff_runtime;
+mod engine_setup;
 mod import_runtime;
 mod mcp_config;
 mod mcp_runtime;

@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 
 use anyhow::{Context, Result};
@@ -8,22 +7,23 @@ use tauri::AppHandle;
 use tokio::sync::mpsc::unbounded_channel;
 use uuid::Uuid;
 
-use yode_core::context::AgentContext;
 use yode_core::db::Database;
 use yode_core::engine::{AgentEngine, ConfirmResponse, EngineEvent};
 use yode_core::permission::{PermissionRule, RuleBehavior, RuleSource};
 use yode_core::session::Session;
 
 use super::{
-    personalization_runtime::build_personalization_prompt,
+    engine_setup::{
+        build_desktop_agent_context, build_session_permissions, configure_engine_services,
+        restore_messages_from_stored, session_workspace_path,
+    },
     settings_system::{start_sleep_guard, stop_sleep_guard},
     turn_events::emit_desktop_event,
-    turn_permissions::configure_desktop_permissions,
     DesktopRuntime, PendingConfirmation,
 };
 use crate::hook_settings::build_desktop_hook_manager;
 use crate::protocol::{DesktopEvent, SendMessageRequest, TurnAccepted};
-use crate::session_helpers::{stored_message_to_message, title_from_content_or_images};
+use crate::session_helpers::title_from_content_or_images;
 
 impl DesktopRuntime {
     pub async fn turn_send_message(
@@ -126,45 +126,21 @@ impl DesktopRuntime {
                 anyhow::anyhow!("Provider '{}' not found in registry", session.provider)
             })?;
 
-        let turn_workspace_path = session
-            .project_root
-            .as_deref()
-            .filter(|root| !root.trim().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| self.workspace_path.clone());
+        let turn_workspace_path = session_workspace_path(&session, &self.workspace_path);
 
-        let mut permissions = configure_desktop_permissions(&config, &turn_workspace_path);
-        if let Ok(active_mode_guard) = self.permission_mode.lock() {
-            if let Ok(mode) = active_mode_guard.parse::<yode_core::permission::PermissionMode>() {
-                permissions.set_mode(mode);
-            }
-        }
-        if let Ok(rules) = self.session_permission_rules.lock() {
-            if let Some(session_rules) = rules.get(&session.id) {
-                permissions.add_rules(session_rules.clone());
-            }
-        }
-        let mut context = AgentContext::resume(
-            session.id.clone(),
-            turn_workspace_path,
-            session.provider.clone(),
-            session.model.clone(),
+        let permissions = build_session_permissions(
+            &config,
+            &turn_workspace_path,
+            &self.permission_mode,
+            &self.session_permission_rules,
+            &session.id,
         );
         let personalization = self.personalization_state().await?;
-        context.project_memory_enabled = personalization.enable_memories
-            && session
-                .project_root
-                .as_deref()
-                .is_some_and(|root| !root.trim().is_empty());
-        context.skip_tool_assisted_memory = personalization.skip_tool_chats;
-        context.personalization_prompt = build_personalization_prompt(&personalization);
-        context.output_style = config.ui.output_style.clone();
+        let context =
+            build_desktop_agent_context(&session, turn_workspace_path, &config, &personalization);
 
         let stored_msgs = self.db.load_messages(&session.id)?;
-        let restored_messages: Vec<yode_llm::types::Message> = stored_msgs
-            .into_iter()
-            .filter_map(stored_message_to_message)
-            .collect();
+        let restored_messages = restore_messages_from_stored(stored_msgs);
 
         let tools = self
             .tool_registry
@@ -239,9 +215,6 @@ impl DesktopRuntime {
 
             rt.block_on(async {
                 let mut engine = AgentEngine::new(provider, tools, permissions, context);
-                if let Some(hook_manager) = hook_manager {
-                    engine.set_hook_manager(hook_manager);
-                }
                 let db_clone = match Database::open(&db_path_clone) {
                     Ok(db) => db,
                     Err(err) => {
@@ -259,14 +232,13 @@ impl DesktopRuntime {
                     }
                 };
                 engine.set_database(db_clone);
-                if let Some(mcp) = mcp_resource_provider {
-                    engine.set_mcp_resource_provider(mcp);
-                }
+                configure_engine_services(
+                    &mut engine,
+                    hook_manager,
+                    mcp_resource_provider,
+                    &config,
+                );
                 engine.set_ask_user_channels(ask_user_query_tx, ask_user_answer_rx);
-                engine.set_mcp_resource_policy(yode_tools::tool::McpResourcePolicy {
-                    allow: config.mcp.resource_allow.clone(),
-                    deny: config.mcp.resource_deny.clone(),
-                });
                 engine.restore_messages_async(restored_messages).await;
 
                 let (event_tx, mut event_rx) = unbounded_channel::<EngineEvent>();

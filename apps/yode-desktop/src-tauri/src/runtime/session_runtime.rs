@@ -6,14 +6,16 @@ use tokio::sync::mpsc::unbounded_channel;
 use uuid::Uuid;
 
 use yode_core::config::Config;
-use yode_core::context::AgentContext;
 use yode_core::db::Database;
 use yode_core::engine::AgentEngine;
 use yode_core::session::Session;
 
 use super::{
-    personalization_runtime::build_personalization_prompt,
-    provider_runtime::normalized_provider_model, turn_permissions::configure_desktop_permissions,
+    engine_setup::{
+        build_desktop_agent_context, build_session_permissions, configure_engine_services,
+        restore_messages_from_stored, session_workspace_path,
+    },
+    provider_runtime::normalized_provider_model,
     DesktopRuntime,
 };
 use crate::hook_settings::build_desktop_hook_manager;
@@ -224,60 +226,24 @@ impl DesktopRuntime {
             .map_err(|_| anyhow::anyhow!("mcp resource provider lock poisoned"))?
             .clone();
 
-        let workspace_path = session
-            .project_root
-            .as_deref()
-            .filter(|root| !root.trim().is_empty())
-            .map(PathBuf::from)
-            .unwrap_or_else(|| self.workspace_path.clone());
-        let mut permissions = configure_desktop_permissions(&config, &workspace_path);
-        if let Ok(active_mode_guard) = self.permission_mode.lock() {
-            if let Ok(mode) = active_mode_guard.parse::<yode_core::permission::PermissionMode>() {
-                permissions.set_mode(mode);
-            }
-        }
-        if let Ok(rules) = self.session_permission_rules.lock() {
-            if let Some(session_rules) = rules.get(&session.id) {
-                permissions.add_rules(session_rules.clone());
-            }
-        }
-
-        let mut context = AgentContext::resume(
-            session.id.clone(),
-            workspace_path,
-            session.provider.clone(),
-            session.model.clone(),
+        let workspace_path = session_workspace_path(&session, &self.workspace_path);
+        let permissions = build_session_permissions(
+            &config,
+            &workspace_path,
+            &self.permission_mode,
+            &self.session_permission_rules,
+            &session.id,
         );
         let personalization = self.personalization_state().await?;
-        context.project_memory_enabled = personalization.enable_memories
-            && session
-                .project_root
-                .as_deref()
-                .is_some_and(|root| !root.trim().is_empty());
-        context.skip_tool_assisted_memory = personalization.skip_tool_chats;
-        context.personalization_prompt = build_personalization_prompt(&personalization);
-        context.output_style = config.ui.output_style.clone();
+        let context =
+            build_desktop_agent_context(&session, workspace_path, &config, &personalization);
 
-        let restored_messages = self
-            .db
-            .load_messages(&session.id)?
-            .into_iter()
-            .filter_map(stored_message_to_message)
-            .collect();
+        let restored_messages = restore_messages_from_stored(self.db.load_messages(&session.id)?);
         let hook_manager = build_desktop_hook_manager(&self.workspace_path).await?;
         let db = Database::open(&self.db_path)?;
         let mut engine = AgentEngine::new(provider, tools, permissions, context);
         engine.set_database(db);
-        if let Some(hook_manager) = hook_manager {
-            engine.set_hook_manager(hook_manager);
-        }
-        if let Some(mcp) = mcp_resource_provider {
-            engine.set_mcp_resource_provider(mcp);
-        }
-        engine.set_mcp_resource_policy(yode_tools::tool::McpResourcePolicy {
-            allow: config.mcp.resource_allow.clone(),
-            deny: config.mcp.resource_deny.clone(),
-        });
+        configure_engine_services(&mut engine, hook_manager, mcp_resource_provider, &config);
         engine.restore_messages_async(restored_messages).await;
 
         let (event_tx, _event_rx) = unbounded_channel();
