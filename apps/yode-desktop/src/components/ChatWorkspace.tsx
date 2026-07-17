@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useLayoutEffect, useEffect } from "react";
 import { Bot } from "lucide-react";
-import { ImageAttachment, PendingUserQuestion, TimelineItem } from "../lib/desktopTypes";
+import { ImageAttachment, PendingUserQuestion, TimelineItem, UsageSnapshot } from "../lib/desktopTypes";
 import {
   isIntermediateAssistantItem,
   compileInlineItems,
@@ -100,6 +100,7 @@ interface ChatWorkspaceProps {
   showBottomPanel: boolean;
   showContextUsage: boolean;
   requireOptEnter: boolean;
+  usageSnapshot: UsageSnapshot | null;
 }
 
 export function ChatWorkspace({
@@ -130,7 +131,8 @@ export function ChatWorkspace({
   showSuggestedPrompts,
   showBottomPanel,
   showContextUsage,
-  requireOptEnter
+  requireOptEnter,
+  usageSnapshot,
 }: ChatWorkspaceProps) {
   const isStreaming = useMemo(() => {
     if (pendingUserQuestion) return true;
@@ -561,6 +563,8 @@ export function ChatWorkspace({
         isProcessing={isProcessing}
         permissionMode={permissionMode}
         timelineItems={timelineItems}
+        usageSnapshot={usageSnapshot}
+        appLang={appLang}
       />
     </div>
   );

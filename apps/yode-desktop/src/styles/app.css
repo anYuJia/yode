@@ -2750,6 +2750,38 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   color: var(--success) !important;
 }
 
+.tool-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: calc(var(--inspector-font-size) - 0.5px);
+}
+
+.tool-status {
+  flex: 0 0 auto;
+  color: var(--text-soft);
+  font-size: calc(var(--inspector-font-size) - 1px);
+}
+
+.tool-status.running {
+  color: var(--success);
+}
+
+.tool-status.success {
+  color: var(--text-muted);
+}
+
+.tool-status.blocked {
+  color: var(--danger, #d97706);
+}
+
+.inspector-count {
+  margin-left: 4px;
+  color: var(--text-soft);
+  font-weight: 500;
+}
+
 .file-row {
   display: flex;
   align-items: center;

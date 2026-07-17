@@ -1209,6 +1209,7 @@ export function App() {
           showBottomPanel={generalSettings.bottomPanel}
           showContextUsage={generalSettings.contextUsage}
           requireOptEnter={generalSettings.requireOptEnter}
+          usageSnapshot={usageSnapshot}
         />
         <TerminalDrawer
           isOpen={terminalOpen}
