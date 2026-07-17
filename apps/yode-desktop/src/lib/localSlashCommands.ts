@@ -127,10 +127,7 @@ export async function executeLocalSlashCommand(
         isZh
           ? [
               "当前可用：",
-              "/clear - 清空当前会话消息",
-              "/compact - 压缩较早的会话历史",
-              "/export - 导出当前会话为 Markdown",
-              "/new - 开启一个新对话",
+              "/trash - 删除当前会话并开启新对话",
               "/cost - 查看最近一次 token 与成本统计",
               "/model - 查看当前模型",
               "/permission <default|auto|bypass|plan> - 切换权限模式",
@@ -147,6 +144,7 @@ export async function executeLocalSlashCommand(
               "/compact - compact older session history",
               "/export - export the current session as Markdown",
               "/new - start a new chat",
+              "/trash - delete the current session and start a new chat",
               "/cost - show the latest token and cost statistics",
               "/model - show the current model",
               "/permission <default|auto|bypass|plan> - switch permission mode",
@@ -299,7 +297,11 @@ export async function executeLocalSlashCommand(
       return true;
     }
     case "sessions": {
-      const visible = context.sessionItems.slice(0, 12);
+      const allSessions = context.sessionItems;
+      const visible = allSessions.slice(0, 12);
+      if (commandArgs === "delete" || commandArgs === "rm") {
+        return false;
+      }
       const body =
         visible.length === 0
           ? isZh
@@ -343,6 +345,41 @@ export async function executeLocalSlashCommand(
               `Timeline: ${context.timelineItemCount} items`
             ].join("\n")
       );
+      return true;
+    }
+    case "trash": {
+      if (!context.activeSessionId) {
+        append(
+          isZh ? "无法删除" : "Cannot delete",
+          isZh ? "当前还没有已保存的会话。" : "There is no saved active session yet."
+        );
+        return true;
+      }
+      if (context.sessionItems.length <= 1) {
+        append(
+          isZh ? "无法删除最后一个会话" : "Cannot delete the last session",
+          isZh ? "请先新建一个会话后再删除当前会话。" : "Please create a new session before deleting the current one."
+        );
+        return true;
+      }
+      try {
+        await invoke("sessions_delete", {
+          sessionId: context.activeSessionId,
+          session_id: context.activeSessionId
+        });
+        context.setSessionItems((items) => items.filter((s) => s.id !== context.activeSessionId));
+        context.setTimelineItems([]);
+        context.setUsageSnapshot(null);
+        context.clearMessageQueue();
+        context.setPendingUserQuestion(null);
+        context.createSession(context.selectedProjectRoot);
+        append(
+          isZh ? "会话已删除" : "Session deleted",
+          isZh ? "已删除并开启新对话。" : "Deleted and started a new chat."
+        );
+      } catch (err) {
+        append(isZh ? "删除失败" : "Delete failed", String(err));
+      }
       return true;
     }
     case "review":
