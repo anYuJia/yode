@@ -17,9 +17,10 @@ use super::{
         build_desktop_agent_context, build_session_permissions, configure_engine_services,
         restore_messages_from_stored, session_workspace_path,
     },
-    settings_system::{start_sleep_guard, stop_sleep_guard},
+    settings_system::start_sleep_guard,
     turn_events::emit_desktop_event,
-    DesktopRuntime, PendingConfirmation,
+    turn_loop::run_desktop_turn_event_loop,
+    DesktopRuntime,
 };
 use crate::hook_settings::build_desktop_hook_manager;
 use crate::protocol::{DesktopEvent, SendMessageRequest, TurnAccepted};
@@ -164,7 +165,7 @@ impl DesktopRuntime {
             txs.insert((session_id.clone(), emit_turn_id.clone()), confirm_tx);
         }
 
-        let (ask_user_query_tx, mut ask_user_query_rx) =
+        let (ask_user_query_tx, ask_user_query_rx) =
             unbounded_channel::<yode_tools::tool::UserQuery>();
         let (ask_user_answer_tx, ask_user_answer_rx) = unbounded_channel::<String>();
         {
@@ -241,11 +242,7 @@ impl DesktopRuntime {
                 engine.set_ask_user_channels(ask_user_query_tx, ask_user_answer_rx);
                 engine.restore_messages_async(restored_messages).await;
 
-                let (event_tx, mut event_rx) = unbounded_channel::<EngineEvent>();
-
-                let session_id_str = session_id.clone();
-                let turn_id_str = emit_turn_id.clone();
-
+                let (event_tx, event_rx) = unbounded_channel::<EngineEvent>();
                 let error_event_tx = event_tx.clone();
                 let handle = tokio::spawn(async move {
                     if let Err(err) = engine
@@ -260,7 +257,9 @@ impl DesktopRuntime {
                         .await
                     {
                         tracing::error!("AgentEngine run_turn_streaming failed: {}", err);
-                        if let Err(send_err) = error_event_tx.send(EngineEvent::Error(err.to_string())) {
+                        if let Err(send_err) =
+                            error_event_tx.send(EngineEvent::Error(err.to_string()))
+                        {
                             tracing::warn!(
                                 error = %send_err,
                                 "Failed to enqueue engine error event from desktop turn task"
@@ -269,108 +268,21 @@ impl DesktopRuntime {
                     }
                 });
 
-                let mut seq = seq_base;
-                loop {
-                    let event = tokio::select! {
-                        Some(query) = ask_user_query_rx.recv() => {
-                            let first_question = query.questions.first();
-                            let desktop_event = DesktopEvent {
-                                session_id: session_id_str.clone(),
-                                turn_id: turn_id_str.clone(),
-                                seq,
-                                kind: "ask_user".to_string(),
-                                timestamp: Utc::now().to_rfc3339(),
-                                payload: json!({
-                                    "id": query.id,
-                                    "title": first_question.map(|question| question.header.clone()).unwrap_or_else(|| "需要用户输入".to_string()),
-                                    "body": first_question.map(|question| question.question.clone()).unwrap_or_else(|| "请在输入框回复。".to_string()),
-                                    "query": query
-                                }),
-                            };
-                            emit_desktop_event(&app, desktop_event);
-                            seq += 1;
-                            continue;
-                        }
-                        Some(event) = event_rx.recv() => event,
-                        else => break,
-                    };
-                    let mapped = yode_runtime::engine_event_to_runtime_parts(event);
-                    if let Some(pending_confirmation) = mapped.pending_confirmation.as_ref() {
-                        if let Ok(mut pending) = pending_confirmations_clone.lock() {
-                            pending.insert(
-                                (session_id_str.clone(), turn_id_str.clone()),
-                                PendingConfirmation {
-                                    tool_name: pending_confirmation.tool_name.clone(),
-                                    command: pending_confirmation.command.clone(),
-                                },
-                            );
-                        }
-                    }
-                    let kind = mapped.kind;
-                    let payload = mapped.payload;
-
-                    if std::env::var("YODE_ACTION_NARRATIVE_DEBUG")
-                        .is_ok_and(|value| value == "1")
-                        && matches!(
-                            kind,
-                            "assistant_text_delta"
-                                | "assistant_reasoning_delta"
-                                | "action_narrative"
-                                | "tool_started"
-                                | "assistant_text_complete"
-                                | "assistant_reasoning_complete"
-                                | "turn_completed"
-                        )
-                    {
-                        let preview = payload
-                            .get("body")
-                            .or_else(|| payload.get("reasoning"))
-                            .and_then(|value| value.as_str())
-                            .unwrap_or("")
-                            .chars()
-                            .take(120)
-                            .collect::<String>()
-                            .replace('\n', "\\n");
-                        eprintln!(
-                            "[action-narrative-debug] turn={} kind={} preview={:?}",
-                            turn_id_str, kind, preview
-                        );
-                    }
-
-                    let desktop_event = DesktopEvent {
-                        session_id: session_id_str.clone(),
-                        turn_id: turn_id_str.clone(),
-                        seq,
-                        kind: kind.to_string(),
-                        timestamp: Utc::now().to_rfc3339(),
-                        payload,
-                    };
-
-                    emit_desktop_event(&app, desktop_event);
-                    seq += 1;
-                }
-
-                if let Err(err) = handle.await {
-                    tracing::error!("Desktop turn task join failed: {}", err);
-                }
-
-                if let Ok(mut txs) = confirm_txs_clone.lock() {
-                    txs.remove(&(session_id.clone(), emit_turn_id.clone()));
-                }
-                if let Ok(mut txs) = ask_user_txs_clone.lock() {
-                    txs.remove(&(session_id.clone(), emit_turn_id.clone()));
-                }
-                if let Ok(mut tokens) = cancel_tokens_clone.lock() {
-                    let _: Option<tokio_util::sync::CancellationToken> =
-                        tokens.remove(&(session_id.clone(), emit_turn_id.clone()));
-                    if tokens.is_empty() {
-                        drop(tokens);
-                        stop_sleep_guard(&sleep_guard_clone);
-                    }
-                }
-                if let Ok(mut pending) = pending_confirmations_clone.lock() {
-                    pending.remove(&(session_id.clone(), emit_turn_id.clone()));
-                }
+                run_desktop_turn_event_loop(
+                    app.clone(),
+                    session_id.clone(),
+                    emit_turn_id.clone(),
+                    seq_base,
+                    event_rx,
+                    ask_user_query_rx,
+                    handle,
+                    confirm_txs_clone,
+                    ask_user_txs_clone,
+                    cancel_tokens_clone,
+                    pending_confirmations_clone,
+                    sleep_guard_clone,
+                )
+                .await;
             });
         });
 
