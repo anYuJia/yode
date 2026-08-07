@@ -42,10 +42,22 @@ type XtermHandle = {
   terminal: Terminal;
   fitAddon: FitAddon;
   opened: boolean;
+  openedHost?: HTMLDivElement | null;
   backendOpened: boolean;
   dataDisposable?: { dispose: () => void };
   selectionDisposable?: { dispose: () => void };
 };
+
+function disposeHandle(handle: XtermHandle, key: string, xtermsRef: React.MutableRefObject<Record<string, XtermHandle>>) {
+  handle.dataDisposable?.dispose();
+  handle.selectionDisposable?.dispose();
+  try {
+    handle.terminal.dispose();
+  } catch {
+    // dispose 在实例已损坏时可能抛错，不影响清理流程
+  }
+  delete xtermsRef.current[key];
+}
 
 function makeId(prefix: string) {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -137,6 +149,9 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
   const terminalHostsRef = useRef<Record<string, HTMLDivElement | null>>({});
   const xtermsRef = useRef<Record<string, XtermHandle>>({});
   const unlistenersRef = useRef<UnlistenFn[]>([]);
+  const fitFrameRef = useRef<number | null>(null);
+  const previousSessionKeyRef = useRef(sessionKey);
+  const drawerRef = useRef<HTMLDivElement | null>(null);
   const isTauri = "__TAURI_INTERNALS__" in window;
 
   useEffect(() => {
@@ -249,6 +264,16 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
     }
   };
 
+  // 节流版 fit：同一帧内的多次触发（窗口缩放、字体变化、会话切换）只执行一次
+  const fitAndResizeThrottled = (tab: TerminalTab | null | undefined) => {
+    if (!tab) return;
+    if (fitFrameRef.current !== null) return;
+    fitFrameRef.current = window.requestAnimationFrame(() => {
+      fitFrameRef.current = null;
+      fitAndResize(tab);
+    });
+  };
+
   const openBackend = (tab: TerminalTab) => {
     const key = backendSessionId(sessionKey, tab.id);
     const handle = ensureXterm(tab);
@@ -272,6 +297,34 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
     });
   };
 
+  // 切换会话时：关闭旧会话的所有 xterm 实例与 PTY，避免子进程泄漏与无用 IO
+  useEffect(() => {
+    const previous = previousSessionKeyRef.current;
+    previousSessionKeyRef.current = sessionKey;
+    if (previous === sessionKey) return;
+    for (const [key, handle] of Object.entries(xtermsRef.current)) {
+      if (!key.startsWith(`${previous}::`)) continue;
+      disposeHandle(handle, key, xtermsRef);
+      terminalHostsRef.current[key] = null;
+      if (isTauri) {
+        void invoke("terminal_close", { sessionId: key }).catch(() => {});
+      }
+    }
+  }, [sessionKey, isTauri]);
+
+  // 隐藏终端不得进入 Tab 顺序
+  useEffect(() => {
+    const el = drawerRef.current;
+    if (!el) return;
+    if (isOpen) {
+      el.removeAttribute("inert");
+      el.removeAttribute("aria-hidden");
+    } else {
+      el.setAttribute("inert", "");
+      el.setAttribute("aria-hidden", "true");
+    }
+  }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen) return;
     const aliveKeys = new Set(tabs.map((tab) => backendSessionId(sessionKey, tab.id)));
@@ -282,6 +335,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
       if (host && !handle.opened) {
         handle.terminal.open(host);
         handle.opened = true;
+        handle.openedHost = host;
         window.setTimeout(() => {
           fitAndResize(tab);
           openBackend(tab);
@@ -296,10 +350,8 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
 
     for (const [key, handle] of Object.entries(xtermsRef.current)) {
       if (key.startsWith(`${sessionKey}::`) && !aliveKeys.has(key)) {
-        handle.dataDisposable?.dispose();
-        handle.selectionDisposable?.dispose();
-        handle.terminal.dispose();
-        delete xtermsRef.current[key];
+        disposeHandle(handle, key, xtermsRef);
+        terminalHostsRef.current[key] = null;
       }
     }
   }, [tabs, sessionKey, isTauri, isOpen]);
@@ -340,29 +392,36 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
   useEffect(() => {
     return () => {
       for (const [key, handle] of Object.entries(xtermsRef.current)) {
-        handle.dataDisposable?.dispose();
-        handle.selectionDisposable?.dispose();
-        handle.terminal.dispose();
+        disposeHandle(handle, key, xtermsRef);
         if (isTauri) {
           void invoke("terminal_close", { sessionId: key }).catch(() => {});
         }
       }
       xtermsRef.current = {};
       terminalHostsRef.current = {};
+      if (fitFrameRef.current !== null) {
+        window.cancelAnimationFrame(fitFrameRef.current);
+        fitFrameRef.current = null;
+      }
     };
   }, [isTauri]);
 
   useEffect(() => {
     if (!isOpen || !activeTab) return;
-    setTimeout(() => {
-      fitAndResize(activeTab);
-      xtermsRef.current[backendSessionId(sessionKey, activeTab.id)]?.terminal.focus();
+    const timer = setTimeout(() => {
+      fitAndResizeThrottled(activeTab);
+      try {
+        xtermsRef.current[backendSessionId(sessionKey, activeTab.id)]?.terminal.focus();
+      } catch {
+        // 实例可能在等待期间被切换会话清理
+      }
     }, 230);
+    return () => clearTimeout(timer);
   }, [isOpen, activeTabId, sessionKey]);
 
   useEffect(() => {
     const handleResize = () => {
-      if (isOpen && activeTab) fitAndResize(activeTab);
+      if (isOpen) fitAndResizeThrottled(activeTab);
     };
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
@@ -383,7 +442,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
         const tabId = key.slice(key.indexOf("::") + 2);
         const tab = tabs.find((item) => item.id === tabId);
         if (tab) {
-          window.setTimeout(() => fitAndResize(tab), 0);
+          fitAndResizeThrottled(tab);
         }
       }
     };
@@ -448,10 +507,10 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
     }
 
     const handle = xtermsRef.current[key];
-    handle?.dataDisposable?.dispose();
-    handle?.selectionDisposable?.dispose();
-    handle?.terminal.dispose();
-    delete xtermsRef.current[key];
+    if (handle) {
+      disposeHandle(handle, key, xtermsRef);
+      terminalHostsRef.current[key] = null;
+    }
     try {
       await invoke("terminal_close", { sessionId: key });
     } catch {
@@ -472,6 +531,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
     <div
       className={`terminal-drawer ${isOpen ? "open" : ""}`}
       style={{ "--terminal-height": `${height}px` } as React.CSSProperties}
+      ref={drawerRef}
     >
       <div
         className="pane-resizer terminal-resizer"
@@ -543,6 +603,15 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
               onPointerUp={() => clearEmptySelection(tab.id)}
               onPointerCancel={() => clearEmptySelection(tab.id)}
               ref={(node) => {
+                // host 元素重新挂载（如切换会话后返回）时旧 xterm 实例已失去 DOM，
+                // 重建实例让 open effect 重新调用 terminal.open(host)
+                const previous = terminalHostsRef.current[key];
+                if (node && previous && previous !== node) {
+                  const stale = xtermsRef.current[key];
+                  if (stale) {
+                    disposeHandle(stale, key, xtermsRef);
+                  }
+                }
                 terminalHostsRef.current[key] = node;
               }}
             />

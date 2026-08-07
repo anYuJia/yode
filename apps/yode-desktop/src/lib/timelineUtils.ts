@@ -247,7 +247,58 @@ export function groupEditSummaryItems(items: TimelineItem[]): TimelineItem[] {
   return next;
 }
 
-export function compileInlineItems(items: TimelineItem[], isTurnActive?: boolean, appLang = "zh"): TimelineItem[] {
+// ─── compileInlineItems 按 turn 缓存 ────────────────────────────────────────
+// 流式输出时只有活动 turn 的条目变化；历史 turn 的输入对象引用稳定，
+// 缓存其编译结果（结构共享）可让 React.memo 跳过历史节点重渲染。
+const COMPILE_CACHE_MAX = 24;
+const compileCache = new Map<string, TimelineItem[]>();
+
+function compileFingerprint(items: TimelineItem[], isTurnActive: boolean, appLang: string) {
+  let fingerprint = `${isTurnActive ? "1" : "0"}:${appLang}`;
+  for (const item of items) {
+    const body = "body" in item ? item.body.length : 0;
+    const result = "result" in item && item.result ? item.result.length : 0;
+    const status = "status" in item ? item.status : "";
+    const meta = "meta" in item ? item.meta || "" : "";
+    let metadataLength = 0;
+    if ("metadata" in item && item.metadata != null) {
+      metadataLength = JSON.stringify(item.metadata).length;
+    }
+    fingerprint += `|${item.id}:${item.kind}:${body}:${result}:${status}:${meta}:${metadataLength}`;
+  }
+  return fingerprint;
+}
+
+function compileInlineItemsCached(
+  items: TimelineItem[],
+  isTurnActive?: boolean,
+  appLang = "zh"
+): TimelineItem[] {
+  const key = compileFingerprint(items, Boolean(isTurnActive), appLang);
+  const cached = compileCache.get(key);
+  if (cached) return cached;
+  const compiled = compileInlineItemsUncached(items, isTurnActive, appLang);
+  if (compileCache.size >= COMPILE_CACHE_MAX) {
+    const oldest = compileCache.keys().next().value;
+    if (oldest !== undefined) compileCache.delete(oldest);
+  }
+  compileCache.set(key, compiled);
+  return compiled;
+}
+
+export function compileInlineItems(
+  items: TimelineItem[],
+  isTurnActive?: boolean,
+  appLang = "zh"
+): TimelineItem[] {
+  return compileInlineItemsCached(items, isTurnActive, appLang);
+}
+
+function compileInlineItemsUncached(
+  items: TimelineItem[],
+  isTurnActive?: boolean,
+  appLang = "zh"
+): TimelineItem[] {
   const result: TimelineItem[] = [];
   let buffer: Array<Extract<TimelineItem, { kind: "tool" }>> = [];
   const visibleActionNarrativeIndexes = new Set<number>();

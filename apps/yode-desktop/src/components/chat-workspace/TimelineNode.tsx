@@ -8,7 +8,7 @@ import { MarkdownContent } from "./MarkdownContent";
 import { ReasoningNode } from "./ReasoningNode";
 import { ErrorNode } from "./ErrorNode";
 
-export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineItem; appLang: string; isTurnActive?: boolean }) {
+export const TimelineNode = React.memo(function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineItem; appLang: string; isTurnActive?: boolean }) {
   if (item.kind === "boundary" && item.id.startsWith("cancel-")) {
     return (
       <div
@@ -134,7 +134,7 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
           paddingLeft: "33px",
         }}
       >
-        <MarkdownContent text={item.body} variant="process" />
+        <MarkdownContent text={item.body} variant="process" appLang={appLang} />
       </div>
     );
   }
@@ -154,11 +154,11 @@ export function TimelineNode({ item, appLang, isTurnActive }: { item: TimelineIt
         <div className="node-header">
           <h2>{item.title}</h2>
         </div>
-        <MarkdownContent text={item.body} variant="answer" />
+        <MarkdownContent text={item.body} variant="answer" appLang={appLang} />
       </div>
     </article>
   );
-}
+});
 
 function formatMessageTime(createdAt?: number, fallback?: string) {
   if (typeof createdAt !== "number" || !Number.isFinite(createdAt)) {

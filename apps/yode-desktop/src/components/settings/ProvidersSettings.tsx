@@ -32,6 +32,8 @@ interface ProviderConfigData {
   format: "openai" | "gemini" | "anthropic";
   enabled: boolean;
   apiKey: string;
+  /** 后端是否已配置密钥（真实密钥永不进入 WebView，仅用于显示掩码） */
+  hasApiKey?: boolean;
   baseUrl: string;
   models: string[];
   gradient?: string;
@@ -367,7 +369,8 @@ function normalizeProvider(raw: unknown): ProviderConfigData {
     name: String(rawName || preset?.name || rawId || "自定义提供商"),
     format: rawFormat === "anthropic" || rawFormat === "gemini" ? rawFormat : "openai",
     enabled: typeof provider.enabled === "boolean" ? provider.enabled : true,
-    apiKey: typeof provider.apiKey === "string" ? provider.apiKey : "",
+    apiKey: "",
+    hasApiKey: typeof provider.hasApiKey === "boolean" ? provider.hasApiKey : Boolean(provider.apiKey),
     baseUrl: typeof provider.baseUrl === "string" ? provider.baseUrl : preset?.baseUrl || "",
     models: Array.isArray(provider.models) ? provider.models.map(String) : preset?.models || [],
     gradient: typeof provider.gradient === "string" ? provider.gradient : preset?.gradient || "linear-gradient(135deg, #707782 0%, #4B525B 100%)",
@@ -537,7 +540,8 @@ export function ProvidersSettings({
     setFormName(provider.name);
     setFormFormat(provider.format);
     setFormBaseUrl(provider.baseUrl);
-    setFormApiKey(provider.apiKey);
+    // 真实密钥不会进入 WebView：已有密钥时输入框留空表示“保持原密钥”
+    setFormApiKey("");
     setFormModels([...provider.models]);
     setNewModelInput("");
     setVisibleKey(false);
@@ -599,7 +603,11 @@ export function ProvidersSettings({
       setCheckMessage(t("先填写接口地址。", "Enter the API base URL first."));
       return;
     }
-    if (!next.apiKey.trim() && next.id !== "ollama") {
+    // 编辑已有密钥的 provider 时，留空表示“使用已配置密钥”
+    const hasStoredKey = modalMode === "edit" && editingId != null
+      ? providers.find((p) => p.id === editingId)?.hasApiKey
+      : false;
+    if (!next.apiKey.trim() && next.id !== "ollama" && !hasStoredKey) {
       setCheckState("error");
       setCheckMessage(t("先填写 API Key，或改用本地 Ollama。", "Enter an API key, or use local Ollama."));
       return;
@@ -872,12 +880,22 @@ export function ProvidersSettings({
                     type={visibleKey ? "text" : "password"}
                     value={formApiKey}
                     onChange={(event) => setFormApiKey(event.target.value)}
-                    placeholder={t("留空则使用环境变量", "Leave blank to use environment variables")}
+                    placeholder={
+                      modalMode === "edit" &&
+                      providers.find((p) => p.id === editingId)?.hasApiKey
+                        ? t("已配置密钥，留空保持不变", "Key already set; leave blank to keep it")
+                        : t("留空则使用环境变量", "Leave blank to use environment variables")
+                    }
                   />
                   <button type="button" onClick={() => setVisibleKey(!visibleKey)}>
                     {visibleKey ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
+                {modalMode === "edit" && providers.find((p) => p.id === editingId)?.hasApiKey ? (
+                  <em className="form-hint">
+                    {t("当前提供商已配置密钥（出于安全考虑不显示）。输入新值可替换。", "This provider has a key configured (not shown for security). Enter a new value to replace it.")}
+                  </em>
+                ) : null}
               </div>
               <div className="form-group">
                 <span><Bot size={12} />{t("模型", "Models")}</span>

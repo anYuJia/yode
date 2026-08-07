@@ -129,8 +129,16 @@ export function dispatchLanguageChange(appLang: AppLanguage) {
 export function saveAppLanguage(appLang: string) {
   const nextLang = normalizeAppLanguage(appLang);
   localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLang);
+  applyHtmlLang(nextLang);
   dispatchLanguageChange(nextLang);
   return nextLang;
+}
+
+/** 语言切换同步 html[lang]，保证屏幕阅读器与浏览器排版跟随界面语言。 */
+export function applyHtmlLang(appLang: string) {
+  if (typeof document === "undefined") return;
+  const normalized = normalizeAppLanguage(appLang);
+  document.documentElement.setAttribute("lang", normalized === "zh" ? "zh-CN" : "en");
 }
 
 export function dispatchAppearanceChange() {
@@ -276,6 +284,8 @@ export function applyAppearanceSettings(settings: AppearanceSettingsState) {
   );
 
   document.body.classList.toggle("use-pointers", settings.usePointerCursors);
+  // 对比度过滤仅在用户显式调整时启用，避免默认 contrast(1) 带来合成开销
+  document.body.classList.toggle("contrast-adjusted", settings.contrast !== 48);
   document.body.classList.remove("reduce-motion");
   const prefersReducedMotion =
     typeof window !== "undefined" &&

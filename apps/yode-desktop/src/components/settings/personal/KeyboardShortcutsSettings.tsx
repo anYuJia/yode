@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Check, Plus, RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
 import {
   DEFAULT_SHORTCUT_BINDINGS,
+  IMPLEMENTED_SHORTCUT_IDS,
   KEYBOARD_SHORTCUTS_STORAGE_KEY,
   loadShortcutBindings,
   normalizeShortcutLabel,
@@ -171,7 +172,28 @@ export function KeyboardShortcutsSettings({ isZh, t }: { isZh: boolean; t: (zh: 
               }}
             >
               <div style={{ display: "flex", flexDirection: "column", gap: "3px", minWidth: 0 }}>
-                <span style={{ fontWeight: "650", color: "var(--text)" }}>{t(item.cmdZh, item.cmdEn)}</span>
+                <span style={{ fontWeight: "650", color: "var(--text)" }}>
+                  {t(item.cmdZh, item.cmdEn)}
+                  {!IMPLEMENTED_SHORTCUT_IDS.has(item.id) && (
+                    <em
+                      style={{
+                        fontStyle: "normal",
+                        marginLeft: "8px",
+                        fontSize: "10.5px",
+                        color: "var(--text-soft)",
+                        border: "1px solid var(--line-soft)",
+                        borderRadius: "4px",
+                        padding: "1px 6px"
+                      }}
+                      title={t(
+                        "该功能尚未实现，绑定不会生效",
+                        "This action is not implemented yet; the binding will have no effect"
+                      )}
+                    >
+                      {t("尚未实现", "Not implemented")}
+                    </em>
+                  )}
+                </span>
                 <span style={{ fontSize: "11px", color: "var(--text-soft)", lineHeight: 1.35 }}>{t(item.descZh, item.descEn)}</span>
               </div>
 
@@ -250,7 +272,18 @@ export function KeyboardShortcutsSettings({ isZh, t }: { isZh: boolean; t: (zh: 
                   <button
                     type="button"
                     className="secondary-button"
-                    onClick={() => setRecordingId(item.id)}
+                    onClick={() => {
+                      if (!IMPLEMENTED_SHORTCUT_IDS.has(item.id)) {
+                        setStatusText(
+                          t(
+                            "该功能尚未实现，暂不能绑定快捷键。",
+                            "This action is not implemented yet; shortcuts cannot be bound."
+                          )
+                        );
+                        return;
+                      }
+                      setRecordingId(item.id);
+                    }}
                     style={{ width: "100%", maxWidth: "210px", height: "26px", justifyContent: "center", gap: "6px" }}
                   >
                     <Plus size={12} />

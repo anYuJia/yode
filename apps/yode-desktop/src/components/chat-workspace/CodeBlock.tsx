@@ -3,7 +3,39 @@ import { Check, Copy, AlertCircle } from "lucide-react";
 import hljs from "highlight.js/lib/core";
 import { hasCodeBlockContent } from "./codeBlockContent";
 
-export function CodeBlock({ text, lang }: { text: string; lang: string }) {
+// 高亮结果缓存：流式渲染时同一代码块逐帧增长，避免每个 delta 全量 highlight
+const HIGHLIGHT_CACHE_MAX = 64;
+const highlightCache = new Map<string, string>();
+
+function highlightCached(cleanText: string, lang: string): string {
+  const key = `${lang}\u0000${cleanText}`;
+  const cached = highlightCache.get(key);
+  if (cached) return cached;
+  let value: string;
+  try {
+    if (lang && hljs.getLanguage(lang)) {
+      value = hljs.highlight(cleanText, { language: lang, ignoreIllegals: true }).value;
+    } else {
+      value = hljs.highlightAuto(cleanText).value;
+    }
+  } catch (e) {
+    value = cleanText
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
+  }
+  if (highlightCache.size >= HIGHLIGHT_CACHE_MAX) {
+    const oldest = highlightCache.keys().next().value;
+    if (oldest !== undefined) highlightCache.delete(oldest);
+  }
+  highlightCache.set(key, value);
+  return value;
+}
+
+export const CodeBlock = React.memo(function CodeBlock({ text, lang, appLang }: { text: string; lang: string; appLang?: string }) {
+  const isZh = appLang !== "en";
   const [copied, setCopied] = useState(false);
   const shouldRender = hasCodeBlockContent(text);
 
@@ -20,21 +52,7 @@ export function CodeBlock({ text, lang }: { text: string; lang: string }) {
     cleanText = lines.slice(0, truncateIndex).join("\n");
   }
 
-  const highlighted = useMemo(() => {
-    try {
-      if (lang && hljs.getLanguage(lang)) {
-        return hljs.highlight(cleanText, { language: lang, ignoreIllegals: true }).value;
-      }
-      return hljs.highlightAuto(cleanText).value;
-    } catch (e) {
-      return cleanText
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-    }
-  }, [cleanText, lang]);
+  const highlighted = useMemo(() => highlightCached(cleanText, lang), [cleanText, lang]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(cleanText);
@@ -80,7 +98,7 @@ export function CodeBlock({ text, lang }: { text: string; lang: string }) {
           borderRadius: "4px" 
         }}>
           {copied ? <Check size={12} /> : <Copy size={12} />}
-          <span>{copied ? "已复制" : "复制"}</span>
+          <span>          {copied ? (isZh ? "已复制" : "Copied") : (isZh ? "复制" : "Copy")}</span>
         </button>
       </div>
       <pre className="hljs" style={{ 
@@ -114,9 +132,13 @@ export function CodeBlock({ text, lang }: { text: string; lang: string }) {
           gap: "6px" 
         }}>
           <AlertCircle size={13} style={{ color: "var(--warning)" }} />
-          <span>输出已被安全守护截断，可输入“继续”以获取完整内容。</span>
+          <span>
+            {isZh
+              ? "输出已被安全守护截断，可输入“继续”以获取完整内容。"
+              : "Output truncated by the runtime guard. You can ask to continue for the full content."}
+          </span>
         </div>
       )}
     </div>
   );
-}
+});

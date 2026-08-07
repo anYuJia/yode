@@ -24,6 +24,7 @@ export function AskUserActions({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const manualInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const hasOptions = question.options.length > 0;
 
   const handleToggle = (index: number) => {
@@ -54,6 +55,7 @@ export function AskUserActions({
   };
 
   const submitAnswer = (idx?: number) => {
+    if (isSubmitting) return;
     if (!hasOptions) {
       const clean = manualAnswer.trim();
       if (clean) resolveQuestion(clean);
@@ -95,6 +97,10 @@ export function AskUserActions({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
+      const panel = panelRef.current;
+      // 只在焦点位于回复面板内时响应键盘，避免普通输入框/终端/其他控件的
+      // Enter 或空格误触发提交。
+      if (!panel || !panel.contains(target)) return;
       if (target?.closest("textarea, input, [contenteditable=true]")) return;
       if (!hasOptions) return;
       if (e.key === "ArrowUp") {
@@ -114,12 +120,12 @@ export function AskUserActions({
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [selectedIndex, checkedIndices, query, question, hasOptions]);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [selectedIndex, checkedIndices, query, question, hasOptions, isSubmitting]);
 
   return (
-    <div className="ask-user-card" role="dialog" aria-modal="false" aria-labelledby="ask-user-title">
+    <div className="ask-user-card" ref={panelRef} role="dialog" aria-modal="false" aria-labelledby="ask-user-title">
       <div className="ask-user-card-header">
         <div className="ask-user-icon">
           <CircleHelp size={17} />

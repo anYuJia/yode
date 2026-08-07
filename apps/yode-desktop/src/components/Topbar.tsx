@@ -106,7 +106,14 @@ export function Topbar({
           options={providerOptions}
           onChange={onProviderChange}
         />
-        <button className="icon-button" type="button" data-tauri-no-drag title="更多">
+        <button
+          className="icon-button"
+          type="button"
+          data-tauri-no-drag
+          title="更多（功能尚未实现）"
+          disabled
+          aria-disabled="true"
+        >
           <MoreHorizontal size={18} />
         </button>
         <button

@@ -249,6 +249,54 @@ impl Config {
         Ok(config)
     }
 
+    /// 以用户级配置为基础，叠加项目级覆盖层：项目配置只覆盖共享字段，
+    /// 不会导致用户级 provider（含 API key）在项目配置存在时丢失。
+    pub fn load_with_overrides(
+        user_path: Option<&Path>,
+        override_path: Option<&Path>,
+    ) -> Result<Self> {
+        let default_value: toml::Value =
+            toml::from_str(include_str!("../../../config/default.toml"))?;
+        let mut merged = default_value;
+        if let Some(p) = user_path {
+            if p.exists() {
+                let user_value: toml::Value = toml::from_str(&fs::read_to_string(p)?)?;
+                merged = merge_config_values(merged, user_value);
+            }
+        }
+        if let Some(p) = override_path {
+            if p.exists() {
+                let override_value: toml::Value = toml::from_str(&fs::read_to_string(p)?)?;
+                merged = merge_config_values(merged, override_value);
+            }
+        }
+        Ok(merged.try_into()?)
+    }
+
+    /// 异步版：以用户级配置为基础，叠加项目级覆盖层。
+    pub async fn load_with_overrides_async(
+        user_path: Option<&Path>,
+        override_path: Option<&Path>,
+    ) -> Result<Self> {
+        let default_value: toml::Value =
+            toml::from_str(include_str!("../../../config/default.toml"))?;
+        let mut merged = default_value;
+        if let Some(p) = user_path {
+            if tokio::fs::try_exists(p).await? {
+                let user_value: toml::Value = toml::from_str(&tokio::fs::read_to_string(p).await?)?;
+                merged = merge_config_values(merged, user_value);
+            }
+        }
+        if let Some(p) = override_path {
+            if tokio::fs::try_exists(p).await? {
+                let override_value: toml::Value =
+                    toml::from_str(&tokio::fs::read_to_string(p).await?)?;
+                merged = merge_config_values(merged, override_value);
+            }
+        }
+        Ok(merged.try_into()?)
+    }
+
     /// Save config to the default config file path
     pub fn save(&self) -> Result<()> {
         let path = dirs::home_dir()
@@ -287,6 +335,39 @@ impl Config {
         } else {
             PathBuf::from(&self.session.db_path)
         }
+    }
+
+    /// 判断环境变量名是否疑似密钥，用于项目共享配置的脱敏。
+    pub fn is_sensitive_env_key(key: &str) -> bool {
+        let upper = key.to_ascii_uppercase();
+        [
+            "TOKEN",
+            "SECRET",
+            "PASSWORD",
+            "API_KEY",
+            "APIKEY",
+            "CREDENTIAL",
+            "COOKIE",
+            "AUTHORIZATION",
+            "ACCESS_KEY",
+            "PRIVATE_KEY",
+        ]
+        .iter()
+        .any(|needle| upper.contains(needle))
+    }
+
+    /// 生成可安全写入项目共享配置（如 `.yode/config.toml`）的 TOML 文本：
+    /// 剔除所有 provider 的 API key 与疑似密钥的 MCP 环境变量，其余字段完整保留
+    /// （含 MCP 的 auth 配置、普通环境变量与未知结构）。
+    pub fn to_shared_project_toml(&self) -> Result<String> {
+        let mut sanitized = self.clone();
+        for provider in sanitized.llm.providers.values_mut() {
+            provider.api_key = None;
+        }
+        for server in sanitized.mcp.servers.values_mut() {
+            server.env.retain(|key, _| !Self::is_sensitive_env_key(key));
+        }
+        Ok(toml::to_string_pretty(&sanitized)?)
     }
 }
 
@@ -474,5 +555,163 @@ bearer_token_env = "DOCS_TOKEN"
             server.auth.as_ref().unwrap().bearer_token_env.as_deref(),
             Some("DOCS_TOKEN")
         );
+    }
+
+    #[test]
+    fn project_toml_strips_api_keys_and_secret_env() {
+        let config = toml::from_str::<Config>(
+            r#"
+[llm]
+default_provider = "openai"
+default_model = "gpt-4o"
+[llm.providers.openai]
+format = "openai"
+api_key = "sk-secret-12345"
+base_url = "https://api.openai.com/v1"
+models = ["gpt-4o"]
+
+[tools]
+bash_timeout = 30
+require_confirmation = []
+
+[session]
+db_path = "~/.yode/sessions.db"
+
+[ui]
+language = "zh-CN"
+theme = "dark"
+
+[mcp.servers.docs]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-docs"]
+[mcp.servers.docs.env]
+GITHUB_TOKEN = "ghp-secret-token"
+PUBLIC_VAR = "public-value"
+[mcp.servers.docs.auth]
+bearer_token_env = "DOCS_TOKEN"
+"#,
+        )
+        .unwrap();
+
+        let toml_str = config.to_shared_project_toml().unwrap();
+        // API key 与疑似密钥环境变量值不得出现在项目配置中
+        assert!(!toml_str.contains("sk-secret-12345"));
+        assert!(!toml_str.contains("ghp-secret-token"));
+        // 非敏感字段、环境变量与 MCP auth 必须 round-trip 保留
+        assert!(toml_str.contains("PUBLIC_VAR"));
+        assert!(toml_str.contains("public-value"));
+        assert!(toml_str.contains("bearer_token_env"));
+        assert!(toml_str.contains("DOCS_TOKEN"));
+        assert!(toml_str.contains("https://api.openai.com/v1"));
+        // 用户配置保存仍包含完整内容（api_key 只对项目共享配置脱敏）
+        let full = toml::to_string_pretty(&config).unwrap();
+        assert!(full.contains("sk-secret-12345"));
+    }
+
+    #[test]
+    fn load_with_overrides_merges_user_then_project() {
+        let dir = std::env::temp_dir().join(format!("yode-config-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let user = dir.join("user.toml");
+        let project = dir.join("project.toml");
+        std::fs::write(
+            &user,
+            r#"
+[llm]
+default_provider = "openai"
+default_model = "gpt-4o"
+[llm.providers.openai]
+format = "openai"
+api_key = "sk-user-key"
+
+[tools]
+bash_timeout = 30
+require_confirmation = ["bash"]
+
+[session]
+db_path = ""
+[ui]
+language = "zh-CN"
+theme = "dark"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            &project,
+            r#"
+[tools]
+bash_timeout = 90
+"#,
+        )
+        .unwrap();
+
+        let config = Config::load_with_overrides(Some(&user), Some(&project)).unwrap();
+        assert_eq!(config.tools.bash_timeout, 90);
+        assert_eq!(
+            config
+                .llm
+                .providers
+                .get("openai")
+                .and_then(|p| p.api_key.as_deref()),
+            Some("sk-user-key")
+        );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn load_with_overrides_async_preserves_user_provider_when_project_config_exists() {
+        // 集成场景：桌面端在项目配置存在时也必须加载用户配置（provider/API key 不丢失）
+        let dir =
+            std::env::temp_dir().join(format!("yode-config-async-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let user = dir.join("user.toml");
+        let project = dir.join("project.toml");
+        std::fs::write(
+            &user,
+            r#"
+[llm]
+default_provider = "anthropic"
+default_model = "claude-sonnet"
+[llm.providers.anthropic]
+format = "anthropic"
+api_key = "sk-ant-user-secret"
+
+[tools]
+bash_timeout = 60
+require_confirmation = ["bash"]
+
+[session]
+db_path = ""
+[ui]
+language = "zh-CN"
+theme = "dark"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            &project,
+            r#"
+[tools]
+bash_timeout = 120
+"#,
+        )
+        .unwrap();
+
+        let config = Config::load_with_overrides_async(Some(&user), Some(&project))
+            .await
+            .unwrap();
+        // 项目覆盖生效
+        assert_eq!(config.tools.bash_timeout, 120);
+        // 用户 provider 与密钥保留
+        assert_eq!(config.llm.default_provider, "anthropic");
+        assert_eq!(
+            config
+                .llm
+                .providers
+                .get("anthropic")
+                .and_then(|p| p.api_key.as_deref()),
+            Some("sk-ant-user-secret")
+        );
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

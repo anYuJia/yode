@@ -101,13 +101,10 @@
         root.style.setProperty("--line-soft", lineSoftColor);
         root.style.setProperty("--accent-muted", accentMuted);
 
-        // Sidebar translucent
-        const val = localStorage.getItem("yode-translucent-sidebar");
-        const isTranslucent = val === null ? true : val === "true";
-        if (isTranslucent) {
-          root.classList.remove("translucent-sidebar-disabled");
-        } else {
-          root.classList.add("translucent-sidebar-disabled");
+        // Sidebar translucent（运行时由 applyTranslucentSidebarSetting 在 .app-shell 上维护）
+        // 对比度过滤：默认值不启用，避免 filter 层副作用
+        if (localStorage.getItem("yode-contrast") !== "48") {
+          document.body.classList.add("contrast-adjusted");
         }
       })();
     </script>

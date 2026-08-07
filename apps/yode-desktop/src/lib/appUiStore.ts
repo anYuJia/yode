@@ -82,14 +82,14 @@ type AppUiState = {
   setAppLang: (lang: string) => void;
   setBootstrap: (bootstrap: StateUpdater<Bootstrap>) => void;
   setComposerImages: (images: StateUpdater<ImageAttachment[]>) => void;
-  setCurrentTurnId: (turnId: string | null) => void;
+  setCurrentTurnId: (turnId: StateUpdater<string | null>) => void;
   setDraft: (draft: string) => void;
   setDraggingPane: (pane: PaneKind | null) => void;
   setInspectorOpen: (open: boolean) => void;
   setInspectorWidth: (width: number) => void;
   setIsProcessing: (isProcessing: boolean) => void;
   setMessageQueue: (queue: StateUpdater<QueuedComposerMessage[]>) => void;
-  setPendingUserQuestion: (question: PendingUserQuestion | null) => void;
+  setPendingUserQuestion: (question: StateUpdater<PendingUserQuestion | null>) => void;
   setPermissionMode: (mode: string) => void;
   setProjectOrder: (order: StateUpdater<string[]>) => void;
   setProjectRoots: (roots: StateUpdater<string[]>) => void;
@@ -181,12 +181,17 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     const composerImages = resolveUpdater(updater, get().composerImages);
     set({ composerImages });
   },
-  setCurrentTurnId: (currentTurnId) => set({ currentTurnId }),
+  setCurrentTurnId: (currentTurnId) =>
+    set({ currentTurnId: resolveUpdater(currentTurnId, get().currentTurnId) }),
   setDraft: (draft) => set({ draft }),
   setDraggingPane: (draggingPane) => set({ draggingPane }),
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   setInspectorWidth: (inspectorWidth) => {
-    localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
+    // 拖动过程中不写 localStorage（由 pointerup 时一次性落盘），
+    // 避免每个 pointermove 都同步写盘
+    if (!get().draggingPane) {
+      localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
+    }
     set({ inspectorWidth });
   },
   setIsProcessing: (isProcessing) => set({ isProcessing }),
@@ -194,7 +199,8 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     const messageQueue = resolveUpdater(updater, get().messageQueue);
     set({ messageQueue });
   },
-  setPendingUserQuestion: (pendingUserQuestion) => set({ pendingUserQuestion }),
+  setPendingUserQuestion: (pendingUserQuestion) =>
+    set({ pendingUserQuestion: resolveUpdater(pendingUserQuestion, get().pendingUserQuestion) }),
   setPermissionMode: (permissionMode) => set({ permissionMode }),
   setProjectOrder: (updater) => {
     const projectOrder = resolveUpdater(updater, get().projectOrder);
@@ -226,11 +232,15 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   },
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   setSidebarWidth: (sidebarWidth) => {
-    localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+    if (!get().draggingPane) {
+      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+    }
     set({ sidebarWidth });
   },
   setTerminalHeight: (terminalHeight) => {
-    localStorage.setItem(TERMINAL_HEIGHT_STORAGE_KEY, String(terminalHeight));
+    if (!get().draggingPane) {
+      localStorage.setItem(TERMINAL_HEIGHT_STORAGE_KEY, String(terminalHeight));
+    }
     set({ terminalHeight });
   },
   setTerminalOpenForConversation: (conversationKey, open) => set((state) => ({

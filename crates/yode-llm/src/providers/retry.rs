@@ -26,7 +26,7 @@ pub(crate) async fn send_with_retry(
             Ok(response) => return Ok(response),
             Err(err) if is_retryable_reqwest_error(&err) && attempt < MAX_HTTP_RETRIES => {
                 tracing::warn!(
-                    error = %err,
+                    error = %redact_url_credentials(&err.to_string()),
                     attempt = attempt + 1,
                     max_attempts = MAX_HTTP_RETRIES + 1,
                     "Retrying provider HTTP request after transport error"
@@ -34,13 +34,54 @@ pub(crate) async fn send_with_retry(
                 last_error = Some(err);
                 tokio::time::sleep(retry_delay(attempt)).await;
             }
-            Err(err) => return Err(err).with_context(|| context),
+            Err(err) => {
+                // reqwest 传输错误 Display 会包含完整请求 URL；
+                // Gemini 等提供商把 API key 拼进 URL，必须脱敏后才可进入日志或错误文本
+                return Err(anyhow::anyhow!(
+                    "{}",
+                    redact_url_credentials(&err.to_string())
+                ))
+                .with_context(|| context);
+            }
         }
     }
     Err(last_error
-        .map(anyhow::Error::from)
+        .map(|err| anyhow::anyhow!("{}", redact_url_credentials(&err.to_string())))
         .unwrap_or_else(|| anyhow::anyhow!("provider HTTP request exhausted retries")))
     .with_context(|| context)
+}
+
+/// 剔除文本中的 URL query 密钥参数（key=xxx、api_key=xxx、token=xxx、access_token=xxx），
+/// 防止 API key 进入日志或错误信息。
+pub(crate) fn redact_url_credentials(text: &str) -> String {
+    let mut redacted = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(qpos) = rest.find('?') {
+        redacted.push_str(&rest[..=qpos]);
+        rest = &rest[qpos + 1..];
+        let Some(amp) = rest.find('&').or_else(|| rest.find(' ')) else {
+            // 剩余内容都是 query 段
+            let cleaned = redact_query_pairs(rest);
+            redacted.push_str(&cleaned);
+            return redacted;
+        };
+        let pair = &rest[..amp];
+        let cleaned = redact_query_pairs(pair);
+        redacted.push_str(&cleaned);
+        rest = &rest[amp..];
+    }
+    redacted.push_str(rest);
+    redacted
+}
+
+fn redact_query_pairs(pair: &str) -> String {
+    let lower = pair.to_ascii_lowercase();
+    for needle in ["key=", "api_key=", "token=", "access_token=", "apikey="] {
+        if lower.starts_with(needle) {
+            return format!("{}REDACTED", &pair[..needle.len()]);
+        }
+    }
+    pair.to_string()
 }
 
 pub(crate) fn is_retryable_status(status: StatusCode) -> bool {
@@ -63,7 +104,7 @@ fn retry_delay(attempt: u32) -> Duration {
 mod tests {
     use reqwest::StatusCode;
 
-    use super::is_retryable_status;
+    use super::{is_retryable_status, redact_url_credentials};
 
     #[test]
     fn retry_status_policy_matches_provider_contract() {
@@ -73,5 +114,30 @@ mod tests {
         assert!(!is_retryable_status(StatusCode::UNAUTHORIZED));
         assert!(!is_retryable_status(StatusCode::FORBIDDEN));
         assert!(!is_retryable_status(StatusCode::NOT_FOUND));
+    }
+
+    #[test]
+    fn redacts_key_params_from_error_text() {
+        let message =
+            "error sending request for url (https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=sk-super-secret-123)";
+        let redacted = redact_url_credentials(message);
+        assert!(!redacted.contains("sk-super-secret-123"));
+        assert!(redacted.contains("key=REDACTED"));
+        assert!(redacted.contains("gemini-2.5-pro"));
+    }
+
+    #[test]
+    fn redacts_multiple_query_params_and_keeps_rest() {
+        let message = "connect failed for https://host/m?key=secret-key&alt=sse more context";
+        let redacted = redact_url_credentials(message);
+        assert!(!redacted.contains("secret-key"));
+        assert!(redacted.contains("alt=sse"));
+        assert!(redacted.contains("more context"));
+    }
+
+    #[test]
+    fn redacts_text_without_query_unchanged() {
+        let message = "connection timed out";
+        assert_eq!(redact_url_credentials(message), message);
     }
 }

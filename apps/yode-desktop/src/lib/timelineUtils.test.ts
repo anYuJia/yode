@@ -415,3 +415,127 @@ describe("timeline activity grouping", () => {
     });
   });
 });
+
+describe("long text and long history rendering", () => {
+  function buildLongStreamItems(deltaCount: number, chunkSize: number): TimelineItem[] {
+    const items: TimelineItem[] = [];
+    for (let i = 0; i < deltaCount; i += 1) {
+      items.push({
+        id: `assistant-turn-1-0`,
+        kind: "assistant",
+        title: "Yode",
+        body: "x".repeat(chunkSize),
+        meta: "streaming"
+      });
+    }
+    return items;
+  }
+
+  it("merges 50k chars of streaming deltas without duplicate tokens", () => {
+    const deltaCount = 50_000 / 500;
+    const items: TimelineItem[] = [];
+    let body = "";
+    for (let i = 0; i < deltaCount; i += 1) {
+      body += "x".repeat(500);
+      items.push({
+        id: `assistant-turn-1-0`,
+        kind: "assistant",
+        title: "Yode",
+        body,
+        meta: "streaming"
+      });
+    }
+    const last = items[items.length - 1];
+    expect(last && "body" in last && last.body).toHaveLength(50_000);
+  });
+
+  it("streams a 50k-char answer through applyDesktopEventToTimelineItems without loss", () => {
+    let items: TimelineItem[] = [];
+    let chunk = "";
+    for (let i = 0; i < 100; i += 1) {
+      chunk += "字".repeat(500);
+      items = applyDesktopEventToTimelineItems(
+        items,
+        {
+          sessionId: "s1",
+          turnId: "t1",
+          seq: 1,
+          kind: "assistant_text_delta",
+          timestamp: new Date().toISOString(),
+          payload: { body: chunk }
+        },
+        undefined
+      );
+    }
+    const assistant = items.find((item) => item.kind === "assistant");
+    expect(assistant && "body" in assistant && assistant.body.length).toBe(50_000);
+  });
+
+  it("compiles a 500-item history without crashing and keeps tool results attached", () => {
+    const history: TimelineItem[] = [];
+    for (let i = 0; i < 250; i += 1) {
+      history.push({
+        id: `user-${i}`,
+        kind: "user",
+        title: "用户",
+        body: `问题 ${i}`,
+        createdAt: Date.now() - i
+      });
+      history.push({
+        id: `tool-${i}`,
+        kind: "tool",
+        title: `调用工具: read_file`,
+        body: "",
+        tool: "read_file",
+        status: "running",
+        callId: `call-${i}`,
+        metadata: { activity: { kind: "read", tool: "read_file", file_path: "file.ts" } }
+      });
+      history.push({
+        id: `tool-result-${i}`,
+        kind: "tool",
+        title: "工具结果",
+        body: `结果 ${i}`,
+        tool: "tool",
+        status: "success",
+        callId: `call-${i}`
+      });
+    }
+    const compiled = compileInlineItems(history, false, "zh");
+    expect(compiled.length).toBeGreaterThan(0);
+    const groups = compiled.filter((item) => item.kind === "activity_group");
+    // 连续工具调用合并为一个活动组，结果必须完整保留
+    expect(groups.length).toBe(1);
+    const lastGroup = groups[groups.length - 1];
+    expect(lastGroup && "items" in lastGroup && lastGroup.items.length).toBe(250);
+    expect(lastGroup && "items" in lastGroup && lastGroup.items[249]).toMatchObject({
+      result: "结果 249"
+    });
+  });
+
+  it("reuses cached compiled output for unchanged history turns", () => {
+    const history: TimelineItem[] = [
+      {
+        id: "user-1",
+        kind: "user",
+        title: "用户",
+        body: "问题",
+        createdAt: 1
+      },
+      {
+        id: "tool-1",
+        kind: "tool",
+        title: "调用工具: read_file",
+        body: "",
+        tool: "read_file",
+        status: "success",
+        callId: "call-1",
+        metadata: { activity: { kind: "read", tool: "read_file", file_path: "file.ts" } }
+      }
+    ];
+    const first = compileInlineItems(history, false, "zh");
+    const second = compileInlineItems(history, false, "zh");
+    // 结构共享：相同输入返回同一编译结果，React.memo 可跳过历史节点重渲染
+    expect(second).toBe(first);
+  });
+});

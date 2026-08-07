@@ -1,4 +1,4 @@
-use std::sync::atomic::Ordering;
+use std::collections::HashSet;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -54,11 +54,16 @@ impl DesktopRuntime {
         }
 
         let now = Utc::now();
-        let session = if let Some(session_id) = request
+        let (session, turn_slot) = if let Some(session_id) = request
             .session_id
             .as_deref()
             .filter(|id| !id.trim().is_empty())
         {
+            // 同一会话禁止并发 turn：原子地检查并占用 in-flight 槽位
+            // （同一把锁内完成检查+插入，两个并发请求不可能同时通过）。
+            // 槽位一直保持到 turn 事件循环 quiesce 之后才释放，
+            // 取消请求期间新 turn 一律被拒绝，杜绝旧工具与新 turn 并发。
+            let slot = SessionTurnSlot::acquire(&self.active_sessions, session_id)?;
             let mut s = self
                 .db
                 .get_session(session_id)?
@@ -81,7 +86,7 @@ impl DesktopRuntime {
                 self.normalize_session_llm(&mut s, &config);
                 self.db.update_session_llm(&s.id, &s.provider, &s.model)?;
             }
-            s
+            (s, Some(slot))
         } else {
             let (default_provider, default_model) = self.default_llm_for_new_session(&config)?;
             let session = Session {
@@ -106,7 +111,10 @@ impl DesktopRuntime {
             let mut session = session;
             self.normalize_session_llm(&mut session, &config);
             self.db.create_session(&session)?;
-            session
+            // 新会话首轮同样占用 in-flight 占位：首轮取消后、旧引擎 quiesce 期间，
+            // 新 turn 必须被拒绝（uuid 天然唯一，acquire 必成功）
+            let slot = SessionTurnSlot::acquire(&self.active_sessions, &session.id)?;
+            (session, Some(slot))
         };
 
         self.set_active_session(session.id.clone())?;
@@ -116,7 +124,8 @@ impl DesktopRuntime {
         let turn_id = Uuid::new_v4().to_string();
         let session_id = session.id.clone();
         let emit_turn_id = turn_id.clone();
-        let seq_base = self.seq.fetch_add(100, Ordering::SeqCst);
+        // seq 从 0 开始，在每个 turn 内严格单调递增（不使用跨 turn 的固定编号区间）
+        let seq_base = 0;
 
         let provider = self
             .provider_registry
@@ -190,6 +199,8 @@ impl DesktopRuntime {
                 cancel_token.clone(),
             );
         }
+        // 事件循环需要在取消时观察 token，需要额外一份 clone
+        let loop_cancel_token = cancel_token.clone();
         let should_prevent_sleep = self
             .general_settings
             .lock()
@@ -204,12 +215,25 @@ impl DesktopRuntime {
         let cancel_tokens_clone = self.cancel_tokens.clone();
         let pending_confirmations_clone = self.pending_confirmations.clone();
         let sleep_guard_clone = self.sleep_guard.clone();
+        // 占位槽位在 turn 事件循环 quiesce 后释放；此处先解除 Drop 清理，
+        // 避免 spawn 后局部 guard 提前释放导致并发保护失效
+        if let Some(mut slot) = turn_slot {
+            slot.disarm();
+        }
+        let active_sessions_clone = self.active_sessions.clone();
 
         std::thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,
                 Err(err) => {
                     tracing::error!("Failed to create tokio runtime: {}", err);
+                    // 线程启动失败：释放占位与 token，避免会话被永久判定为运行中
+                    release_turn_occupancy(
+                        &active_sessions_clone,
+                        &cancel_tokens_clone,
+                        &session_id,
+                        &emit_turn_id,
+                    );
                     return;
                 }
             };
@@ -229,6 +253,13 @@ impl DesktopRuntime {
                             payload: json!({ "body": err.to_string() }),
                         };
                         emit_desktop_event(&app, desktop_event);
+                        // 后台启动失败：释放占位与 token，避免会话被永久判定为运行中
+                        release_turn_occupancy(
+                            &active_sessions_clone,
+                            &cancel_tokens_clone,
+                            &session_id,
+                            &emit_turn_id,
+                        );
                         return;
                     }
                 };
@@ -281,6 +312,8 @@ impl DesktopRuntime {
                     cancel_tokens_clone,
                     pending_confirmations_clone,
                     sleep_guard_clone,
+                    loop_cancel_token,
+                    active_sessions_clone,
                 )
                 .await;
             });
@@ -374,14 +407,98 @@ impl DesktopRuntime {
     }
 
     pub fn turn_cancel(&self, session_id: String, turn_id: String) -> Result<()> {
-        let mut tokens = self
+        let tokens = self
             .cancel_tokens
             .lock()
             .map_err(|_| anyhow::anyhow!("poisoned"))?;
-        if let Some(token) = tokens.remove(&(session_id, turn_id)) {
-            let token: tokio_util::sync::CancellationToken = token;
-            token.cancel();
+        // 只触发取消，不删除 token：token 与 in-flight 占位由 turn 事件循环
+        // 在 quiesce 后统一释放，取消请求期间新 turn 仍会被拒绝
+        if let Some(token) = tokens.get(&(session_id, turn_id)) {
+            token.clone().cancel();
         }
         Ok(())
+    }
+
+    /// 取消入口：先发出 cancelling 事件，由 turn 事件循环在引擎停止后
+    /// 发出 cancelled 终态（Cancelling → 后端确认停止 → Cancelled）。
+    pub fn turn_cancel_request(
+        &self,
+        app: AppHandle,
+        session_id: String,
+        turn_id: String,
+    ) -> Result<()> {
+        emit_desktop_event(
+            &app,
+            DesktopEvent {
+                session_id: session_id.clone(),
+                turn_id: turn_id.clone(),
+                seq: 0,
+                kind: "cancelling".to_string(),
+                timestamp: Utc::now().to_rfc3339(),
+                payload: json!({ "title": "正在取消", "body": "正在停止本轮运行。" }),
+            },
+        );
+        self.turn_cancel(session_id, turn_id)
+    }
+}
+
+/// 每会话 in-flight 占位：原子检查+占用（同一把锁内完成检查与插入，
+/// 两个并发请求不可能同时通过）。
+/// Drop 时若未 disarm 会自动释放（失败路径兜底）；
+/// 成功路径调用 disarm() 后由 turn 事件循环在 quiesce 后释放。
+#[derive(Debug)]
+pub(super) struct SessionTurnSlot {
+    active: std::sync::Arc<std::sync::Mutex<HashSet<String>>>,
+    session_id: String,
+    armed: bool,
+}
+
+impl SessionTurnSlot {
+    pub(super) fn acquire(
+        active: &std::sync::Arc<std::sync::Mutex<HashSet<String>>>,
+        session_id: &str,
+    ) -> anyhow::Result<Self> {
+        let mut set = active
+            .lock()
+            .map_err(|_| anyhow::anyhow!("active session lock poisoned"))?;
+        if !set.insert(session_id.to_string()) {
+            anyhow::bail!("该会话已有进行中的任务，请等待完成或取消后再发送。");
+        }
+        Ok(Self {
+            active: active.clone(),
+            session_id: session_id.to_string(),
+            armed: true,
+        })
+    }
+
+    pub(super) fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for SessionTurnSlot {
+    fn drop(&mut self) {
+        if self.armed {
+            if let Ok(mut set) = self.active.lock() {
+                set.remove(&self.session_id);
+            }
+        }
+    }
+}
+
+/// 释放 turn 的 in-flight 占位与 cancel token（幂等）。
+/// 由 turn 事件循环收尾、以及后台线程启动失败路径共用，
+/// 保证任何路径都不会让会话被永久判定为运行中。
+pub(super) fn release_turn_occupancy(
+    active_sessions: &std::sync::Arc<std::sync::Mutex<HashSet<String>>>,
+    cancel_tokens: &super::turn_loop::CancelTokenMap,
+    session_id: &str,
+    turn_id: &str,
+) {
+    if let Ok(mut active) = active_sessions.lock() {
+        active.remove(session_id);
+    }
+    if let Ok(mut tokens) = cancel_tokens.lock() {
+        tokens.remove(&(session_id.to_string(), turn_id.to_string()));
     }
 }

@@ -25,6 +25,9 @@ pub(crate) struct NoninteractiveChatRun<'a> {
     pub(crate) config: &'a Config,
     pub(crate) mcp_clients: Vec<yode_mcp::McpClient>,
     pub(crate) mcp_resource_provider: Option<Arc<dyn McpResourceProvider>>,
+    /// 仅当显式 --yes 或权限模式为 bypass 时才允许自动批准；
+    /// 否则确认类工具一律安全失败（拒绝）。
+    pub(crate) auto_approve: bool,
 }
 
 pub(crate) async fn run_noninteractive_chat(run: NoninteractiveChatRun<'_>) -> Result<()> {
@@ -39,6 +42,7 @@ pub(crate) async fn run_noninteractive_chat(run: NoninteractiveChatRun<'_>) -> R
         config,
         mcp_clients,
         mcp_resource_provider,
+        auto_approve,
     } = run;
     let mut engine = AgentEngine::new(provider, tool_registry, permissions, context);
     engine.set_database(db);
@@ -126,8 +130,17 @@ pub(crate) async fn run_noninteractive_chat(run: NoninteractiveChatRun<'_>) -> R
                 );
             }
             EngineEvent::ToolConfirmRequired { id, name, .. } => {
-                eprintln!("\x1b[33m🔑 自动确认工具: {}\x1b[0m", name);
-                let _ = confirm_tx.send(ConfirmResponse::Allow);
+                if auto_approve {
+                    eprintln!("\x1b[33m🔑 自动确认工具: {}\x1b[0m", name);
+                    let _ = confirm_tx.send(ConfirmResponse::Allow);
+                } else {
+                    // 非交互模式无法确认：安全失败，拒绝执行并要求用户显式 --yes
+                    eprintln!(
+                        "\x1b[31m🔑 拒绝工具（非交互模式需确认）: {}\x1b[0m — 如需自动批准请使用 --yes",
+                        name
+                    );
+                    let _ = confirm_tx.send(ConfirmResponse::Deny);
+                }
                 let _ = id;
             }
             EngineEvent::ToolResult { name, result, .. } => {

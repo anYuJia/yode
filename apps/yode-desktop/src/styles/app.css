@@ -134,8 +134,24 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   transition: grid-template-columns 220ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.app-shell.sidebar-collapsed {
-  grid-template-columns: 0px 6px minmax(0, 1fr);
+/* 960-1024 宽度：压缩侧栏上限，保证工作区仍有足够宽度 */
+@media (max-width: 1024px) and (min-width: 961px) {
+  .app-shell {
+    grid-template-columns: min(var(--sidebar-width, 232px), 300px) 6px minmax(0, 1fr);
+  }
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 0px 6px minmax(0, 1fr);
+  }
+}
+
+/* 960 宽度（窗口最小值）：侧栏 260px 上限，聊天列优先 */
+@media (max-width: 960px) {
+  .app-shell {
+    grid-template-columns: min(var(--sidebar-width, 232px), 260px) 6px minmax(0, 1fr);
+  }
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 0px 6px minmax(0, 1fr);
+  }
 }
 
 .app-shell.pane-dragging,
@@ -2341,6 +2357,36 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   opacity: 0.7;
 }
 
+.permission-esc-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 3px 7px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.permission-esc-hint:hover,
+.permission-esc-hint:focus-visible {
+  border-color: color-mix(in oklch, var(--line), transparent 10%);
+  color: var(--text-soft);
+}
+
+.permission-error {
+  margin: 8px 0 0;
+  border: 1px solid color-mix(in oklch, var(--error), transparent 60%);
+  border-radius: 8px;
+  background: color-mix(in oklch, var(--error), transparent 90%);
+  color: var(--error);
+  padding: 7px 10px;
+  font-size: 12px;
+}
+
 .permission-dock {
   display: flex;
   justify-content: center;
@@ -3288,6 +3334,33 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
 
 .composer textarea::placeholder {
   color: var(--text-soft);
+}
+
+/* 720/768/900 高度：压缩输入区与决策面板，保证关键运行状态不被遮挡 */
+@media (max-height: 768px) {
+  .composer {
+    margin-bottom: 8px;
+  }
+  .composer textarea {
+    max-height: 84px;
+    min-height: 26px;
+  }
+  .bottom-decision-panel {
+    max-height: 38vh;
+    overflow-y: auto;
+  }
+}
+
+@media (max-height: 720px) {
+  .composer textarea {
+    max-height: 64px;
+  }
+  .composer-toolbar {
+    padding-block: 2px;
+  }
+  .live-status-row {
+    padding-block: 4px;
+  }
 }
 
 .composer-attachments {
@@ -5437,8 +5510,39 @@ html.light .terminal-action-btn:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .run-inspector {
+  /* 运行详情在窄屏改为右侧 drawer/overlay，而不是静默消失 */
+  .chat-layout .inspector-resizer {
     display: none;
+  }
+  .chat-layout .run-inspector {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(420px, 85vw);
+    z-index: 90;
+    border-left: 1px solid var(--line);
+    background: color-mix(in oklch, var(--chrome), transparent 12%);
+    box-shadow: -18px 0 48px color-mix(in oklch, var(--bg), transparent 40%);
+    visibility: visible;
+    opacity: 1;
+    padding: 10px 12px;
+  }
+  .chat-layout.inspector-collapsed .run-inspector {
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: none;
+  }
+  .run-inspector::before {
+    /* 半透明遮罩：点击关闭 */
+    content: "";
+    position: fixed;
+    inset: 0;
+    right: min(420px, 85vw);
+    background: color-mix(in oklch, var(--bg), transparent 55%);
+    z-index: -1;
+    pointer-events: auto;
   }
 }
 
@@ -5569,14 +5673,12 @@ body.no-font-smoothing {
 }
 
 /* 4. Translucent Sidebar */
-.app-shell.translucent-sidebar .sidebar,
-html:has(meta[name="dummy"]) .sidebar { /* fallback styling using CSS property check */ }
 .app-shell.translucent-sidebar .sidebar {
   backdrop-filter: blur(16px);
   background: color-mix(in oklch, var(--chrome), transparent 15%) !important;
 }
 @supports (background: color-mix(in srgb, red, blue)) {
-  html:not(.translucent-sidebar-disabled) .sidebar {
+  .app-shell:not(.translucent-sidebar-disabled) .sidebar {
     backdrop-filter: blur(16px);
     background: color-mix(in oklch, var(--chrome), transparent 15%) !important;
   }
@@ -5586,8 +5688,9 @@ html:has(meta[name="dummy"]) .sidebar { /* fallback styling using CSS property c
   }
 }
 
-/* 5. Contrast Multiplier */
-.app-shell {
+/* 5. Contrast Multiplier：仅在用户显式调整对比度时启用，
+   默认值（48）下不建立 filter 层，避免整体合成与 fixed 定位副作用 */
+body.contrast-adjusted .app-shell {
   filter: contrast(calc(1 + (var(--contrast-val, 48) - 48) * 0.006));
 }
 

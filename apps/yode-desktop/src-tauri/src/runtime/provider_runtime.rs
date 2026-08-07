@@ -30,12 +30,19 @@ impl DesktopRuntime {
                 "ollama" => "Ollama (本地运行)".to_string(),
                 _ => resolved_id.to_uppercase(),
             };
+            // 安全边界：真实 API key 永不进入 WebView。
+            // 前端通过 has_api_key 显示掩码；保存时留空表示“保持原密钥”。
+            let has_api_key = p
+                .api_key
+                .as_deref()
+                .is_some_and(|key| !key.trim().is_empty());
             providers.push(DesktopProvider {
                 id: resolved_id,
                 name,
                 format: p.format.clone(),
                 enabled: p.enabled.unwrap_or(true),
-                api_key: p.api_key.clone().unwrap_or_default(),
+                api_key: String::new(),
+                has_api_key,
                 base_url: p.base_url.clone().unwrap_or_default(),
                 models: p.models.clone(),
                 gradient: p.gradient.clone(),
@@ -103,6 +110,22 @@ impl DesktopRuntime {
             if id.is_empty() {
                 continue;
             }
+            // 前端永不接触真实密钥：api_key 为空表示“保持原配置密钥”，
+            // 只有用户显式输入新密钥才覆盖。
+            let existing_key = config
+                .llm
+                .providers
+                .iter()
+                .find(|(existing_id, existing_config)| {
+                    resolved_provider_id(existing_id, existing_config) == id
+                })
+                .and_then(|(_, existing_config)| existing_config.api_key.clone())
+                .filter(|key| !key.trim().is_empty());
+            let api_key = if p.api_key.trim().is_empty() {
+                existing_key
+            } else {
+                Some(p.api_key.trim().to_string())
+            };
             new_providers.insert(
                 id,
                 yode_core::config::ProviderConfig {
@@ -112,11 +135,7 @@ impl DesktopRuntime {
                     } else {
                         Some(p.base_url)
                     },
-                    api_key: if p.api_key.is_empty() {
-                        None
-                    } else {
-                        Some(p.api_key)
-                    },
+                    api_key,
                     models: p.models,
                     enabled: Some(p.enabled),
                     gradient: p.gradient,
@@ -160,7 +179,21 @@ impl DesktopRuntime {
     }
 
     pub async fn config_test_provider(&self, p: DesktopProvider) -> Result<()> {
-        let api_key = resolve_provider_api_key(&p.id, &p.format, p.api_key.trim());
+        // 前端不携带真实密钥：空 key 时优先使用已配置密钥，其次环境变量
+        let stored_key = {
+            let config = self
+                .config
+                .lock()
+                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+            config
+                .llm
+                .providers
+                .iter()
+                .find(|(id, provider_config)| resolved_provider_id(id, provider_config) == p.id)
+                .and_then(|(_, provider_config)| provider_config.api_key.clone())
+                .unwrap_or_default()
+        };
+        let api_key = resolve_provider_api_key(&p.id, &p.format, p.api_key.trim(), &stored_key);
         let base_url = resolve_provider_base_url(&p.id, &p.format, p.base_url.trim());
         let provider: Arc<dyn yode_llm::provider::LlmProvider> = match p.format.as_str() {
             "anthropic" => Arc::new(yode_llm::providers::anthropic::AnthropicProvider::new(
@@ -183,9 +216,12 @@ impl DesktopRuntime {
     }
 }
 
-fn resolve_provider_api_key(id: &str, format: &str, configured: &str) -> String {
+fn resolve_provider_api_key(id: &str, format: &str, configured: &str, stored: &str) -> String {
     if !configured.is_empty() {
         return configured.to_string();
+    }
+    if !stored.is_empty() {
+        return stored.to_string();
     }
 
     let env_prefix = id.to_uppercase().replace('-', "_");

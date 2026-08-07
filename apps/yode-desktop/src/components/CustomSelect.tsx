@@ -19,14 +19,24 @@ interface CustomSelectProps {
 
 export function CustomSelect({ value, onChange, options, className = "", style }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [highlightIndex, setHighlightIndex] = useState(-1);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   const selectedOption = options.find((opt) => opt.value === value) || options[0];
+
+  const close = () => {
+    setIsOpen(false);
+    setHighlightIndex(-1);
+    triggerRef.current?.focus();
+  };
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setIsOpen(false);
+        setHighlightIndex(-1);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -35,6 +45,64 @@ export function CustomSelect({ value, onChange, options, className = "", style }
     };
   }, []);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+        return;
+      }
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setHighlightIndex((index) => {
+          const next = index < 0 ? 0 : Math.min(index + 1, options.length - 1);
+          scrollHighlightIntoView(next);
+          return next;
+        });
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setHighlightIndex((index) => {
+          const next = index < 0 ? options.length - 1 : Math.max(index - 1, 0);
+          scrollHighlightIntoView(next);
+          return next;
+        });
+        return;
+      }
+      if (event.key === "Enter" || event.key === " ") {
+        if (highlightIndex >= 0 && options[highlightIndex]) {
+          event.preventDefault();
+          onChange(options[highlightIndex].value);
+          close();
+        }
+        return;
+      }
+      if (event.key === "Tab") {
+        close();
+        return;
+      }
+      // 输入字符时跳到首个匹配选项
+      if (event.key.length === 1) {
+        const needle = event.key.toLowerCase();
+        const match = options.findIndex((option) => option.label.toLowerCase().startsWith(needle));
+        if (match >= 0) {
+          setHighlightIndex(match);
+          scrollHighlightIntoView(match);
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [isOpen, options, highlightIndex]);
+
+  const scrollHighlightIntoView = (index: number) => {
+    const list = listRef.current;
+    const optionEl = list?.querySelector<HTMLElement>(`[data-option-index="${index}"]`);
+    optionEl?.scrollIntoView({ block: "nearest" });
+  };
+
   return (
     <div
       ref={wrapperRef}
@@ -42,9 +110,16 @@ export function CustomSelect({ value, onChange, options, className = "", style }
       style={{ position: "relative", display: "inline-block", ...style }}
     >
       <button
+        ref={triggerRef}
         type="button"
         className="custom-select-trigger"
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          setIsOpen(!isOpen);
+          if (!isOpen) setHighlightIndex(options.findIndex((option) => option.value === value));
+        }}
+        aria-haspopup="listbox"
+        aria-expanded={isOpen}
+        aria-label={selectedOption?.label}
         style={{
           display: "flex",
           alignItems: "center",
@@ -99,7 +174,10 @@ export function CustomSelect({ value, onChange, options, className = "", style }
 
       {isOpen && (
         <div
+          ref={listRef}
           className="custom-select-dropdown"
+          role="listbox"
+          aria-label="选项列表"
           style={{
             position: "absolute",
             bottom: "auto",
@@ -116,17 +194,23 @@ export function CustomSelect({ value, onChange, options, className = "", style }
             padding: "4px"
           }}
         >
-          {options.map((option) => {
+          {options.map((option, index) => {
             const isSelected = option.value === value;
+            const isHighlighted = highlightIndex === index;
             return (
               <button
                 key={option.value}
                 type="button"
+                data-option-index={index}
+                role="option"
+                aria-selected={isSelected}
                 onClick={() => {
                   onChange(option.value);
                   setIsOpen(false);
+                  setHighlightIndex(-1);
+                  triggerRef.current?.focus();
                 }}
-                className={`custom-select-option ${isSelected ? "selected" : ""}`}
+                className={`custom-select-option ${isSelected ? "selected" : ""} ${isHighlighted ? "highlighted" : ""}`}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -134,7 +218,11 @@ export function CustomSelect({ value, onChange, options, className = "", style }
                   width: "100%",
                   padding: "6px 8px",
                   border: "none",
-                  background: isSelected ? "color-mix(in oklch, var(--accent-muted), transparent 40%)" : "transparent",
+                  background: isHighlighted
+                    ? "color-mix(in oklch, var(--accent-muted), transparent 20%)"
+                    : isSelected
+                      ? "color-mix(in oklch, var(--accent-muted), transparent 40%)"
+                      : "transparent",
                   color: isSelected ? "var(--text)" : "var(--text-muted)",
                   borderRadius: "calc(var(--radius) - 2px)",
                   fontSize: "12px",
@@ -143,13 +231,14 @@ export function CustomSelect({ value, onChange, options, className = "", style }
                   transition: "background 100ms, color 100ms"
                 }}
                 onMouseEnter={(e) => {
+                  setHighlightIndex(index);
                   if (!isSelected) {
                     e.currentTarget.style.background = "var(--field)";
                     e.currentTarget.style.color = "var(--text)";
                   }
                 }}
                 onMouseLeave={(e) => {
-                  if (!isSelected) {
+                  if (!isSelected && highlightIndex !== index) {
                     e.currentTarget.style.background = "transparent";
                     e.currentTarget.style.color = "var(--text-muted)";
                   }

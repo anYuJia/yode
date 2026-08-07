@@ -36,6 +36,11 @@ pub(super) fn valid_terminal_cwd(raw: &str) -> Option<PathBuf> {
     }
 }
 
+/// 将 PTY 尺寸钳制到合法范围（至少 1 行 1 列），保证 xterm 行列与 PTY 一致。
+pub(super) fn clamp_pty_size(rows: u16, cols: u16) -> (u16, u16) {
+    (rows.max(1), cols.max(1))
+}
+
 pub(super) fn terminal_shell_command(
     env: &HashMap<String, String>,
 ) -> (PathBuf, Vec<&'static str>) {

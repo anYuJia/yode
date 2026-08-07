@@ -234,49 +234,74 @@ export function preprocessMarkdown(text: string): string {
   return finalLines.join("\n");
 }
 
-export function MarkdownContent({ text, variant = "answer" }: { text: string; variant?: MarkdownVariant }) {
+// marked 词法分析结果缓存：流式渲染期间文本逐帧增长，
+// 相邻帧存在大量公共前缀，缓存最近解析结果避免每个 delta 全量 lexer。
+const LEXER_CACHE_MAX = 48;
+const lexerCache = new Map<string, Token[]>();
+
+function lexerCached(processedText: string): Token[] {
+  const cached = lexerCache.get(processedText);
+  if (cached) return cached;
+  const tokens = marked.lexer(processedText);
+  if (lexerCache.size >= LEXER_CACHE_MAX) {
+    const oldest = lexerCache.keys().next().value;
+    if (oldest !== undefined) lexerCache.delete(oldest);
+  }
+  lexerCache.set(processedText, tokens);
+  return tokens;
+}
+
+export const MarkdownContent = React.memo(function MarkdownContent({
+  text,
+  variant = "answer",
+  appLang
+}: {
+  text: string;
+  variant?: MarkdownVariant;
+  appLang?: string;
+}) {
   const processedText = useMemo(() => preprocessMarkdown(text), [text]);
-  const tokens = useMemo(() => marked.lexer(processedText), [processedText]);
+  const tokens = useMemo(() => lexerCached(processedText), [processedText]);
 
   return (
     <div className={`markdown-content markdown-content-${variant}`}>
-      <RenderTokens tokens={tokens} />
+      <RenderTokens tokens={tokens} appLang={appLang} />
     </div>
   );
-}
+});
 
-export function renderInlineMarkdown(text: string) {
+export function renderInlineMarkdown(text: string, appLang?: string) {
   const processedText = preprocessMarkdown(text);
-  const tokens = marked.lexer(processedText);
-  return <RenderTokens tokens={tokens} />;
+  const tokens = lexerCached(processedText);
+  return <RenderTokens tokens={tokens} appLang={appLang} />;
 }
 
-function RenderTokens({ tokens }: { tokens: Token[] }) {
+const RenderTokens = React.memo(function RenderTokens({ tokens, appLang }: { tokens: Token[]; appLang?: string }) {
   return (
     <>
       {tokens.map((token, index) => (
-        <RenderToken key={index} token={token} />
+        <RenderToken key={index} token={token} appLang={appLang} />
       ))}
     </>
   );
-}
+});
 
 function childTokens(tokens?: Token[]) {
   return tokens ?? [];
 }
 
-function RenderToken({ token }: { token: Token }): React.ReactElement | null {
+function RenderToken({ token, appLang }: { token: Token; appLang?: string }): React.ReactElement | null {
   switch (token.type) {
     case "heading": {
       const heading = token as Tokens.Heading;
       const Tag = `h${Math.min(heading.depth, 4)}` as keyof JSX.IntrinsicElements;
       const text = stripHeadingMarker(heading.text);
-      return <Tag>{text || <RenderTokens tokens={childTokens(heading.tokens)} />}</Tag>;
+      return <Tag>{text || <RenderTokens tokens={childTokens(heading.tokens)} appLang={appLang} />}</Tag>;
     }
     case "code": {
       const code = token as Tokens.Code;
       if (!hasCodeBlockContent(code.text)) return null;
-      return <CodeBlock text={code.text} lang={code.lang || ""} />;
+      return <CodeBlock text={code.text} lang={code.lang || ""} appLang={appLang} />;
     }
     case "list": {
       const list = token as Tokens.List;
@@ -293,7 +318,7 @@ function RenderToken({ token }: { token: Token }): React.ReactElement | null {
                   style={{ marginRight: "6px", verticalAlign: "middle" }}
                 />
               )}
-              <RenderTokens tokens={childTokens(item.tokens)} />
+              <RenderTokens tokens={childTokens(item.tokens)} appLang={appLang} />
             </li>
           ))}
         </ListTag>
@@ -308,7 +333,7 @@ function RenderToken({ token }: { token: Token }): React.ReactElement | null {
               <tr style={{ borderBottom: "2px solid var(--line)" }}>
                 {table.header.map((cell, i) => (
                   <th key={i} style={{ padding: "8px", textAlign: cell.align || "left", fontWeight: "bold" }}>
-                    <RenderTokens tokens={childTokens(cell.tokens)} />
+                    <RenderTokens tokens={childTokens(cell.tokens)} appLang={appLang} />
                   </th>
                 ))}
               </tr>
@@ -318,7 +343,7 @@ function RenderToken({ token }: { token: Token }): React.ReactElement | null {
                 <tr key={ri} style={{ borderBottom: "1px solid var(--line-soft)" }}>
                   {row.map((cell, ci) => (
                     <td key={ci} style={{ padding: "8px", textAlign: cell.align || "left" }}>
-                      <RenderTokens tokens={childTokens(cell.tokens)} />
+                      <RenderTokens tokens={childTokens(cell.tokens)} appLang={appLang} />
                     </td>
                   ))}
                 </tr>
@@ -340,7 +365,7 @@ function RenderToken({ token }: { token: Token }): React.ReactElement | null {
       }
       return (
         <p>
-          <RenderTokens tokens={childTokens(paragraph.tokens)} />
+          <RenderTokens tokens={childTokens(paragraph.tokens)} appLang={appLang} />
         </p>
       );
     }
@@ -348,7 +373,7 @@ function RenderToken({ token }: { token: Token }): React.ReactElement | null {
       const blockquote = token as Tokens.Blockquote;
       return (
         <blockquote style={{ borderLeft: "4px solid var(--line-soft)", paddingLeft: "12px", margin: "8px 0", color: "var(--text-muted)" }}>
-          <RenderTokens tokens={childTokens(blockquote.tokens)} />
+          <RenderTokens tokens={childTokens(blockquote.tokens)} appLang={appLang} />
         </blockquote>
       );
     }
@@ -359,7 +384,7 @@ function RenderToken({ token }: { token: Token }): React.ReactElement | null {
       const strong = token as Tokens.Strong;
       return (
         <strong>
-          <RenderTokens tokens={childTokens(strong.tokens)} />
+          <RenderTokens tokens={childTokens(strong.tokens)} appLang={appLang} />
         </strong>
       );
     }
@@ -367,7 +392,7 @@ function RenderToken({ token }: { token: Token }): React.ReactElement | null {
       const em = token as Tokens.Em;
       return (
         <em>
-          <RenderTokens tokens={childTokens(em.tokens)} />
+          <RenderTokens tokens={childTokens(em.tokens)} appLang={appLang} />
         </em>
       );
     }
@@ -379,7 +404,7 @@ function RenderToken({ token }: { token: Token }): React.ReactElement | null {
       const link = token as Tokens.Link;
       return (
         <a href={link.href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>
-          <RenderTokens tokens={childTokens(link.tokens)} />
+          <RenderTokens tokens={childTokens(link.tokens)} appLang={appLang} />
         </a>
       );
     }
@@ -390,7 +415,7 @@ function RenderToken({ token }: { token: Token }): React.ReactElement | null {
     case "text": {
       const text = token as Tokens.Text;
       if (text.tokens && text.tokens.length > 0) {
-        return <RenderTokens tokens={text.tokens} />;
+        return <RenderTokens tokens={text.tokens} appLang={appLang} />;
       }
       return <>{text.text}</>;
     }
@@ -403,7 +428,7 @@ function RenderToken({ token }: { token: Token }): React.ReactElement | null {
     }
     default: {
       if ("tokens" in token && token.tokens) {
-        return <RenderTokens tokens={token.tokens} />;
+        return <RenderTokens tokens={token.tokens} appLang={appLang} />;
       }
       return <>{("text" in token ? (token.text as string) : "")}</>;
     }

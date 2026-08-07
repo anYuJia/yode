@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::{
     terminal_helpers::{
-        apply_terminal_color_env, emit_terminal_exit, emit_terminal_output,
+        apply_terminal_color_env, clamp_pty_size, emit_terminal_exit, emit_terminal_output,
         parse_terminal_run_stdout, terminal_shell_command, valid_terminal_cwd,
     },
     DesktopRuntime,
@@ -265,9 +265,10 @@ impl DesktopRuntime {
         let session = sessions
             .get(&request.session_id)
             .ok_or_else(|| anyhow::anyhow!("terminal session not found"))?;
+        let (rows, cols) = clamp_pty_size(request.rows, request.cols);
         session.master.resize(portable_pty::PtySize {
-            rows: request.rows.max(1),
-            cols: request.cols.max(1),
+            rows,
+            cols,
             pixel_width: 0,
             pixel_height: 0,
         })?;

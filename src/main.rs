@@ -53,6 +53,10 @@ struct Cli {
     #[arg(long = "chat", short = 'C')]
     chat_message: Option<String>,
 
+    /// 非交互模式自动批准所有需要确认的工具（等效 bypass，谨慎使用）
+    #[arg(long)]
+    yes: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -225,7 +229,12 @@ async fn main() -> Result<()> {
         .context("Failed to open session database")?;
     startup_profiler.checkpoint("db_ready");
 
-    let permissions = configure_permissions(&config, &workdir);
+    let mut permissions = configure_permissions(&config, &workdir);
+    if cli.yes {
+        // 显式 --yes 才允许非交互模式自动批准；否则一律安全失败（拒绝确认类工具）
+        permissions.set_mode(yode_core::permission::PermissionMode::Bypass);
+        eprintln!("⚠ 已启用 --yes：非交互模式下将自动批准所有工具确认。");
+    }
     startup_profiler.checkpoint("permission_setup");
     let (context, restored_messages, restore_report) = restore_or_create_context(
         &cli,
@@ -247,6 +256,8 @@ async fn main() -> Result<()> {
 
     startup_profiler.checkpoint("ready_chat");
     startup_profiler.log_summary("chat", &tooling.metrics);
+    let auto_approve =
+        cli.yes || permissions.mode() == yode_core::permission::PermissionMode::Bypass;
     chat_mode::run_noninteractive_chat(chat_mode::NoninteractiveChatRun {
         chat_message,
         provider,
@@ -258,6 +269,7 @@ async fn main() -> Result<()> {
         config: &config,
         mcp_clients: tooling.mcp_clients,
         mcp_resource_provider: tooling.mcp_resource_provider,
+        auto_approve,
     })
     .await
 }

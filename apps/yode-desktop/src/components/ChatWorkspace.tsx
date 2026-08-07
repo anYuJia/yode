@@ -8,6 +8,13 @@ import {
   turnStaticDurationSeconds,
   ConversationTurn
 } from "../lib/timelineUtils";
+import {
+  isNearTimelineBottom,
+  shouldAutoScrollOnUpdate,
+  updateStickOnScroll,
+  updateStickOnTouchMove,
+  updateStickOnWheel
+} from "../lib/scrollPolicy";
 import { Composer } from "./Composer";
 import { RunInspector } from "./RunInspector";
 import { TimelineNode } from "./chat-workspace/TimelineNode";
@@ -263,34 +270,39 @@ export function ChatWorkspace({
     }
   };
 
-  const isNearTimelineBottom = (panel: HTMLElement, threshold = 120) => {
-    const distanceToBottom = panel.scrollHeight - panel.scrollTop - panel.clientHeight;
-    return distanceToBottom < threshold;
-  };
-
   const handleTimelineScroll = () => {
     const panel = timelinePanelRef.current;
     if (!panel) return;
-    const scrollTop = panel.scrollTop;
-    const isScrollingUp = scrollTop < lastScrollTopRef.current - 1;
-    if (isScrollingUp) {
-      shouldStickToBottomRef.current = false;
-    } else if (isNearTimelineBottom(panel)) {
-      shouldStickToBottomRef.current = true;
-    }
-    lastScrollTopRef.current = scrollTop;
+    const nextMetrics = {
+      scrollTop: panel.scrollTop,
+      scrollHeight: panel.scrollHeight,
+      clientHeight: panel.clientHeight
+    };
+    const previousMetrics = {
+      scrollTop: lastScrollTopRef.current,
+      scrollHeight: panel.scrollHeight,
+      clientHeight: panel.clientHeight
+    };
+    shouldStickToBottomRef.current = updateStickOnScroll(
+      previousMetrics,
+      nextMetrics,
+      shouldStickToBottomRef.current
+    );
+    lastScrollTopRef.current = panel.scrollTop;
   };
 
   const handleTimelineWheel = (event: React.WheelEvent<HTMLElement>) => {
     const panel = timelinePanelRef.current;
     if (!panel) return;
-    if (event.deltaY < 0) {
-      shouldStickToBottomRef.current = false;
-      return;
-    }
-    if (event.deltaY > 0 && isNearTimelineBottom(panel, 160)) {
-      shouldStickToBottomRef.current = true;
-    }
+    shouldStickToBottomRef.current = updateStickOnWheel(
+      {
+        scrollTop: panel.scrollTop,
+        scrollHeight: panel.scrollHeight,
+        clientHeight: panel.clientHeight
+      },
+      event.deltaY,
+      shouldStickToBottomRef.current
+    );
   };
 
   const handleTimelineTouchStart = (event: React.TouchEvent<HTMLElement>) => {
@@ -302,13 +314,15 @@ export function ChatWorkspace({
     const startY = touchStartYRef.current;
     const currentY = event.touches[0]?.clientY;
     if (!panel || startY == null || currentY == null) return;
-    if (currentY > startY + 2) {
-      shouldStickToBottomRef.current = false;
-      return;
-    }
-    if (currentY < startY - 2 && isNearTimelineBottom(panel, 160)) {
-      shouldStickToBottomRef.current = true;
-    }
+    shouldStickToBottomRef.current = updateStickOnTouchMove(
+      {
+        scrollTop: panel.scrollTop,
+        scrollHeight: panel.scrollHeight,
+        clientHeight: panel.clientHeight
+      },
+      currentY - startY,
+      shouldStickToBottomRef.current
+    );
   };
 
   const timelineContentHash = useMemo(() => {
@@ -325,7 +339,18 @@ export function ChatWorkspace({
   useLayoutEffect(() => {
     const panel = timelinePanelRef.current;
     if (!panel) return;
-    if (!shouldStickToBottomRef.current && !isNearTimelineBottom(panel, 80)) return;
+    if (
+      !shouldAutoScrollOnUpdate(
+        {
+          scrollTop: panel.scrollTop,
+          scrollHeight: panel.scrollHeight,
+          clientHeight: panel.clientHeight
+        },
+        shouldStickToBottomRef.current
+      )
+    ) {
+      return;
+    }
     const itemAdded = timelineItems.length > lastTimelineLengthRef.current;
     lastTimelineLengthRef.current = timelineItems.length;
     const frame = window.requestAnimationFrame(() => {
@@ -334,19 +359,19 @@ export function ChatWorkspace({
     return () => window.cancelAnimationFrame(frame);
   }, [timelineContentHash, isStreaming]);
 
+  // ResizeObserver 只在挂载时创建一次，观察时间线面板本身（窗口缩放、面板尺寸变化）。
+  // 内容增长导致的滚动跟随由 layout effect（rAF 节流）负责，
+  // 避免每个流式批次都销毁重建 observer。
   useLayoutEffect(() => {
     const panel = timelinePanelRef.current;
     if (!panel || typeof ResizeObserver === "undefined") return;
 
-    let previousHeight = panel.scrollHeight;
+    let previousHeight = panel.getBoundingClientRect().height;
     let frame: number | null = null;
     const observer = new ResizeObserver(() => {
-      const nextHeight = panel.scrollHeight;
+      const nextHeight = panel.getBoundingClientRect().height;
       if (nextHeight === previousHeight) return;
       previousHeight = nextHeight;
-      if (!isStreaming && !shouldStickToBottomRef.current && !isNearTimelineBottom(panel, 96)) {
-        return;
-      }
       if (frame !== null) {
         window.cancelAnimationFrame(frame);
       }
@@ -359,7 +384,6 @@ export function ChatWorkspace({
     });
 
     observer.observe(panel);
-    Array.from(panel.children).forEach((child) => observer.observe(child));
 
     return () => {
       if (frame !== null) {
@@ -367,7 +391,7 @@ export function ChatWorkspace({
       }
       observer.disconnect();
     };
-  }, [timelineContentHash, isStreaming]);
+  }, []);
 
   useEffect(() => {
     let frames: number[] = [];

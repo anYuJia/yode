@@ -61,7 +61,12 @@ impl DesktopRuntime {
             config.permissions.default_mode = Some(permission_mode.to_string());
             config.clone()
         };
-        save_config_to_path_async(&config_to_save, &config_path).await?;
+        match scope {
+            ConfigScope::User => save_config_to_path_async(&config_to_save, &config_path).await?,
+            ConfigScope::Project => {
+                save_project_config_to_path_async(&config_to_save, &config_path).await?
+            }
+        }
         set_workspace_dependency_state_async(request.expose_dependencies).await?;
         Ok(ConfigurationState {
             scope: request.scope,
@@ -89,7 +94,12 @@ impl DesktopRuntime {
                     .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
                     .clone()
             };
-            save_config_to_path_async(&config, &path).await?;
+            if scope.to_lowercase().contains("project") {
+                // 项目配置只允许包含可共享字段，绝不写入 API key / token
+                save_project_config_to_path_async(&config, &path).await?;
+            } else {
+                save_config_to_path_async(&config, &path).await?;
+            }
         }
         open_with_destination("VS Code", &path)
     }
@@ -146,12 +156,18 @@ enum ConfigScope {
 }
 
 pub(super) async fn load_desktop_config(workspace_path: &Path) -> Result<Config> {
+    let user_config = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".yode")
+        .join("config.toml");
     let project_config = workspace_path.join(".yode").join("config.toml");
-    if tokio::fs::try_exists(&project_config).await? {
-        Config::load_from_async(Some(&project_config)).await
-    } else {
-        Config::load_async().await
-    }
+    // 用户配置必须始终参与合并：项目配置存在时只覆盖共享字段，
+    // 不能导致用户 provider / API key 丢失
+    Config::load_with_overrides_async(
+        Some(&user_config),
+        project_config.exists().then_some(project_config.as_path()),
+    )
+    .await
 }
 
 pub(super) async fn save_config_to_path_async(config: &Config, path: &Path) -> Result<()> {
@@ -159,6 +175,16 @@ pub(super) async fn save_config_to_path_async(config: &Config, path: &Path) -> R
         tokio::fs::create_dir_all(parent).await?;
     }
     tokio::fs::write(path, toml::to_string_pretty(config)?).await?;
+    Ok(())
+}
+
+/// 写项目级共享配置：只写脱敏后的可共享字段（不含 API key 与疑似密钥环境变量）。
+/// 用户级配置仍然写入完整内容。
+pub(super) async fn save_project_config_to_path_async(config: &Config, path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    tokio::fs::write(path, config.to_shared_project_toml()?).await?;
     Ok(())
 }
 

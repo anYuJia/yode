@@ -109,7 +109,12 @@ fn permission_config_from_runtime_config(config: &Config) -> PermissionConfig {
             .iter()
             .map(permission_rule_entry_to_config)
             .collect(),
-        always_ask: Vec::new(),
+        always_ask: config
+            .permissions
+            .always_ask
+            .iter()
+            .map(permission_rule_entry_to_config)
+            .collect(),
         always_deny: config
             .permissions
             .always_deny
@@ -255,6 +260,7 @@ mod tests {
             resume: resume.map(str::to_string),
             serve_mcp: false,
             chat_message: None,
+            yes: false,
             command: None,
         }
     }
@@ -454,6 +460,77 @@ description = "local override"
             yode_core::permission::PermissionAction::Allow
         );
         let _ = std::fs::remove_dir_all(&workdir);
+    }
+
+    #[test]
+    fn always_allow_ask_deny_matrix_applies_from_config() {
+        use yode_core::permission::PermissionAction;
+
+        let dir =
+            std::env::temp_dir().join(format!("yode-permission-matrix-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(
+            &path,
+            r#"
+[llm]
+default_provider = "openai"
+default_model = "gpt-4o"
+
+[tools]
+bash_timeout = 120
+require_confirmation = ["bash"]
+
+[session]
+db_path = ""
+
+[ui]
+language = "zh-CN"
+theme = "dark"
+
+[[permissions.always_allow]]
+tool = "read_file"
+
+[[permissions.always_ask]]
+tool = "bash"
+
+[[permissions.always_deny]]
+tool = "write_file"
+"#,
+        )
+        .unwrap();
+        let config = Config::load_from(Some(&path)).unwrap();
+        let permissions = configure_permissions(&config, &dir);
+
+        // always_allow: 无需确认直接允许
+        assert_eq!(
+            permissions.explain_with_content("read_file", None).action,
+            PermissionAction::Allow
+        );
+        // always_ask: 覆盖 require_confirmation 的默认询问行为（仍需要确认）
+        assert_eq!(
+            permissions
+                .explain_with_content("bash", Some("cargo test"))
+                .action,
+            PermissionAction::Confirm
+        );
+        // always_deny: 直接拒绝
+        assert_eq!(
+            permissions.explain_with_content("write_file", None).action,
+            PermissionAction::Deny
+        );
+        // 未配置的只读工具保持默认允许
+        assert_eq!(
+            permissions.explain_with_content("grep", None).action,
+            PermissionAction::Allow
+        );
+        // 未配置且默认需确认的工具（如 git_commit）保持询问
+        assert_eq!(
+            permissions.explain_with_content("git_commit", None).action,
+            PermissionAction::Confirm
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

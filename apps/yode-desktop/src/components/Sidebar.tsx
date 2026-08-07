@@ -23,6 +23,8 @@ import {
 } from "../lib/appearanceSettings";
 import { projectLabelFromPath } from "../lib/timelineUtils";
 
+const PINNED_SESSIONS_STORAGE_KEY = "yode-pinned-sessions";
+
 interface SidebarProps {
   sessions: SessionSummary[];
   projectOptions: Array<{ label: string; root: string | null }>;
@@ -52,7 +54,15 @@ export function Sidebar({
   const isZh = lang === "zh";
   const t = (zhText: string, enText: string) => isZh ? zhText : enText;
 
-  const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>(["s-1"]);
+  const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>(() => {
+    try {
+      const raw = localStorage.getItem(PINNED_SESSIONS_STORAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
+    } catch {
+      return [];
+    }
+  });
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
@@ -143,11 +153,18 @@ export function Sidebar({
 
   const handleTogglePin = (sessionId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    setPinnedSessionIds(prev => 
-      prev.includes(sessionId) 
-        ? prev.filter(id => id !== sessionId) 
-        : [...prev, sessionId]
-    );
+    setPinnedSessionIds((prev) => {
+      const next = prev.includes(sessionId)
+        ? prev.filter((id) => id !== sessionId)
+        : [...prev, sessionId];
+      // 置顶状态持久化，重启后保持排序
+      try {
+        localStorage.setItem(PINNED_SESSIONS_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // 存储不可用时忽略
+      }
+      return next;
+    });
   };
 
   const handleDeleteClick = (sessionId: string, e: React.MouseEvent) => {
@@ -302,7 +319,7 @@ export function Sidebar({
               onClick={(e) => handleDeleteClick(session.id, e)}
               type="button"
               className="action-icon-btn"
-              title={t("删除", "Delete")}
+              title={t("归档（可在归档记录中恢复）", "Archive (recoverable from archive)")}
             >
               <Trash2 size={13} />
             </button>
@@ -436,6 +453,7 @@ export function Sidebar({
               );
             }}
             type="button"
+            aria-expanded={expanded}
           >
             <Folder size={16} />
             <span>
@@ -500,10 +518,30 @@ export function Sidebar({
       </button>
 
       <nav className="nav-block" aria-label="主导航">
-        <NavButton icon={<Search size={16} />} label={t("搜索", "Search")} />
-        <NavButton icon={<Code2 size={16} />} label={t("技能", "Skills")} />
-        <NavButton icon={<Workflow size={16} />} label={t("插件", "Plugins")} />
-        <NavButton icon={<Clock3 size={16} />} label={t("自动化", "Autopilot")} />
+        <NavButton
+          icon={<Search size={16} />}
+          label={t("搜索", "Search")}
+          disabled
+          title={t("搜索功能尚未实现", "Search is not available yet")}
+        />
+        <NavButton
+          icon={<Code2 size={16} />}
+          label={t("技能", "Skills")}
+          disabled
+          title={t("技能管理尚未实现", "Skills management is not available yet")}
+        />
+        <NavButton
+          icon={<Workflow size={16} />}
+          label={t("插件", "Plugins")}
+          disabled
+          title={t("插件管理尚未实现", "Plugins management is not available yet")}
+        />
+        <NavButton
+          icon={<Clock3 size={16} />}
+          label={t("自动化", "Autopilot")}
+          disabled
+          title={t("自动化尚未实现", "Autopilot is not available yet")}
+        />
       </nav>
 
       <div className="sidebar-section sessions">
@@ -623,9 +661,9 @@ export function Sidebar({
   );
 }
 
-function NavButton({ icon, label }: { icon: React.ReactNode; label: string }) {
+function NavButton({ icon, label, disabled, title }: { icon: React.ReactNode; label: string; disabled?: boolean; title?: string }) {
   return (
-    <button className="nav-button" type="button">
+    <button className="nav-button" type="button" disabled={disabled} title={title} aria-disabled={disabled}>
       {icon}
       <span>{label}</span>
     </button>

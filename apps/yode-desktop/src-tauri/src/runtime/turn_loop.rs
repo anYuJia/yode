@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::process::Child;
 use std::sync::{Arc, Mutex};
 
@@ -19,10 +19,11 @@ type ConfirmSenderMap = Arc<
     Mutex<HashMap<TurnKey, tokio::sync::mpsc::UnboundedSender<yode_core::engine::ConfirmResponse>>>,
 >;
 type AskUserSenderMap = Arc<Mutex<HashMap<TurnKey, tokio::sync::mpsc::UnboundedSender<String>>>>;
-type CancelTokenMap = Arc<Mutex<HashMap<TurnKey, tokio_util::sync::CancellationToken>>>;
+pub(super) type CancelTokenMap = Arc<Mutex<HashMap<TurnKey, tokio_util::sync::CancellationToken>>>;
 type PendingConfirmationMap = Arc<Mutex<HashMap<TurnKey, PendingConfirmation>>>;
 
 /// Drive the desktop turn event loop until the engine task finishes.
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn run_desktop_turn_event_loop(
     app: AppHandle,
     session_id: String,
@@ -36,9 +37,39 @@ pub(super) async fn run_desktop_turn_event_loop(
     cancel_tokens: CancelTokenMap,
     pending_confirmations: PendingConfirmationMap,
     sleep_guard: Arc<Mutex<Option<Child>>>,
+    cancel_token: tokio_util::sync::CancellationToken,
+    active_sessions: Arc<Mutex<HashSet<String>>>,
 ) {
+    let mut cancelled = false;
     loop {
-        let event = tokio::select! {
+        tokio::select! {
+            // 取消：等待引擎真正停止（channel 关闭即 quiesce），期间丢弃所有迟到事件，
+            // 随后释放 in-flight 占位并发出 cancelled 终态。
+            // 占位在 quiesce 之后释放：取消请求期间新 turn 一律被拒绝，
+            // 前端收到 cancelled 时旧工具已停止，可安全发起新 turn。
+            _ = cancel_token.cancelled() => {
+                cancelled = true;
+                while event_rx.recv().await.is_some() {}
+                while ask_user_query_rx.recv().await.is_some() {}
+                if let Ok(mut tokens) = cancel_tokens.lock() {
+                    tokens.remove(&(session_id.clone(), turn_id.clone()));
+                }
+                if let Ok(mut active) = active_sessions.lock() {
+                    active.remove(&session_id);
+                }
+                emit_desktop_event(
+                    &app,
+                    DesktopEvent {
+                        session_id: session_id.clone(),
+                        turn_id: turn_id.clone(),
+                        seq,
+                        kind: "cancelled".to_string(),
+                        timestamp: Utc::now().to_rfc3339(),
+                        payload: json!({ "title": "已取消", "body": "本轮运行已停止。" }),
+                    },
+                );
+                break;
+            }
             Some(query) = ask_user_query_rx.recv() => {
                 let first_question = query.questions.first();
                 let desktop_event = DesktopEvent {
@@ -58,65 +89,66 @@ pub(super) async fn run_desktop_turn_event_loop(
                 seq += 1;
                 continue;
             }
-            Some(event) = event_rx.recv() => event,
-            else => break,
-        };
+            Some(event) = event_rx.recv() => {
+                let mapped = yode_runtime::engine_event_to_runtime_parts(event);
+                if let Some(pending_confirmation) = mapped.pending_confirmation.as_ref() {
+                    if let Ok(mut pending) = pending_confirmations.lock() {
+                        pending.insert(
+                            (session_id.clone(), turn_id.clone()),
+                            PendingConfirmation {
+                                tool_name: pending_confirmation.tool_name.clone(),
+                                command: pending_confirmation.command.clone(),
+                            },
+                        );
+                    }
+                }
 
-        let mapped = yode_runtime::engine_event_to_runtime_parts(event);
-        if let Some(pending_confirmation) = mapped.pending_confirmation.as_ref() {
-            if let Ok(mut pending) = pending_confirmations.lock() {
-                pending.insert(
-                    (session_id.clone(), turn_id.clone()),
-                    PendingConfirmation {
-                        tool_name: pending_confirmation.tool_name.clone(),
-                        command: pending_confirmation.command.clone(),
-                    },
-                );
+                let kind = mapped.kind;
+                let payload = mapped.payload;
+
+                if std::env::var("YODE_ACTION_NARRATIVE_DEBUG").is_ok_and(|value| value == "1")
+                    && matches!(
+                        kind,
+                        "assistant_text_delta"
+                            | "assistant_reasoning_delta"
+                            | "action_narrative"
+                            | "tool_started"
+                            | "assistant_text_complete"
+                            | "assistant_reasoning_complete"
+                            | "turn_completed"
+                    )
+                {
+                    let preview = payload
+                        .get("body")
+                        .or_else(|| payload.get("reasoning"))
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("")
+                        .chars()
+                        .take(120)
+                        .collect::<String>()
+                        .replace('\n', "\\n");
+                    eprintln!(
+                        "[action-narrative-debug] turn={} kind={} preview={:?}",
+                        turn_id, kind, preview
+                    );
+                }
+
+                let desktop_event = DesktopEvent {
+                    session_id: session_id.clone(),
+                    turn_id: turn_id.clone(),
+                    seq,
+                    kind: kind.to_string(),
+                    timestamp: Utc::now().to_rfc3339(),
+                    payload,
+                };
+
+                emit_desktop_event(&app, desktop_event);
+                seq += 1;
             }
+            else => break,
         }
-
-        let kind = mapped.kind;
-        let payload = mapped.payload;
-
-        if std::env::var("YODE_ACTION_NARRATIVE_DEBUG").is_ok_and(|value| value == "1")
-            && matches!(
-                kind,
-                "assistant_text_delta"
-                    | "assistant_reasoning_delta"
-                    | "action_narrative"
-                    | "tool_started"
-                    | "assistant_text_complete"
-                    | "assistant_reasoning_complete"
-                    | "turn_completed"
-            )
-        {
-            let preview = payload
-                .get("body")
-                .or_else(|| payload.get("reasoning"))
-                .and_then(|value| value.as_str())
-                .unwrap_or("")
-                .chars()
-                .take(120)
-                .collect::<String>()
-                .replace('\n', "\\n");
-            eprintln!(
-                "[action-narrative-debug] turn={} kind={} preview={:?}",
-                turn_id, kind, preview
-            );
-        }
-
-        let desktop_event = DesktopEvent {
-            session_id: session_id.clone(),
-            turn_id: turn_id.clone(),
-            seq,
-            kind: kind.to_string(),
-            timestamp: Utc::now().to_rfc3339(),
-            payload,
-        };
-
-        emit_desktop_event(&app, desktop_event);
-        seq += 1;
     }
+    let _ = cancelled;
 
     if let Err(err) = handle.await {
         tracing::error!("Desktop turn task join failed: {}", err);
@@ -127,6 +159,10 @@ pub(super) async fn run_desktop_turn_event_loop(
     }
     if let Ok(mut txs) = ask_user_txs.lock() {
         txs.remove(&(session_id.clone(), turn_id.clone()));
+    }
+    // 正常结束路径：释放 in-flight 占位（取消分支已提前释放，此处幂等）
+    if let Ok(mut active) = active_sessions.lock() {
+        active.remove(&session_id);
     }
     if let Ok(mut tokens) = cancel_tokens.lock() {
         let _: Option<tokio_util::sync::CancellationToken> =

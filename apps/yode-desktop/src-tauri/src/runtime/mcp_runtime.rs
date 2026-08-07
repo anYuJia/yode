@@ -42,7 +42,9 @@ impl DesktopRuntime {
                 .config
                 .lock()
                 .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
-            config.mcp.servers = desktop_mcp_servers_to_config(&servers)?;
+            // 基于既有配置合并保存，保留 auth 等前端表单不承载的字段
+            let existing = config.mcp.servers.clone();
+            config.mcp.servers = desktop_mcp_servers_to_config(&servers, &existing)?;
             config.clone()
         };
         save_config_to_path_async(&config_to_save, &self.user_config_path()).await?;
@@ -52,7 +54,7 @@ impl DesktopRuntime {
 
     pub fn mcp_server_test(&self, server: DesktopMcpServer) -> Result<DesktopMcpServerStatus> {
         validate_desktop_mcp_servers(std::slice::from_ref(&server))?;
-        let config = desktop_mcp_server_to_config(&server)?;
+        let config = desktop_mcp_server_to_config(&server, None)?;
         let mcp_config = core_mcp_server_to_runtime(&config);
         tauri::async_runtime::block_on(async move {
             if server.disabled {

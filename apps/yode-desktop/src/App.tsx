@@ -78,7 +78,7 @@ import {
   executeLocalSlashCommand,
   formatUsageSnapshot
 } from "./lib/localSlashCommands";
-import { handleDesktopRuntimeEvent } from "./lib/desktopEventHandlers";
+import { handleDesktopRuntimeEvent, discardPendingDeltas, resetTurnTracksForSession } from "./lib/desktopEventHandlers";
 import { GENERAL_SETTINGS_CHANGE_EVENT, toggleBottomPanelSetting } from "./lib/desktopSettings";
 import {
   PROJECT_ROOTS_CHANGED_EVENT,
@@ -98,6 +98,11 @@ import {
   PaneKind,
 } from "./lib/paneLayout";
 import {
+  INSPECTOR_WIDTH_STORAGE_KEY,
+  SIDEBAR_WIDTH_STORAGE_KEY,
+  TERMINAL_HEIGHT_STORAGE_KEY
+} from "./lib/paneLayout";
+import {
   DEFAULT_LLM_CHANGE_EVENT,
   detailFromDefaultLlmChangeEvent,
   preferredModelFromStorage,
@@ -112,9 +117,11 @@ import {
 import { formatAskUserAnswerForDisplay } from "./lib/askUser";
 import {
   LANGUAGE_CHANGE_EVENT,
+  applyHtmlLang,
   applyStoredAppearanceSettings,
   applyTranslucentSidebarSetting,
-  languageFromChangeEvent
+  languageFromChangeEvent,
+  loadAppLanguage
 } from "./lib/appearanceSettings";
 import { recordFromUnknown } from "./lib/jsonUtils";
 
@@ -257,6 +264,11 @@ export function App() {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
 
+  const currentTurnIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    currentTurnIdRef.current = currentTurnId;
+  }, [currentTurnId]);
+
   useEffect(() => {
     const handleFocus = () => {
       windowFocusedRef.current = true;
@@ -316,6 +328,15 @@ export function App() {
 
     const onUp = () => {
       releaseDragCapture();
+      const finishedPane = draggingPane;
+      // 拖动结束：将最终尺寸一次性写入 localStorage
+      if (finishedPane === "sidebar") {
+        localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+      } else if (finishedPane === "inspector") {
+        localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
+      } else if (finishedPane === "terminal") {
+        localStorage.setItem(TERMINAL_HEIGHT_STORAGE_KEY, String(terminalHeight));
+      }
       setDraggingPane(null);
       dragStateRef.current = null;
     };
@@ -418,6 +439,7 @@ export function App() {
   useEffect(() => {
     const handleLangChange = (e: Event) => {
       setAppLang(languageFromChangeEvent(e));
+      applyHtmlLang(languageFromChangeEvent(e));
     };
     window.addEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
     return () => window.removeEventListener(LANGUAGE_CHANGE_EVENT, handleLangChange);
@@ -464,6 +486,7 @@ export function App() {
 
   useEffect(() => {
     applyStoredAppearanceSettings();
+    applyHtmlLang(loadAppLanguage());
   }, []);
 
   useEffect(() => {
@@ -577,6 +600,7 @@ export function App() {
       if (!active) return;
       handleDesktopRuntimeEvent({
         activeSessionId: activeSessionIdRef.current,
+        currentTurnId: currentTurnIdRef.current,
         payload: event.payload,
         sendSystemNotification,
         setCurrentTurnId,
@@ -681,6 +705,12 @@ export function App() {
         model: recentSession.model!
       }));
     }
+    // 清理旧会话（而非新会话）的事件轨道与增量缓冲
+    const previousSessionId = activeSessionIdRef.current;
+    discardPendingDeltas();
+    if (previousSessionId) {
+      resetTurnTracksForSession(previousSessionId);
+    }
     setActiveSessionId(null);
     clearTurnState();
     setSessionItems((items) => items.map((item) => ({ ...item, active: false })));
@@ -716,13 +746,16 @@ export function App() {
       }
     ]);
 
-    await invoke("ask_user_respond", {
-      sessionId: pendingUserQuestion.sessionId,
-      session_id: pendingUserQuestion.sessionId,
-      turnId: pendingUserQuestion.turnId,
-      turn_id: pendingUserQuestion.turnId,
-      answer: answer
-    }).catch((err) => {
+    try {
+      await invoke("ask_user_respond", {
+        sessionId: pendingUserQuestion.sessionId,
+        session_id: pendingUserQuestion.sessionId,
+        turnId: pendingUserQuestion.turnId,
+        turn_id: pendingUserQuestion.turnId,
+        answer: answer
+      });
+      setPendingUserQuestion(null);
+    } catch (err) {
       console.error(err);
       setTimelineItems((items) => [
         ...items,
@@ -730,13 +763,11 @@ export function App() {
           id: `ask-answer-error-${Date.now()}`,
           kind: "assistant",
           title: "错误",
-          body: "发送问题回复失败。",
+          body: "发送问题回复失败，请重试。",
           meta: "stream complete"
         }
       ]);
-    });
-
-    setPendingUserQuestion(null);
+    }
   }
 
   function appendLocalCommandResult(title: string, body: string) {
@@ -796,13 +827,16 @@ export function App() {
           createdAt: Date.now()
         }
       ]);
-      await invoke("ask_user_respond", {
-        sessionId: pendingUserQuestion.sessionId,
-        session_id: pendingUserQuestion.sessionId,
-        turnId: pendingUserQuestion.turnId,
-        turn_id: pendingUserQuestion.turnId,
-        answer: content
-      }).catch((err) => {
+      try {
+        await invoke("ask_user_respond", {
+          sessionId: pendingUserQuestion.sessionId,
+          session_id: pendingUserQuestion.sessionId,
+          turnId: pendingUserQuestion.turnId,
+          turn_id: pendingUserQuestion.turnId,
+          answer: content
+        });
+        setPendingUserQuestion(null);
+      } catch (err) {
         console.error(err);
         setTimelineItems((items) => [
           ...items,
@@ -810,12 +844,11 @@ export function App() {
             id: `ask-answer-error-${Date.now()}`,
             kind: "assistant",
             title: "错误",
-            body: "发送问题回复失败。",
+            body: "发送问题回复失败，请重试。",
             meta: "stream complete"
           }
         ]);
-      });
-      setPendingUserQuestion(null);
+      }
       return;
     }
 
@@ -862,6 +895,9 @@ export function App() {
     }
 
     setIsProcessing(true);
+    // 新 turn 开始前重置合帧状态：上一 turn 的残留增量/轨道指向
+    // 不得影响新 turn（含 detached review 创建的全新会话）
+    discardPendingDeltas();
     setTimelineItems((items) => [
       ...items,
       {
@@ -904,6 +940,16 @@ export function App() {
       setIsProcessing(false);
       setDraft(content);
       setComposerImages(imagesAtSend);
+      setTimelineItems((items) => [
+        ...items,
+        {
+          id: `send-error-${Date.now()}`,
+          kind: "assistant",
+          title: "发送失败",
+          body: String(err || "发送失败，请重试。"),
+          meta: "stream complete"
+        }
+      ]);
     }
   }
 
@@ -913,6 +959,7 @@ export function App() {
       const nextContent = nextMessage.content;
       setMessageQueue((prev) => prev.slice(1));
       setIsProcessing(true);
+      discardPendingDeltas();
       
       setTimelineItems((items) =>
         items.map((item) =>
@@ -938,36 +985,74 @@ export function App() {
         activeSessionIdRef.current = res.sessionId;
         setSessionItems((items) => upsertActiveSession(items, res.session));
       }).catch((err) => {
+        // 发送失败（如 in-flight 拒绝）：队列项在发送前已出队，不会无限重试
         console.error(err);
         setIsProcessing(false);
+        setTimelineItems((items) => [
+          ...items,
+          {
+            id: `queue-send-error-${Date.now()}`,
+            kind: "assistant",
+            title: "发送失败",
+            body: String(err || "发送失败，请重试。"),
+            meta: "stream complete"
+          }
+        ]);
       });
     }
   }, [isProcessing, messageQueue, activeSession?.id]);
 
   async function handleCancelMessage() {
-    if (activeSession?.id && currentTurnId) {
+    if (!(activeSession?.id && currentTurnId)) return;
+    const cancelledTurnId = currentTurnId;
+    try {
       await invoke("turn_cancel", {
         sessionId: activeSession.id,
-        turnId: currentTurnId
-      }).catch(console.error);
-
-      setTimelineItems((items) => [
-        ...items,
-        {
-          id: `cancel-${currentTurnId}-${Date.now()}`,
-          kind: "boundary",
-          title: "已手动终止",
-          body: "用户已取消此轮运行。",
-          createdAt: Date.now()
-        }
-      ]);
-
+        turnId: cancelledTurnId
+      });
+    } catch (err) {
+      console.error(err);
       setIsProcessing(false);
+      return;
     }
+
+    setTimelineItems((items) => [
+      ...items,
+      {
+        id: `cancel-${cancelledTurnId}-${Date.now()}`,
+        kind: "boundary",
+        title: "正在停止",
+        body: "正在停止本轮运行…",
+        createdAt: Date.now()
+      }
+    ]);
+
+    // 取消状态机：必须等后端确认停止（cancelled 事件）后才允许新 turn。
+    // 事件到达时由 desktopEventHandlers 复位 isProcessing 并清空 currentTurnId。
+    // 兜底：若 2.5s 内未收到 cancelled（如 turn 已自行结束、token 已被移除），
+    // 强制复位，避免 UI 卡在“停止中”。同时重置合帧状态，
+    // 保证后端并发保护拒绝新 turn 时前端不会因残留增量批污染时间线。
+    window.setTimeout(() => {
+      discardPendingDeltas();
+      setCurrentTurnId((turnId) => {
+        if (turnId === cancelledTurnId) {
+          setIsProcessing(false);
+          return null;
+        }
+        return turnId;
+      });
+    }, 2500);
   }
 
   async function handleSelectSession(sessionId: string) {
     const nextSession = sessionItems.find((item) => item.id === sessionId);
+    // 必须先清理旧会话的事件轨道与增量缓冲，再切换 activeSessionId，
+    // 否则清理的是新会话轨道，旧会话迟到事件仍可能被接受
+    const previousSessionId = activeSessionIdRef.current;
+    discardPendingDeltas();
+    if (previousSessionId && previousSessionId !== sessionId) {
+      resetTurnTracksForSession(previousSessionId);
+    }
     activeSessionIdRef.current = sessionId;
     setActiveSessionId(sessionId);
     setSelectedProjectRoot(nextSession?.projectRoot ?? null);
@@ -1012,6 +1097,8 @@ export function App() {
     setSessionItems(prev => prev.filter(s => s.id !== sessionId));
     if (activeSessionIdRef.current === sessionId) {
       const nextProjectRoot = session.projectRoot ?? null;
+      discardPendingDeltas();
+      resetTurnTracksForSession(sessionId);
       activeSessionIdRef.current = null;
       setActiveSessionId(null);
       clearTurnState();

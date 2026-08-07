@@ -1,7 +1,7 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::process::Child;
-use std::sync::{atomic::AtomicU64, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use tokio::sync::mpsc::UnboundedSender;
@@ -62,10 +62,12 @@ pub struct DesktopRuntime {
     mcp_resource_provider: Mutex<Option<Arc<dyn McpResourceProvider>>>,
     active_session_id: Mutex<Option<String>>,
     permission_mode: Mutex<String>,
-    seq: AtomicU64,
     confirm_txs: ConfirmSenderMap,
     ask_user_txs: AskUserSenderMap,
     cancel_tokens: CancelTokenMap,
+    /// 每会话 in-flight 占位（原子检查+占用），取消后仍保持占用，
+    /// 直到 turn 事件循环真正 quiesce 才释放。
+    active_sessions: Arc<Mutex<HashSet<String>>>,
     pending_confirmations: PendingConfirmationMap,
     session_permission_rules: Arc<Mutex<HashMap<String, Vec<PermissionRule>>>>,
     terminal_sessions: Mutex<HashMap<String, TerminalSessionState>>,
@@ -133,10 +135,10 @@ impl DesktopRuntime {
             mcp_resource_provider: Mutex::new(mcp_resource_provider),
             active_session_id: Mutex::new(None),
             permission_mode: Mutex::new(default_mode),
-            seq: AtomicU64::new(1),
             confirm_txs: Arc::new(Mutex::new(HashMap::new())),
             ask_user_txs: Arc::new(Mutex::new(HashMap::new())),
             cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
+            active_sessions: Arc::new(Mutex::new(HashSet::new())),
             pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
             session_permission_rules: Arc::new(Mutex::new(HashMap::new())),
             terminal_sessions: Mutex::new(HashMap::new()),
@@ -198,15 +200,29 @@ impl DesktopRuntime {
         })
     }
 
-    pub fn permission_mode_set(&self, mode: String) -> Result<()> {
+    pub async fn permission_mode_set(&self, mode: String) -> Result<()> {
         let parsed = mode
             .parse::<yode_core::permission::PermissionMode>()
             .map_err(|err| anyhow::anyhow!(err))?;
-        let mut active_mode = self
-            .permission_mode
-            .lock()
-            .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
-        *active_mode = parsed.to_string();
+        let config_to_save = {
+            let mut active_mode = self
+                .permission_mode
+                .lock()
+                .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
+            *active_mode = parsed.to_string();
+            // 持久化默认模式，重启后保持一致
+            let mut config = self
+                .config
+                .lock()
+                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+            config.permissions.default_mode = Some(parsed.to_string());
+            config.clone()
+        };
+        crate::runtime::configuration_runtime::save_config_to_path_async(
+            &config_to_save,
+            &self.user_config_path(),
+        )
+        .await?;
         Ok(())
     }
 

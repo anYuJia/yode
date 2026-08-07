@@ -27,16 +27,21 @@ pub(super) fn desktop_mcp_servers_from_config(
 
 pub(super) fn desktop_mcp_servers_to_config(
     servers: &[DesktopMcpServer],
+    existing: &HashMap<String, yode_core::config::McpServerConfig>,
 ) -> Result<HashMap<String, yode_core::config::McpServerConfig>> {
     let mut map = HashMap::new();
     for server in servers {
-        map.insert(server.name.clone(), desktop_mcp_server_to_config(server)?);
+        map.insert(
+            server.name.clone(),
+            desktop_mcp_server_to_config(server, existing.get(&server.name))?,
+        );
     }
     Ok(map)
 }
 
 pub(super) fn desktop_mcp_server_to_config(
     server: &DesktopMcpServer,
+    existing: Option<&yode_core::config::McpServerConfig>,
 ) -> Result<yode_core::config::McpServerConfig> {
     Ok(yode_core::config::McpServerConfig {
         disabled: server.disabled,
@@ -45,7 +50,9 @@ pub(super) fn desktop_mcp_server_to_config(
         args: server.args.clone(),
         env: server.env.clone(),
         url: server.url.clone().filter(|url| !url.trim().is_empty()),
-        auth: None,
+        // 前端表单不含 auth 字段，保存时必须保留既有配置中的 auth，
+        // 否则每次保存设置都会丢失 MCP OAuth / bearer_token_env。
+        auth: existing.and_then(|entry| entry.auth.clone()),
     })
 }
 
@@ -161,4 +168,86 @@ pub(super) fn mcp_statuses_from_servers(
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use yode_core::config::{McpAuthConfig, McpServerConfig};
+
+    use super::{desktop_mcp_server_to_config, desktop_mcp_servers_to_config};
+    use crate::protocol::DesktopMcpServer;
+
+    fn server_with_auth() -> DesktopMcpServer {
+        DesktopMcpServer {
+            name: "docs".to_string(),
+            transport: "stdio".to_string(),
+            command: Some("npx".to_string()),
+            args: vec!["-y".to_string(), "mcp-docs".to_string()],
+            url: None,
+            env: HashMap::from([("FOO".to_string(), "bar".to_string())]),
+            disabled: false,
+        }
+    }
+
+    fn existing_config() -> HashMap<String, McpServerConfig> {
+        HashMap::from([(
+            "docs".to_string(),
+            McpServerConfig {
+                disabled: false,
+                transport: yode_core::config::McpTransportConfig::Stdio,
+                command: "npx".to_string(),
+                args: vec![],
+                env: HashMap::new(),
+                url: None,
+                auth: Some(McpAuthConfig {
+                    oauth: None,
+                    bearer_token_env: Some("DOCS_TOKEN".to_string()),
+                }),
+            },
+        )])
+    }
+
+    #[test]
+    fn mcp_save_preserves_existing_auth() {
+        let converted =
+            desktop_mcp_server_to_config(&server_with_auth(), existing_config().get("docs"))
+                .unwrap();
+        assert_eq!(
+            converted
+                .auth
+                .as_ref()
+                .and_then(|auth| auth.bearer_token_env.as_deref()),
+            Some("DOCS_TOKEN")
+        );
+        assert_eq!(converted.env.get("FOO").map(String::as_str), Some("bar"));
+    }
+
+    #[test]
+    fn mcp_save_keeps_other_servers_untouched() {
+        let mut existing = existing_config();
+        existing.insert(
+            "other".to_string(),
+            McpServerConfig {
+                disabled: true,
+                transport: yode_core::config::McpTransportConfig::Http,
+                command: String::new(),
+                args: vec![],
+                env: HashMap::new(),
+                url: Some("https://example.com/mcp".to_string()),
+                auth: None,
+            },
+        );
+        let saved = desktop_mcp_servers_to_config(&[server_with_auth()], &existing).unwrap();
+        // 未被前端表单覆盖的服务器从配置中移除，但既有服务器保留 auth
+        assert_eq!(saved.len(), 1);
+        assert!(saved["docs"].auth.is_some());
+    }
+
+    #[test]
+    fn mcp_save_without_existing_entry_has_no_auth() {
+        let converted = desktop_mcp_server_to_config(&server_with_auth(), None).unwrap();
+        assert!(converted.auth.is_none());
+    }
 }

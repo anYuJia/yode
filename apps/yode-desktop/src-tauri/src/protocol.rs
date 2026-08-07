@@ -19,7 +19,11 @@ pub struct DesktopProvider {
     pub name: String,
     pub format: String,
     pub enabled: bool,
+    /// 永不为空返回：WebView 不接触真实密钥。前端留空表示“保持原密钥”。
     pub api_key: String,
+    /// 该 provider 是否已配置密钥（用于前端显示掩码/占位）。
+    #[serde(default)]
+    pub has_api_key: bool,
     pub base_url: String,
     pub models: Vec<String>,
     pub gradient: Option<String>,

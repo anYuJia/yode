@@ -39,21 +39,23 @@ pub fn ask_user_respond(
 
 #[tauri::command]
 pub fn turn_cancel(
+    app: tauri::AppHandle,
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     session_id: String,
     turn_id: String,
 ) -> Result<(), String> {
     runtime
-        .turn_cancel(session_id, turn_id)
+        .turn_cancel_request(app, session_id, turn_id)
         .map_err(|err| err.to_string())
 }
 
 #[tauri::command]
-pub fn permission_mode_set(
+pub async fn permission_mode_set(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     mode: String,
 ) -> Result<(), String> {
     runtime
         .permission_mode_set(mode)
+        .await
         .map_err(|err| err.to_string())
 }

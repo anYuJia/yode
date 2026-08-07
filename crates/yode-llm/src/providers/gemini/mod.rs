@@ -80,6 +80,26 @@ impl GeminiProvider {
         )
     }
 
+    /// 用于日志/调试产物的 URL：剔除 query 中的 API key，避免密钥进入日志与磁盘。
+    fn redacted_url(url: &str) -> String {
+        match url.split_once('?') {
+            Some((base, query)) => {
+                let redacted: Vec<String> = query
+                    .split('&')
+                    .map(|pair| {
+                        if pair.to_ascii_lowercase().starts_with("key=") {
+                            "key=REDACTED".to_string()
+                        } else {
+                            pair.to_string()
+                        }
+                    })
+                    .collect();
+                format!("{}?{}", base, redacted.join("&"))
+            }
+            None => url.to_string(),
+        }
+    }
+
     fn build_request(&self, request: &ChatRequest) -> GeminiRequest {
         let (system, contents) = convert_messages(
             &request.messages,
@@ -108,12 +128,13 @@ impl LlmProvider for GeminiProvider {
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
         let body = self.build_request(&request);
         let url = self.generate_url(&request.model);
-        debug!("Sending Gemini request to {}", url);
+        // URL 含 API key，日志与调试产物必须脱敏
+        debug!("Sending Gemini request to {}", Self::redacted_url(&url));
         write_debug_artifact(
             &self.name,
             "gemini-chat-request",
             serde_json::json!({
-                "url": &url,
+                "url": Self::redacted_url(&url),
                 "body": &body,
             }),
         )
@@ -167,12 +188,15 @@ impl LlmProvider for GeminiProvider {
     async fn chat_stream(&self, request: ChatRequest, tx: mpsc::Sender<StreamEvent>) -> Result<()> {
         let body = self.build_request(&request);
         let url = self.stream_url(&request.model);
-        debug!("Sending Gemini stream request to {}", url);
+        debug!(
+            "Sending Gemini stream request to {}",
+            Self::redacted_url(&url)
+        );
         write_debug_artifact(
             &self.name,
             "gemini-stream-request",
             serde_json::json!({
-                "url": &url,
+                "url": Self::redacted_url(&url),
                 "body": &body,
             }),
         )

@@ -115,24 +115,72 @@ export function normalizeShortcutLabel(label: string) {
     .replace(/ArrowDown/gi, "Down");
 }
 
+function isMacPlatform() {
+  return typeof navigator !== "undefined" && /mac|iphone|ipad/i.test(navigator.platform);
+}
+
 export function shortcutFromKeyboardEvent(event: KeyboardEvent | React.KeyboardEvent) {
   const key = printableKey(event.key);
+  const isMac = isMacPlatform();
+  // 非 mac 平台：Ctrl 兼任主修饰键（⌘），单独的 Ctrl 组合在匹配时另作解析
+  const primaryHeld = isMac ? event.metaKey : event.metaKey || event.ctrlKey;
   const modifiers = [
-    event.ctrlKey ? "⌃" : "",
+    isMac && event.ctrlKey ? "⌃" : "",
     event.altKey ? "⌥" : "",
     event.shiftKey ? "⇧" : "",
-    event.metaKey ? "⌘" : ""
+    primaryHeld ? "⌘" : ""
   ].join("");
   return normalizeShortcutLabel(`${modifiers}${key}`);
 }
 
 export function eventMatchesShortcut(event: KeyboardEvent, shortcut: string) {
-  return shortcutFromKeyboardEvent(event) === normalizeShortcutLabel(shortcut);
+  const normalized = normalizeShortcutLabel(shortcut);
+  if (shortcutFromKeyboardEvent(event) === normalized) return true;
+  // 非 mac 平台：Ctrl 兼任主修饰键（⌘），绑定为 ⌃X 的组合额外按字面 Ctrl 匹配
+  if (!isMacPlatform() && event.ctrlKey) {
+    const literal = [
+      event.ctrlKey ? "⌃" : "",
+      event.altKey ? "⌥" : "",
+      event.shiftKey ? "⇧" : "",
+      event.metaKey ? "⌘" : ""
+    ].join("");
+    return normalizeShortcutLabel(`${literal}${printableKey(event.key)}`) === normalized;
+  }
+  return false;
 }
 
 export function findShortcutAction(event: KeyboardEvent, bindings = loadShortcutBindings()) {
   return bindings.find((binding) => binding.keys.some((key) => eventMatchesShortcut(event, key)))?.id ?? null;
 }
+
+/**
+ * 已实现真实 handler 的快捷键 action 集合（对应 App.tsx 的 switch）。
+ * 未列出的 action 在设置页展示时标记为“尚未实现”，禁止录制新绑定。
+ */
+export const IMPLEMENTED_SHORTCUT_IDS = new Set([
+  "archive",
+  "newchat",
+  "quickchat",
+  "toggle_sidebar",
+  "toggle_side_panel",
+  "toggle_bottom_panel",
+  "open_terminal",
+  "open_folder",
+  "settings",
+  "show_kbd_shortcuts",
+  "copy_session_id",
+  "copy_work_dir",
+  "close_tab",
+  "go_to_chat_1",
+  "go_to_chat_2",
+  "go_to_chat_3",
+  "go_to_chat_4",
+  "go_to_chat_5",
+  "go_to_chat_6",
+  "go_to_chat_7",
+  "go_to_chat_8",
+  "go_to_chat_9"
+]);
 
 function printableKey(key: string) {
   if (key === " ") return "Space";
