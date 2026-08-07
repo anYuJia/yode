@@ -121,72 +121,6 @@ fn load_prompt_cache_state_artifact(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn missing_prompt_cache_state_artifact_is_ignored() {
-        let dir = tempfile::tempdir().unwrap();
-
-        let cache = load_prompt_cache_state_artifact(dir.path(), "session-12345678");
-
-        assert!(cache.is_none());
-    }
-
-    #[test]
-    fn invalid_prompt_cache_state_artifact_is_ignored_without_panicking() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = prompt_cache_state_artifact_path(dir.path(), "session-12345678");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(path, "{not-json").unwrap();
-
-        let cache = load_prompt_cache_state_artifact(dir.path(), "session-12345678");
-
-        assert!(cache.is_none());
-    }
-
-    #[tokio::test]
-    async fn async_prompt_cache_state_artifact_loader_preserves_valid_state() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = prompt_cache_state_artifact_path(dir.path(), "session-12345678");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(
-            path,
-            r#"{
-  "pending_cache_edit_refs": 2,
-  "pinned_cache_edit_refs": 1,
-  "pending_cache_edit_ref_values": ["pending-b", "pending-a"],
-  "pinned_cache_edit_ref_values": ["pinned-a"],
-  "prompt_cache_break_count": 3,
-  "last_prompt_cache_break_reason": "unexpected_drop",
-  "reported_turns": 4,
-  "cache_write_tokens_total": 120
-}"#,
-        )
-        .unwrap();
-
-        let cache = load_prompt_cache_state_artifact_async(dir.path(), "session-12345678")
-            .await
-            .unwrap();
-
-        assert_eq!(cache.pending_cache_edit_refs, 2);
-        assert_eq!(cache.pinned_cache_edit_refs, 1);
-        assert_eq!(
-            cache.pending_cache_edit_ref_values,
-            vec!["pending-b".to_string(), "pending-a".to_string()]
-        );
-        assert_eq!(cache.pinned_cache_edit_ref_values, vec!["pinned-a"]);
-        assert_eq!(cache.prompt_cache_break_count, 3);
-        assert_eq!(
-            cache.last_prompt_cache_break_reason.as_deref(),
-            Some("unexpected_drop")
-        );
-        assert_eq!(cache.reported_turns, 4);
-        assert_eq!(cache.cache_write_tokens_total, 120);
-    }
-}
-
 async fn load_prompt_cache_state_artifact_async(
     project_root: &std::path::Path,
     session_id: &str,
@@ -663,5 +597,71 @@ impl AgentEngine {
             .map(|block| block.kind.len().saturating_add(block.content.len()))
             .sum::<usize>();
         base.saturating_add(restore)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_prompt_cache_state_artifact_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let cache = load_prompt_cache_state_artifact(dir.path(), "session-12345678");
+
+        assert!(cache.is_none());
+    }
+
+    #[test]
+    fn invalid_prompt_cache_state_artifact_is_ignored_without_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = prompt_cache_state_artifact_path(dir.path(), "session-12345678");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "{not-json").unwrap();
+
+        let cache = load_prompt_cache_state_artifact(dir.path(), "session-12345678");
+
+        assert!(cache.is_none());
+    }
+
+    #[tokio::test]
+    async fn async_prompt_cache_state_artifact_loader_preserves_valid_state() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = prompt_cache_state_artifact_path(dir.path(), "session-12345678");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            r#"{
+  "pending_cache_edit_refs": 2,
+  "pinned_cache_edit_refs": 1,
+  "pending_cache_edit_ref_values": ["pending-b", "pending-a"],
+  "pinned_cache_edit_ref_values": ["pinned-a"],
+  "prompt_cache_break_count": 3,
+  "last_prompt_cache_break_reason": "unexpected_drop",
+  "reported_turns": 4,
+  "cache_write_tokens_total": 120
+}"#,
+        )
+        .unwrap();
+
+        let cache = load_prompt_cache_state_artifact_async(dir.path(), "session-12345678")
+            .await
+            .unwrap();
+
+        assert_eq!(cache.pending_cache_edit_refs, 2);
+        assert_eq!(cache.pinned_cache_edit_refs, 1);
+        assert_eq!(
+            cache.pending_cache_edit_ref_values,
+            vec!["pending-b".to_string(), "pending-a".to_string()]
+        );
+        assert_eq!(cache.pinned_cache_edit_ref_values, vec!["pinned-a"]);
+        assert_eq!(cache.prompt_cache_break_count, 3);
+        assert_eq!(
+            cache.last_prompt_cache_break_reason.as_deref(),
+            Some("unexpected_drop")
+        );
+        assert_eq!(cache.reported_turns, 4);
+        assert_eq!(cache.cache_write_tokens_total, 120);
     }
 }

@@ -195,13 +195,7 @@ impl Message {
     /// Normalize the legacy flat fields and structured content blocks so they stay in sync.
     pub fn normalize_in_place(&mut self) {
         fn sanitize(value: Option<String>) -> Option<String> {
-            value.and_then(|text| {
-                if text.trim().is_empty() {
-                    None
-                } else {
-                    Some(text)
-                }
-            })
+            value.filter(|text| !text.trim().is_empty())
         }
 
         self.content = sanitize(self.content.take());

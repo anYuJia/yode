@@ -31,6 +31,7 @@ impl DesktopRuntime {
             expose_dependencies: load_workspace_dependency_state_async().await,
             config_path: self.user_config_path().display().to_string(),
             project_config_path: project_config_path.display().to_string(),
+            effective_permission_mode: mode.to_string(),
         })
     }
 
@@ -38,43 +39,40 @@ impl DesktopRuntime {
         &self,
         request: ConfigurationUpdateRequest,
     ) -> Result<ConfigurationState> {
-        let scope = if request.scope.to_lowercase().contains("project") {
-            ConfigScope::Project
-        } else {
-            ConfigScope::User
-        };
-        let permission_mode =
-            permission_mode_from_configuration(&request.approval_policy, &request.sandbox_settings);
-        {
-            let mut runtime_mode = self
-                .permission_mode
-                .lock()
-                .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
-            *runtime_mode = permission_mode.to_string();
+        // 配置页不再维护第二套权限真相。审批与沙箱字段只作为兼容输入，
+        // 返回值始终由后端当前有效模式重新推导；项目作用域尤其不能提权。
+        let effective_mode = self
+            .permission_mode
+            .lock()
+            .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?
+            .parse::<yode_core::permission::PermissionMode>()
+            .unwrap_or(yode_core::permission::PermissionMode::Default);
+        // 若旧前端仍提交与有效模式冲突的权限字段，记录漂移以暴露真相源不一致。
+        let expected = approval_policy_from_permission_mode(effective_mode);
+        if request.approval_policy != expected {
+            tracing::warn!(
+                requested = %request.approval_policy,
+                effective = %expected,
+                "Ignoring stale approval_policy from configuration page; effective permission mode is authoritative."
+            );
         }
-        let config_path = self.config_path_for_scope(scope);
-        let config_to_save = {
-            let mut config = self
-                .config
-                .lock()
-                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
-            config.permissions.default_mode = Some(permission_mode.to_string());
-            config.clone()
-        };
-        match scope {
-            ConfigScope::User => save_config_to_path_async(&config_to_save, &config_path).await?,
-            ConfigScope::Project => {
-                save_project_config_to_path_async(&config_to_save, &config_path).await?
-            }
+        let expected_sandbox = sandbox_settings_from_permission_mode(effective_mode);
+        if request.sandbox_settings != expected_sandbox {
+            tracing::warn!(
+                requested = %request.sandbox_settings,
+                effective = %expected_sandbox,
+                "Ignoring stale sandbox_settings from configuration page; effective permission mode is authoritative."
+            );
         }
         set_workspace_dependency_state_async(request.expose_dependencies).await?;
         Ok(ConfigurationState {
             scope: request.scope,
-            approval_policy: request.approval_policy,
-            sandbox_settings: request.sandbox_settings,
+            approval_policy: approval_policy_from_permission_mode(effective_mode),
+            sandbox_settings: sandbox_settings_from_permission_mode(effective_mode),
             expose_dependencies: request.expose_dependencies,
             config_path: self.user_config_path().display().to_string(),
             project_config_path: self.project_config_path().display().to_string(),
+            effective_permission_mode: effective_mode.to_string(),
         })
     }
 
@@ -140,19 +138,6 @@ impl DesktopRuntime {
         set_workspace_dependency_state_async(true).await?;
         self.diagnose_workspace().await
     }
-
-    fn config_path_for_scope(&self, scope: ConfigScope) -> PathBuf {
-        match scope {
-            ConfigScope::User => self.user_config_path(),
-            ConfigScope::Project => self.project_config_path(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum ConfigScope {
-    User,
-    Project,
 }
 
 pub(super) async fn load_desktop_config(workspace_path: &Path) -> Result<Config> {
@@ -160,22 +145,17 @@ pub(super) async fn load_desktop_config(workspace_path: &Path) -> Result<Config>
         .unwrap_or_else(|| PathBuf::from("."))
         .join(".yode")
         .join("config.toml");
-    let project_config = workspace_path.join(".yode").join("config.toml");
-    // 用户配置必须始终参与合并：项目配置存在时只覆盖共享字段，
-    // 不能导致用户 provider / API key 丢失
-    Config::load_with_overrides_async(
-        Some(&user_config),
-        project_config.exists().then_some(project_config.as_path()),
-    )
-    .await
+    let _project_config = workspace_path.join(".yode").join("config.toml");
+    // 未建立仓库外信任记录前，桌面端不执行任何仓库配置覆盖。尤其不能让
+    // `.yode/config.toml` 改写 endpoint/API key、权限模式、MCP 或 Hooks。
+    Config::load_with_overrides_async(Some(&user_config), None).await
 }
 
 pub(super) async fn save_config_to_path_async(config: &Config, path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    tokio::fs::write(path, toml::to_string_pretty(config)?).await?;
-    Ok(())
+    atomic_write_async(path, toml::to_string_pretty(config)?.as_bytes()).await
 }
 
 /// 写项目级共享配置：只写脱敏后的可共享字段（不含 API key 与疑似密钥环境变量）。
@@ -184,30 +164,37 @@ pub(super) async fn save_project_config_to_path_async(config: &Config, path: &Pa
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
-    tokio::fs::write(path, config.to_shared_project_toml()?).await?;
-    Ok(())
+    let mut root = toml::map::Map::new();
+    root.insert("ui".to_string(), toml::Value::try_from(&config.ui)?);
+    if !config.permissions.always_deny.is_empty() {
+        let mut permissions = toml::map::Map::new();
+        permissions.insert(
+            "always_deny".to_string(),
+            toml::Value::try_from(&config.permissions.always_deny)?,
+        );
+        root.insert("permissions".to_string(), toml::Value::Table(permissions));
+    }
+    let serialized = toml::to_string_pretty(&toml::Value::Table(root))?;
+    atomic_write_async(path, serialized.as_bytes()).await
 }
 
-fn permission_mode_from_configuration(
-    approval_policy: &str,
-    sandbox_settings: &str,
-) -> yode_core::permission::PermissionMode {
-    let approval = approval_policy.to_lowercase();
-    if approval.contains("always") || approval.contains("始终") {
-        return yode_core::permission::PermissionMode::Bypass;
-    }
-    if approval.contains("never") || approval.contains("从不") {
-        return yode_core::permission::PermissionMode::Plan;
-    }
+async fn atomic_write_async(path: &Path, bytes: &[u8]) -> Result<()> {
+    use tokio::io::AsyncWriteExt;
 
-    let sandbox = sandbox_settings.to_lowercase();
-    if sandbox.contains("read only") || sandbox.contains("只读") {
-        yode_core::permission::PermissionMode::Plan
-    } else if sandbox.contains("full") || sandbox.contains("读写") {
-        yode_core::permission::PermissionMode::AcceptEdits
-    } else {
-        yode_core::permission::PermissionMode::Default
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("config.toml");
+    let temporary = path.with_file_name(format!(".{file_name}.tmp-{}", std::process::id()));
+    let mut file = tokio::fs::File::create(&temporary).await?;
+    file.write_all(bytes).await?;
+    file.sync_all().await?;
+    drop(file);
+    if let Err(err) = tokio::fs::rename(&temporary, path).await {
+        let _ = tokio::fs::remove_file(&temporary).await;
+        return Err(err.into());
     }
+    Ok(())
 }
 
 fn approval_policy_from_permission_mode(mode: yode_core::permission::PermissionMode) -> String {

@@ -238,7 +238,7 @@ fn domain_matches(domain: &str, pattern: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::OnceLock;
 
     use serde_json::json;
 
@@ -246,9 +246,11 @@ mod tests {
 
     use super::WebBrowserTool;
 
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+    async fn env_lock() -> tokio::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock()
+            .await
     }
 
     fn set_browser_settings(settings: serde_json::Value) {
@@ -257,7 +259,7 @@ mod tests {
 
     #[tokio::test]
     async fn web_browser_formats_navigate_and_click_actions() {
-        let _guard = env_lock();
+        let _guard = env_lock().await;
         std::env::remove_var("YODE_BROWSER_SETTINGS");
         let navigate = WebBrowserTool
             .execute(
@@ -288,7 +290,7 @@ mod tests {
 
     #[tokio::test]
     async fn web_browser_formats_screenshot_and_generic_actions() {
-        let _guard = env_lock();
+        let _guard = env_lock().await;
         set_browser_settings(json!({
             "enabled": true,
             "annotationScreenshots": "Never include",
@@ -331,7 +333,7 @@ mod tests {
 
     #[tokio::test]
     async fn web_browser_rejects_when_disabled() {
-        let _guard = env_lock();
+        let _guard = env_lock().await;
         set_browser_settings(json!({
             "enabled": false,
             "annotationScreenshots": "Always include",
@@ -353,7 +355,7 @@ mod tests {
 
     #[tokio::test]
     async fn web_browser_rejects_blocked_domain() {
-        let _guard = env_lock();
+        let _guard = env_lock().await;
         set_browser_settings(json!({
             "enabled": true,
             "annotationScreenshots": "Always include",
@@ -375,7 +377,7 @@ mod tests {
 
     #[tokio::test]
     async fn web_browser_never_allow_requires_allowed_domain() {
-        let _guard = env_lock();
+        let _guard = env_lock().await;
         set_browser_settings(json!({
             "enabled": true,
             "annotationScreenshots": "Always include",

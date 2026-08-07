@@ -24,7 +24,7 @@ cat >"$out_file" <<'EOF'
 ## Verification Before Tagging
 
 - `cargo test --workspace --lib`
-- `cargo clippy -p yode -p yode-core -p yode-llm -p yode-tools -p yode-tui -p yode-mcp -p yode-agent --no-deps -- -D warnings`
+- `cargo clippy --workspace --all-targets --no-deps -- -D warnings`
 - `bash scripts/parity-ci-local.sh`
 - `bash scripts/release-checklist.sh`
 

@@ -105,14 +105,12 @@ impl HookManager {
         let timeout = std::time::Duration::from_secs(hook.timeout_secs);
         let started_at = Instant::now();
 
-        let result = tokio::time::timeout(timeout, async {
-            self.run_hook_command(&hook.command, &context_json, &context.event)
-                .await
-        })
-        .await;
+        let result = self
+            .run_hook_command(&hook.command, &context_json, &context.event, timeout)
+            .await;
 
         match result {
-            Ok(Ok(output)) => {
+            HookCommandResult::Output(output) => {
                 let stdout = normalize_hook_output(&output.stdout);
                 let stderr = normalize_hook_output(&output.stderr);
                 let mut structured = match parse_structured_hook_output_result(&stdout) {
@@ -241,7 +239,7 @@ impl HookManager {
                     }
                 }
             }
-            Ok(Err(e)) => {
+            HookCommandResult::Io(e) => {
                 tracing::warn!("Hook execution failed: {}", e);
                 self.record_hook_failure(
                     &context.event,
@@ -255,9 +253,9 @@ impl HookManager {
                 );
                 HookResult::allowed()
             }
-            Err(_) => {
+            HookCommandResult::Timeout => {
                 tracing::warn!(
-                    "Hook '{}' timed out after {}s (event={})",
+                    "Hook '{}' timed out after {}s (event={}); process group terminated",
                     hook.command,
                     hook.timeout_secs,
                     context.event,
@@ -273,45 +271,41 @@ impl HookManager {
         command: &str,
         context_json: &str,
         event: &str,
-    ) -> std::io::Result<std::process::Output> {
-        #[cfg(windows)]
-        {
-            match self
-                .build_hook_command("cmd.exe", &["/C"], command, context_json, event)
-                .output()
-                .await
-            {
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-                result => return result,
-            }
-
-            for program in [
-                "bash",
-                r"C:\Program Files\Git\bin\bash.exe",
-                r"C:\Program Files\Git\usr\bin\bash.exe",
-            ] {
-                match self
-                    .build_hook_command(program, &["-lc"], command, context_json, event)
-                    .output()
-                    .await
-                {
-                    Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
-                    result => return result,
-                }
-            }
-
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "no supported hook shell found",
-            ));
-        }
-
+        timeout: std::time::Duration,
+    ) -> HookCommandResult {
         #[cfg(not(windows))]
-        {
-            self.build_hook_command("sh", &["-c"], command, context_json, event)
-                .output()
-                .await
-        }
+        let mut cmd = self.build_hook_command("sh", &["-c"], command, context_json, event);
+        #[cfg(windows)]
+        let mut cmd = self.build_hook_command("cmd.exe", &["/C"], command, context_json, event);
+        cmd.stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+        // 独立进程组：超时/取消时能连同全部后代进程一起终止并回收。
+        yode_tools::process_env::spawn_in_new_process_group(&mut cmd);
+        let mut child = match cmd.spawn() {
+            Ok(child) => child,
+            Err(err) => return HookCommandResult::Io(err),
+        };
+        let drain = drain_pipe(child.stdout.take(), child.stderr.take());
+        let wait = child.wait();
+
+        let status = tokio::select! {
+            status = wait => match status {
+                Ok(status) => status,
+                Err(err) => return HookCommandResult::Io(err),
+            },
+            _ = tokio::time::sleep(timeout) => {
+                // BUG-005/CANCEL-001：超时后必须终止整个进程组并回收，
+                // 不允许脚本继续运行（安全策略 fail-closed 的进程侧保证）。
+                let _ = yode_tools::process_env::kill_process_group(&mut child).await;
+                return HookCommandResult::Timeout;
+            }
+        };
+        let (stdout, stderr) = drain.await;
+        HookCommandResult::Output(std::process::Output {
+            status,
+            stdout,
+            stderr,
+        })
     }
 
     fn build_hook_command(
@@ -323,6 +317,9 @@ impl HookManager {
         event: &str,
     ) -> tokio::process::Command {
         let mut process = tokio::process::Command::new(program);
+        // 仓库可控的 hook 脚本不得继承父进程环境：父进程的 API key、
+        // 凭据、代理设置等只能通过明确授权的方式传递。
+        yode_tools::process_env::apply_minimal_env(&mut process);
         process
             .args(shell_args)
             .arg(command)
@@ -384,4 +381,27 @@ impl HookManager {
 
 fn normalize_hook_output(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).replace("\r\n", "\n")
+}
+
+enum HookCommandResult {
+    Output(std::process::Output),
+    Io(std::io::Error),
+    Timeout,
+}
+
+/// 并行排空子进程管道，避免 stdout/stderr 满时死锁。
+async fn drain_pipe(
+    mut pipe: Option<tokio::process::ChildStdout>,
+    mut stderr_pipe: Option<tokio::process::ChildStderr>,
+) -> (Vec<u8>, Vec<u8>) {
+    use tokio::io::AsyncReadExt;
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    if let Some(mut pipe) = pipe.take() {
+        let _ = pipe.read_to_end(&mut stdout).await;
+    }
+    if let Some(mut pipe) = stderr_pipe.take() {
+        let _ = pipe.read_to_end(&mut stderr).await;
+    }
+    (stdout, stderr)
 }

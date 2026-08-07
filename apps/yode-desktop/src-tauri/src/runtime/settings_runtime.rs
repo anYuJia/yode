@@ -24,16 +24,17 @@ impl DesktopRuntime {
     pub fn general_settings_apply(
         &self,
         app: &AppHandle,
-        settings: GeneralSettings,
+        mut settings: GeneralSettings,
     ) -> Result<GeneralSettings> {
-        let effective_mode = permission_mode_from_general_settings(&settings);
-        {
-            let mut active_mode = self
-                .permission_mode
-                .lock()
-                .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
-            *active_mode = effective_mode.to_string();
-        }
+        // 通用设置不再拥有权限写入口。full_access 只是后端有效模式的只读投影，
+        // 防止设置页挂载/保存普通偏好时静默切换权限。
+        let effective_mode = self
+            .permission_mode
+            .lock()
+            .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?
+            .parse::<yode_core::permission::PermissionMode>()
+            .unwrap_or(yode_core::permission::PermissionMode::Default);
+        settings.full_access = effective_mode == yode_core::permission::PermissionMode::Bypass;
         {
             let mut current = self
                 .general_settings
@@ -93,7 +94,7 @@ pub(super) fn default_general_settings() -> GeneralSettings {
         work_mode: "coding".to_string(),
         default_file_permission: true,
         auto_review: true,
-        full_access: true,
+        full_access: false,
         open_destination: "VS Code".to_string(),
         show_in_menu_bar: true,
         bottom_panel: true,
@@ -107,17 +108,5 @@ pub(super) fn default_general_settings() -> GeneralSettings {
         completion_notification: "Only when unfocused".to_string(),
         permission_notification: true,
         question_notification: true,
-    }
-}
-
-fn permission_mode_from_general_settings(
-    settings: &GeneralSettings,
-) -> yode_core::permission::PermissionMode {
-    if settings.full_access {
-        yode_core::permission::PermissionMode::Bypass
-    } else if settings.default_file_permission {
-        yode_core::permission::PermissionMode::AcceptEdits
-    } else {
-        yode_core::permission::PermissionMode::Default
     }
 }

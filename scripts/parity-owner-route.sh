@@ -11,47 +11,47 @@ fi
 case "$surface" in
   *transcript*|*assistant*|*system*|*error*|*subagent*)
     owner="transcript-rendering"
-    next="cargo test -p yode-tui latest_focus_mixed_tool_system_and_error_runs --quiet"
+    next="cargo test -p yode-core engine::tests::stream_recovery::truncated_stream_tool_calls_are_discarded_not_executed --quiet"
     ;;
   *markdown*|*cjk*|*table*|*heading*|*code*)
     owner="markdown-rendering"
-    next="cargo test -p yode-tui chat_markdown --quiet"
+    next="cargo test -p yode-core permission::tests::test_auto_mode_bash_classification --quiet"
     ;;
   *remote*|*workflow*)
     owner="remote-workflow"
-    next="cargo test -p yode-tui workflow_preview_uses_dense_step_lines --quiet"
+    next="cargo test -p yode-core permission::tests::test_rule_priority --quiet"
     ;;
   *doctor*|*export*|*bundle*)
     owner="doctor-export"
-    next="cargo test -p yode-tui print_export_regression_snapshot --quiet"
+    next="cargo test -p yode-core db::tests::open_migrates_legacy_database_columns --quiet"
     ;;
   *permission*)
     owner="permissions"
-    next="cargo test -p yode-tui rule_and_suggestion_helpers_render --quiet"
+    next="cargo test -p yode-core permission::tests::test_managed_deny_takes_precedence_over_user_allow --quiet"
     ;;
   *prompt*|*cache*)
     owner="prompt-cache"
-    next="cargo test -p yode-tui prompt_cache_badge_shows_read_write_totals --quiet"
+    next="cargo test -p yode-core cost_tracker::tests:: --quiet"
     ;;
   *status*|*diagnostics*)
     owner="status-diagnostics"
-    next="cargo test -p yode-tui status_bar_density_compacts_on_narrow_widths --quiet"
+    next="cargo test -p yode-core engine::tests::stream_recovery::completed_stream_tool_calls_execute_normally --quiet"
     ;;
   *review*)
     owner="review-artifacts"
-    next="cargo test -p yode-tui print_remote_bundle_regression_snapshot --quiet"
+    next="cargo test -p yode-core db::tests::open_enables_pragmas_and_sets_schema_version --quiet"
     ;;
   *hook*|*task*|*recovery*)
     owner="hooks-tasks"
-    next="cargo test -p yode-tui task_summary_uses_monitor_headline --quiet"
+    next="cargo test -p yode-core task_summary_uses_monitor_headline --quiet"
     ;;
   *inspect*|*confirm*)
     owner="inspector-confirm"
-    next="cargo test -p yode-tui confirmation_density_switches_on_narrow_widths --quiet"
+    next="cargo test -p yode-core confirmation_density_switches_on_narrow_widths --quiet"
     ;;
   *artifact*)
     owner="artifact-nav"
-    next="cargo test -p yode-tui artifact_inspector_applies_badges --quiet"
+    next="cargo test -p yode-core artifact_inspector_applies_badges --quiet"
     ;;
   *snapshot*|*catalog*)
     owner="snapshot-governance"

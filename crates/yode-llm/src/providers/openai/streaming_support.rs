@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
+use anyhow::Result;
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::providers::streaming_shared::{
     append_tool_call_delta, emit_done_event, emit_tool_call_end, emit_tool_call_start,
@@ -201,13 +202,17 @@ fn streaming_delta(current: &str, incoming: &str) -> Option<String> {
     Some(incoming.to_string())
 }
 
-pub(super) async fn finalize_stream(mut state: OpenAiStreamState, tx: &mpsc::Sender<StreamEvent>) {
+pub(super) async fn finalize_stream(
+    mut state: OpenAiStreamState,
+    tx: &mpsc::Sender<StreamEvent>,
+) -> Result<()> {
     if !state.saw_done_sentinel && !state.saw_finish_reason {
-        warn!(
-            "OpenAI stream ended without [DONE] or finish_reason; finalizing from partial state (reason={}, chunks={})",
-            state.finalize_reason,
+        // 流在没有 [DONE] 也没有 finish_reason 的情况下结束：这是截断流。
+        // 绝不能把它当作成功，更不能执行半截工具调用。
+        return Err(anyhow::anyhow!(
+            "OpenAI 流在收到 [DONE] 或 finish_reason 之前中断（已接收 {} 个 chunk）；丢弃部分输出。",
             state.chunk_count
-        );
+        ));
     }
 
     for (&index, active) in &state.active_tool_indices {
@@ -239,6 +244,7 @@ pub(super) async fn finalize_stream(mut state: OpenAiStreamState, tx: &mpsc::Sen
         state.stop_reason,
     )
     .await;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -330,7 +336,7 @@ mod tests {
             Some(StreamEvent::ToolCallEnd { id }) if id == "call-1"
         ));
 
-        finalize_stream(state, &tx).await;
+        finalize_stream(state, &tx).await.unwrap();
         let done = rx.recv().await;
         match done {
             Some(StreamEvent::Done(response)) => {
@@ -344,5 +350,90 @@ mod tests {
             }
             other => panic!("expected done event, got {other:?}"),
         }
+    }
+    #[tokio::test]
+    async fn abrupt_eof_without_done_sentinel_is_an_error() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let mut state = OpenAiStreamState::new("gpt-test".to_string());
+        // 模拟截断流：收到内容但没有 [DONE] 也没有 finish_reason
+        let should_stop = handle_stream_chunk(
+            &mut state,
+            OpenAiStreamChunk {
+                choices: vec![OpenAiStreamChoice {
+                    delta: OpenAiStreamDelta {
+                        _role: None,
+                        content: Some("hello".to_string()),
+                        reasoning_content: None,
+                        tool_calls: None,
+                    },
+                    finish_reason: None,
+                }],
+                usage: None,
+                model: None,
+            },
+            &tx,
+        )
+        .await;
+        assert!(!should_stop);
+
+        let result = finalize_stream(state, &tx).await;
+        assert!(
+            result.is_err(),
+            "abrupt EOF without [DONE]/finish_reason must fail"
+        );
+        // 绝不发送 Done 事件，更不发送 ToolCallEnd（文本 delta 允许正常流式）
+        let mut events = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            events.push(event);
+        }
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, StreamEvent::Done(_))),
+            "truncated stream must not emit Done"
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, StreamEvent::ToolCallEnd { .. })),
+            "truncated stream must not emit ToolCallEnd"
+        );
+    }
+
+    #[tokio::test]
+    async fn completed_stream_finalizes_with_done_event() {
+        let (tx, mut rx) = mpsc::channel(8);
+        let mut state = OpenAiStreamState::new("gpt-test".to_string());
+        let should_stop = handle_stream_chunk(
+            &mut state,
+            OpenAiStreamChunk {
+                choices: vec![OpenAiStreamChoice {
+                    delta: OpenAiStreamDelta {
+                        _role: None,
+                        content: Some("ok".to_string()),
+                        reasoning_content: None,
+                        tool_calls: None,
+                    },
+                    finish_reason: Some("stop".to_string()),
+                }],
+                usage: None,
+                model: None,
+            },
+            &tx,
+        )
+        .await;
+        assert!(should_stop);
+
+        finalize_stream(state, &tx).await.unwrap();
+        let mut events = Vec::new();
+        while let Ok(event) = rx.try_recv() {
+            events.push(event);
+        }
+        assert!(
+            events
+                .iter()
+                .any(|event| matches!(event, StreamEvent::Done(_))),
+            "completed stream must emit Done"
+        );
     }
 }

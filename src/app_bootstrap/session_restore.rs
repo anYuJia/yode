@@ -29,9 +29,16 @@ pub(crate) fn configure_permissions(
     let mut source_views = Vec::new();
     let layers = permission_layers(config, workdir);
     for (source, path, layer) in layers {
-        if let Some(mode_str) = &layer.default_mode {
-            if let Ok(mode) = mode_str.parse::<yode_core::PermissionMode>() {
-                permissions.set_mode(mode);
+        // 仓库内配置（Project/Local）只能贡献 deny 收紧规则，不能切换权限模式。
+        if !matches!(
+            source,
+            yode_core::permission::RuleSource::ProjectConfig
+                | yode_core::permission::RuleSource::LocalConfig
+        ) {
+            if let Some(mode_str) = &layer.default_mode {
+                if let Ok(mode) = mode_str.parse::<yode_core::PermissionMode>() {
+                    permissions.set_mode(mode);
+                }
             }
         }
         let rules = layer.to_rules(source);
@@ -70,7 +77,7 @@ fn permission_layers(
         .map(|home| home.join(".yode").join("managed-config.toml"))
         .filter(|path| path.exists());
     if let Some(path) = managed_path.as_deref() {
-        if let Some(config) = load_permission_config_from_path(path) {
+        if let Some(config) = load_full_permission_config_from_path(path) {
             layers.push((
                 RuleSource::ManagedConfig,
                 Some(path.display().to_string()),
@@ -80,7 +87,7 @@ fn permission_layers(
     }
 
     let project_path = workdir.join(".yode").join("config.toml");
-    if let Some(config) = load_permission_config_from_path(&project_path) {
+    if let Some(config) = load_tightening_permission_config_from_path(&project_path) {
         layers.push((
             RuleSource::ProjectConfig,
             Some(project_path.display().to_string()),
@@ -89,7 +96,7 @@ fn permission_layers(
     }
 
     let local_path = workdir.join(".yode").join("config.local.toml");
-    if let Some(config) = load_permission_config_from_path(&local_path) {
+    if let Some(config) = load_tightening_permission_config_from_path(&local_path) {
         layers.push((
             RuleSource::LocalConfig,
             Some(local_path.display().to_string()),
@@ -135,13 +142,35 @@ fn permission_rule_entry_to_config(
     }
 }
 
-fn load_permission_config_from_path(path: &std::path::Path) -> Option<PermissionConfig> {
+/// 加载完整权限配置（用户配置、受管策略）：保留 default_mode 与全部规则。
+fn load_full_permission_config_from_path(path: &std::path::Path) -> Option<PermissionConfig> {
     if !path.exists() {
         return None;
     }
     yode_core::config::Config::load_from(Some(path))
         .ok()
         .map(|config| permission_config_from_runtime_config(&config))
+}
+
+/// 仓库内配置（项目/本地覆盖）只能收紧：只保留 always_deny 规则，
+/// 忽略 default_mode、always_allow 与 always_ask。
+fn load_tightening_permission_config_from_path(path: &std::path::Path) -> Option<PermissionConfig> {
+    if !path.exists() {
+        return None;
+    }
+    yode_core::config::Config::load_from(Some(path))
+        .ok()
+        .map(|config| PermissionConfig {
+            default_mode: None,
+            always_allow: Vec::new(),
+            always_ask: Vec::new(),
+            always_deny: config
+                .permissions
+                .always_deny
+                .iter()
+                .map(permission_rule_entry_to_config)
+                .collect(),
+        })
 }
 
 pub(crate) fn restore_or_create_context(
@@ -155,9 +184,17 @@ pub(crate) fn restore_or_create_context(
     if let Some(resume_id) = &cli.resume {
         if let Some(session) = resume_session_metadata(db, resume_id)? {
             info!("Resuming session: {}", resume_id);
+            // BUG-003：恢复时以持久化的 project_root 为准，而不是当前 cwd，
+            // 避免从其他目录 resume 时工具在错误的仓库运行。
+            let restored_root = session
+                .project_root
+                .as_deref()
+                .map(PathBuf::from)
+                .filter(|root| root.is_dir())
+                .unwrap_or(workdir);
             let mut context = AgentContext::resume(
                 session.id.clone(),
-                workdir,
+                restored_root,
                 session.provider.clone(),
                 session.model.clone(),
             );
@@ -244,6 +281,46 @@ fn restore_messages_full(
     Ok((decoded_messages, report))
 }
 
+fn stored_message_to_message(message: StoredMessage) -> Option<Message> {
+    let role = match message.role.as_str() {
+        "user" => Role::User,
+        "assistant" => Role::Assistant,
+        "tool" => Role::Tool,
+        "system" => Role::System,
+        _ => return None,
+    };
+    let tool_calls: Vec<ToolCall> = message
+        .tool_calls_json
+        .as_deref()
+        .and_then(|json| serde_json::from_str(json).ok())
+        .unwrap_or_default();
+    let mut blocks = Vec::new();
+    if let Some(reasoning) = &message.reasoning {
+        blocks.push(ContentBlock::Thinking {
+            thinking: reasoning.clone(),
+            signature: None,
+        });
+    }
+    if let Some(content) = &message.content {
+        blocks.push(ContentBlock::Text {
+            text: content.clone(),
+        });
+    }
+
+    Some(
+        Message {
+            role,
+            content: message.content,
+            content_blocks: blocks,
+            reasoning: message.reasoning,
+            tool_calls,
+            tool_call_id: message.tool_call_id,
+            images: Vec::new(),
+        }
+        .normalized(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -266,9 +343,10 @@ mod tests {
     }
 
     fn test_db() -> Database {
-        let dir = std::env::temp_dir().join(format!("yode-session-restore-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        Database::open(&dir.join("sessions.db")).unwrap()
+        // 每个测试独立数据库文件，避免并行测试互相污染。
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path()).unwrap();
+        Database::open(&dir.path().join("sessions.db")).unwrap()
     }
 
     fn test_config() -> Config {
@@ -335,6 +413,38 @@ theme = "dark"
         assert_eq!(report.mode, "full_transcript_restore");
         assert_eq!(report.decoded_messages, 1);
         assert_eq!(restored.unwrap().len(), 1);
+    }
+
+    #[test]
+    fn resume_uses_persisted_project_root_not_current_cwd() {
+        let db = test_db();
+        let saved_root = tempfile::tempdir().unwrap();
+        db.create_session(&Session {
+            id: "resume-root".to_string(),
+            name: None,
+            project_root: Some(saved_root.path().display().to_string()),
+            provider: "anthropic".to_string(),
+            model: "claude".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .unwrap();
+
+        let (context, _, _) = restore_or_create_context(
+            &test_cli(Some("resume-root")),
+            &db,
+            std::env::temp_dir(), // 故意从别的 cwd resume
+            "openai".to_string(),
+            "gpt".to_string(),
+            "default".to_string(),
+        )
+        .unwrap();
+
+        assert!(
+            context.working_dir_compat().starts_with(saved_root.path()),
+            "resume must use persisted project_root, got {:?}",
+            context.working_dir_compat()
+        );
     }
 
     #[test]
@@ -446,7 +556,8 @@ description = "local override"
         .unwrap();
 
         let permissions = configure_permissions(&test_config(), &workdir);
-        assert_eq!(permissions.mode(), yode_core::PermissionMode::AcceptEdits);
+        // 仓库内配置不能切换模式：plan/accept-edits 均被忽略，保持 Default。
+        assert_eq!(permissions.mode(), yode_core::PermissionMode::Default);
         let views = permissions.source_views_snapshot();
         assert!(views
             .iter()
@@ -454,10 +565,11 @@ description = "local override"
         assert!(views
             .iter()
             .any(|view| view.source == RuleSource::LocalConfig));
+        // 仓库内配置不能放宽：local 的 always_allow 被忽略，项目 deny 生效。
         let explanation = permissions.explain_with_content("write_file", None);
         assert_eq!(
             explanation.action,
-            yode_core::permission::PermissionAction::Allow
+            yode_core::permission::PermissionAction::Deny
         );
         let _ = std::fs::remove_dir_all(&workdir);
     }
@@ -532,44 +644,4 @@ tool = "write_file"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
-}
-
-fn stored_message_to_message(message: StoredMessage) -> Option<Message> {
-    let role = match message.role.as_str() {
-        "user" => Role::User,
-        "assistant" => Role::Assistant,
-        "tool" => Role::Tool,
-        "system" => Role::System,
-        _ => return None,
-    };
-    let tool_calls: Vec<ToolCall> = message
-        .tool_calls_json
-        .as_deref()
-        .and_then(|json| serde_json::from_str(json).ok())
-        .unwrap_or_default();
-    let mut blocks = Vec::new();
-    if let Some(reasoning) = &message.reasoning {
-        blocks.push(ContentBlock::Thinking {
-            thinking: reasoning.clone(),
-            signature: None,
-        });
-    }
-    if let Some(content) = &message.content {
-        blocks.push(ContentBlock::Text {
-            text: content.clone(),
-        });
-    }
-
-    Some(
-        Message {
-            role,
-            content: message.content,
-            content_blocks: blocks,
-            reasoning: message.reasoning,
-            tool_calls,
-            tool_call_id: message.tool_call_id,
-            images: Vec::new(),
-        }
-        .normalized(),
-    )
 }

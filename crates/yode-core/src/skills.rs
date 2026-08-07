@@ -359,13 +359,27 @@ impl SkillRegistry {
 
     /// Get default discovery paths based on working directory.
     pub fn default_paths(working_dir: &Path) -> Vec<PathBuf> {
+        Self::default_paths_with_store(working_dir, &crate::plugin_trust::PluginTrustStore::load())
+    }
+
+    /// Get default discovery paths with an explicit plugin trust store（测试与桌面端注入）。
+    pub fn default_paths_with_store(
+        working_dir: &Path,
+        store: &crate::plugin_trust::PluginTrustStore,
+    ) -> Vec<PathBuf> {
         let mut paths = Vec::new();
 
         // Project-level skills (highest priority)
         let project_skills = working_dir.join(".yode").join("skills");
         paths.push(project_skills);
 
-        paths.extend(crate::plugins::PluginRegistry::discover(working_dir).enabled_skill_paths());
+        paths.extend(
+            crate::plugins::PluginRegistry::discover_dir_with_store(
+                &working_dir.join(".yode").join("plugins"),
+                store,
+            )
+            .enabled_skill_paths(),
+        );
 
         // Global skills
         if let Some(home) = dirs::home_dir() {
@@ -716,6 +730,22 @@ mod tests {
         assert!(results[0].reasons.contains(&"paths".to_string()));
     }
 
+    /// 构造一个把插件标记为 Enabled 的仓库外信任存储。
+    fn enabled_trust_store(plugin_dir: &std::path::Path) -> crate::plugin_trust::PluginTrustStore {
+        let mut store = crate::plugin_trust::PluginTrustStore::default();
+        let manifest = std::fs::read_to_string(plugin_dir.join("plugin.toml")).unwrap();
+        let canonical = std::fs::canonicalize(plugin_dir).unwrap();
+        store.plugins.insert(
+            canonical.to_string_lossy().to_string(),
+            crate::plugin_trust::PluginTrustEntry {
+                path: canonical,
+                manifest_sha256: crate::plugin_trust::PluginTrustStore::manifest_sha256(&manifest),
+                trust: crate::plugins::PluginTrustState::Enabled,
+            },
+        );
+        store
+    }
+
     #[test]
     fn default_paths_include_enabled_plugin_skills() {
         let dir = tempfile::tempdir().unwrap();
@@ -732,7 +762,9 @@ skills = ["skills/review/SKILL.md"]
         )
         .unwrap();
 
-        let registry = SkillRegistry::discover(&SkillRegistry::default_paths(dir.path()));
+        let store = enabled_trust_store(&plugin_dir);
+        let registry =
+            SkillRegistry::discover(&SkillRegistry::default_paths_with_store(dir.path(), &store));
 
         assert!(registry.get("plugin-review").is_some());
     }
@@ -752,7 +784,9 @@ skills = ["skills/missing/SKILL.md"]
         )
         .unwrap();
 
-        let registry = SkillRegistry::discover(&SkillRegistry::default_paths(dir.path()));
+        let store = enabled_trust_store(&plugin_dir);
+        let registry =
+            SkillRegistry::discover(&SkillRegistry::default_paths_with_store(dir.path(), &store));
 
         assert!(registry.get("plugin-review").is_none());
         assert_eq!(registry.diagnostics().len(), 1);

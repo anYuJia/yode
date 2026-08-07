@@ -572,7 +572,7 @@ mod tests {
 
     use yode_core::config::{
         Config, CostConfig, HooksConfig, LlmConfig, McpConfig, PermissionsConfig, ProviderConfig,
-        SessionConfig, ToolsConfig, UiConfig, UpdateConfig,
+        SessionConfig, ToolsConfig, TurnBudgetConfig, UiConfig, UpdateConfig,
     };
 
     use super::*;
@@ -611,6 +611,7 @@ mod tests {
             permissions: PermissionsConfig::default(),
             hooks: HooksConfig::default(),
             cost: CostConfig::default(),
+            budget: TurnBudgetConfig::default(),
             update: UpdateConfig::default(),
         }
     }

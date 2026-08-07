@@ -17,7 +17,7 @@ pub struct DenialClusterView {
     pub last_at: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct DenialState {
     count: u32,
     consecutive: u32,
@@ -25,7 +25,7 @@ struct DenialState {
     last_at: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DenialTracker {
     states: HashMap<String, DenialState>,
     shell_prefix_states: HashMap<String, DenialState>,

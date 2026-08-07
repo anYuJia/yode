@@ -112,3 +112,6 @@ toml = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
 clap_complete = "4.6.0"
+
+[dev-dependencies]
+tempfile = "3.27.0"

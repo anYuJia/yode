@@ -115,7 +115,8 @@ impl Database {
                     tool_call_id: row.get(6)?,
                     images_json: row.get(7)?,
                     metadata_json: row.get(8)?,
-                    created_at: parse_rfc3339_or_now(row.get::<_, String>(9).unwrap_or_default()),
+                    created_at: parse_rfc3339_strict(row.get::<_, String>(9).unwrap_or_default())
+                        .map_err(|err| rusqlite_corruption(9, err))?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;

@@ -47,7 +47,8 @@ struct McpToolLatencyState {
 static MCP_TOOL_LATENCY: LazyLock<Mutex<McpToolLatencyState>> =
     LazyLock::new(|| Mutex::new(McpToolLatencyState::default()));
 #[cfg(test)]
-static MCP_TOOL_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+static MCP_TOOL_TEST_LOCK: LazyLock<tokio::sync::Mutex<()>> =
+    LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 pub fn mcp_tool_latency_stats() -> Vec<McpToolLatencyEntry> {
     MCP_TOOL_LATENCY
@@ -253,9 +254,9 @@ mod tests {
         reset_mcp_tool_latency_stats, wrapper_tool_name, MCP_TOOL_TEST_LOCK,
     };
 
-    #[test]
-    fn records_mcp_tool_latency_aggregates() {
-        let _guard = MCP_TOOL_TEST_LOCK.lock().unwrap();
+    #[tokio::test]
+    async fn records_mcp_tool_latency_aggregates() {
+        let _guard = MCP_TOOL_TEST_LOCK.lock().await;
         reset_mcp_tool_latency_stats();
         record_mcp_tool_latency("github", "list_prs", 12, false);
         record_mcp_tool_latency("github", "list_prs", 30, true);
@@ -268,9 +269,9 @@ mod tests {
         assert_eq!(stats[0].last_ms, 30);
     }
 
-    #[test]
-    fn latency_average_uses_wide_accumulator() {
-        let _guard = MCP_TOOL_TEST_LOCK.lock().unwrap();
+    #[tokio::test]
+    async fn latency_average_uses_wide_accumulator() {
+        let _guard = MCP_TOOL_TEST_LOCK.lock().await;
         reset_mcp_tool_latency_stats();
         record_mcp_tool_latency("github", "slow", u64::MAX - 10, false);
         record_mcp_tool_latency("github", "slow", u64::MAX - 8, false);
@@ -331,7 +332,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_with_caller_passes_request_and_maps_success() {
-        let _guard = MCP_TOOL_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TOOL_TEST_LOCK.lock().await;
         reset_mcp_tool_latency_stats();
 
         let result = execute_with_caller(
@@ -357,9 +358,9 @@ mod tests {
         assert_eq!(stats[0].errors, 0);
     }
 
-    #[test]
-    fn map_call_result_handles_error_payloads_and_failures() {
-        let _guard = MCP_TOOL_TEST_LOCK.lock().unwrap();
+    #[tokio::test]
+    async fn map_call_result_handles_error_payloads_and_failures() {
+        let _guard = MCP_TOOL_TEST_LOCK.lock().await;
         reset_mcp_tool_latency_stats();
 
         let tool_error = map_call_result(

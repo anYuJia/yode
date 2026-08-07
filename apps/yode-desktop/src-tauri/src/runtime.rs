@@ -19,7 +19,9 @@ use crate::browser_settings::{apply_browser_settings_env, browser_settings_from_
 use crate::desktop_settings_store::read_desktop_settings_async;
 use crate::git_settings::{apply_git_settings_env, git_settings_from_desktop_settings};
 use crate::license_notices::read_license_notices;
-use crate::protocol::{Bootstrap, GeneralSettings, LicenseNotice, RuntimeState};
+use crate::protocol::{
+    Bootstrap, GeneralSettings, LicenseNotice, PermissionModeState, RuntimeState, SessionRunState,
+};
 
 mod browser_settings_runtime;
 mod computer_use_settings_runtime;
@@ -57,6 +59,10 @@ pub struct DesktopRuntime {
     db: Database,
     db_path: PathBuf,
     workspace_path: PathBuf,
+    /// 工作区是否处于可信状态（由仓库外 workspace-trust.toml 绑定
+    /// canonical path + 配置哈希 + remote 决定）。未信任时不得加载
+    /// 插件贡献（MCP/Hooks/Skills/Commands），项目配置也不得生效。
+    workspace_trusted: std::sync::atomic::AtomicBool,
     provider_registry: Mutex<Arc<ProviderRegistry>>,
     tool_registry: Mutex<Arc<ToolRegistry>>,
     mcp_resource_provider: Mutex<Option<Arc<dyn McpResourceProvider>>>,
@@ -68,6 +74,7 @@ pub struct DesktopRuntime {
     /// 每会话 in-flight 占位（原子检查+占用），取消后仍保持占用，
     /// 直到 turn 事件循环真正 quiesce 才释放。
     active_sessions: Arc<Mutex<HashSet<String>>>,
+    run_registry: Arc<Mutex<HashMap<String, SessionRunState>>>,
     pending_confirmations: PendingConfirmationMap,
     session_permission_rules: Arc<Mutex<HashMap<String, Vec<PermissionRule>>>>,
     terminal_sessions: Mutex<HashMap<String, TerminalSessionState>>,
@@ -92,6 +99,8 @@ struct PendingConfirmation {
 impl DesktopRuntime {
     pub async fn new() -> Result<Self> {
         let workspace_path = resolve_desktop_workspace_path().await;
+        let workspace_trusted =
+            yode_core::workspace_trust::WorkspaceTrustStore::load().is_trusted(&workspace_path);
         let db_path = dirs::home_dir()
             .unwrap_or_else(|| workspace_path.clone())
             .join(".yode")
@@ -109,7 +118,7 @@ impl DesktopRuntime {
 
         let provider_registry = Mutex::new(bootstrap_providers(&config));
         let (tool_registry, mcp_resource_provider) =
-            setup_desktop_tooling(&config, &workspace_path).await;
+            setup_desktop_tooling(&config, &workspace_path, workspace_trusted).await;
         if let Ok(settings) = read_desktop_settings_async().await {
             if let Ok(browser_settings) = browser_settings_from_desktop_settings(&settings) {
                 apply_browser_settings_env(&browser_settings);
@@ -119,17 +128,26 @@ impl DesktopRuntime {
             }
         }
 
-        let default_mode = config
+        let configured_mode = config
             .permissions
             .default_mode
             .clone()
             .unwrap_or_else(|| "Default".to_string());
+        // Bypass 永不跨应用重启恢复。即使旧版本曾把它写进用户配置，
+        // 新版本启动时也回到需要确认的 Default。
+        let default_mode = configured_mode
+            .parse::<yode_core::permission::PermissionMode>()
+            .ok()
+            .filter(|mode| *mode != yode_core::permission::PermissionMode::Bypass)
+            .unwrap_or(yode_core::permission::PermissionMode::Default)
+            .to_string();
 
         Ok(Self {
             config: Mutex::new(config),
             db: Database::open(&db_path)?,
             db_path,
             workspace_path,
+            workspace_trusted: std::sync::atomic::AtomicBool::new(workspace_trusted),
             provider_registry,
             tool_registry: Mutex::new(tool_registry),
             mcp_resource_provider: Mutex::new(mcp_resource_provider),
@@ -139,6 +157,7 @@ impl DesktopRuntime {
             ask_user_txs: Arc::new(Mutex::new(HashMap::new())),
             cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
             active_sessions: Arc::new(Mutex::new(HashSet::new())),
+            run_registry: Arc::new(Mutex::new(HashMap::new())),
             pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
             session_permission_rules: Arc::new(Mutex::new(HashMap::new())),
             terminal_sessions: Mutex::new(HashMap::new()),
@@ -169,10 +188,13 @@ impl DesktopRuntime {
         Ok(Bootstrap {
             app_version: env!("CARGO_PKG_VERSION"),
             workspace_path: self.workspace_path.display().to_string(),
+            workspace_trusted: self.workspace_trusted(),
             provider: config.llm.default_provider.clone(),
             model: config.llm.default_model.clone(),
-            permission_mode,
+            permission_mode: permission_mode.clone(),
+            effective_permission_mode: permission_mode,
             sessions,
+            runs: self.runs_list()?,
         })
     }
 
@@ -194,36 +216,144 @@ impl DesktopRuntime {
                 .map_err(|_| anyhow::anyhow!("active session lock poisoned"))?
                 .clone(),
             status: if active_turns > 0 { "running" } else { "idle" }.to_string(),
-            permission_mode,
+            permission_mode: permission_mode.clone(),
+            effective_permission_mode: permission_mode,
             context_percent: 0,
             tool_calls: format!("{} active", active_turns),
         })
     }
 
-    pub async fn permission_mode_set(&self, mode: String) -> Result<()> {
+    pub async fn permission_mode_set(
+        &self,
+        mode: String,
+        bypass_confirmed: bool,
+        scope: Option<String>,
+    ) -> Result<PermissionModeState> {
         let parsed = mode
             .parse::<yode_core::permission::PermissionMode>()
             .map_err(|err| anyhow::anyhow!(err))?;
-        let config_to_save = {
+        let is_bypass = parsed == yode_core::permission::PermissionMode::Bypass;
+        if is_bypass {
+            if !bypass_confirmed {
+                anyhow::bail!("启用完全信任模式需要再次明确确认。");
+            }
+            if scope.as_deref() != Some("application-session") {
+                anyhow::bail!("完全信任模式仅允许作用于当前应用会话。");
+            }
+        }
+
+        // 非 Bypass 模式先持久化，再更新内存；写入失败时有效模式保持不变。
+        if !is_bypass {
+            let config_to_save = {
+                let mut config = self
+                    .config
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+                config.permissions.default_mode = Some(parsed.to_string());
+                config.clone()
+            };
+            crate::runtime::configuration_runtime::save_config_to_path_async(
+                &config_to_save,
+                &self.user_config_path(),
+            )
+            .await?;
+        }
+        {
             let mut active_mode = self
                 .permission_mode
                 .lock()
                 .map_err(|_| anyhow::anyhow!("permission mode lock poisoned"))?;
             *active_mode = parsed.to_string();
-            // 持久化默认模式，重启后保持一致
-            let mut config = self
+        }
+        Ok(PermissionModeState {
+            effective_permission_mode: parsed.to_string(),
+            scope: if is_bypass {
+                "application-session".to_string()
+            } else {
+                "user-default".to_string()
+            },
+            persisted: !is_bypass,
+            bypass_active: is_bypass,
+        })
+    }
+
+    pub fn runs_list(&self) -> Result<Vec<SessionRunState>> {
+        let mut runs = self
+            .run_registry
+            .lock()
+            .map_err(|_| anyhow::anyhow!("run registry lock poisoned"))?
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
+        runs.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+        Ok(runs)
+    }
+
+    pub fn workspace_trusted(&self) -> bool {
+        self.workspace_trusted
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// 信任当前工作区（显式用户确认后调用），并返回新的信任状态。
+    /// 信任绑定 canonical path + `.yode/config.toml` 哈希 + git remote。
+    pub async fn trust_workspace(&self) -> Result<bool> {
+        let mut store = yode_core::workspace_trust::WorkspaceTrustStore::load();
+        store
+            .set_trusted(&self.workspace_path, true)
+            .map_err(|err| anyhow::anyhow!(err))?;
+        let trusted = store.is_trusted(&self.workspace_path);
+        let previously_trusted = self.workspace_trusted();
+        if trusted != previously_trusted {
+            // 信任状态变化后重新装配工具（插件 Skills 等贡献此时才允许加载）
+            let config = self
                 .config
                 .lock()
-                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
-            config.permissions.default_mode = Some(parsed.to_string());
-            config.clone()
-        };
-        crate::runtime::configuration_runtime::save_config_to_path_async(
-            &config_to_save,
-            &self.user_config_path(),
-        )
-        .await?;
-        Ok(())
+                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
+                .clone();
+            let (tool_registry, mcp_resource_provider) =
+                setup_desktop_tooling(&config, &self.workspace_path, trusted).await;
+            *self
+                .tool_registry
+                .lock()
+                .map_err(|_| anyhow::anyhow!("tool registry lock poisoned"))? = tool_registry;
+            *self
+                .mcp_resource_provider
+                .lock()
+                .map_err(|_| anyhow::anyhow!("mcp resource provider lock poisoned"))? =
+                mcp_resource_provider;
+            self.workspace_trusted
+                .store(trusted, std::sync::atomic::Ordering::Relaxed);
+        }
+        Ok(self.workspace_trusted())
+    }
+
+    /// 撤销当前工作区信任并返回新的信任状态。
+    pub async fn revoke_workspace_trust(&self) -> Result<bool> {
+        let mut store = yode_core::workspace_trust::WorkspaceTrustStore::load();
+        store
+            .revoke(&self.workspace_path)
+            .map_err(|err| anyhow::anyhow!(err))?;
+        if self.workspace_trusted() {
+            let config = self
+                .config
+                .lock()
+                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
+                .clone();
+            let (tool_registry, mcp_resource_provider) =
+                setup_desktop_tooling(&config, &self.workspace_path, false).await;
+            *self
+                .tool_registry
+                .lock()
+                .map_err(|_| anyhow::anyhow!("tool registry lock poisoned"))? = tool_registry;
+            *self
+                .mcp_resource_provider
+                .lock()
+                .map_err(|_| anyhow::anyhow!("mcp resource provider lock poisoned"))? =
+                mcp_resource_provider;
+            self.workspace_trusted
+                .store(false, std::sync::atomic::Ordering::Relaxed);
+        }
+        Ok(self.workspace_trusted())
     }
 
     pub async fn license_notices(&self) -> Result<Vec<LicenseNotice>> {
@@ -246,13 +376,8 @@ impl DesktopRuntime {
     }
 
     pub async fn download_update(&self) -> Result<String> {
-        let update = self
-            .updater
-            .check_for_updates()
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("no update available"))?;
-        let result = self.updater.download_update(&update).await?;
-        Ok(result.display().to_string())
+        // UPDATE-001：桌面自更新暂停，等待 Tauri 签名 updater。
+        anyhow::bail!("桌面自更新已暂停：请从官方 Release 页面手动下载安装。")
     }
 
     pub async fn has_pending_update(&self) -> bool {
@@ -260,7 +385,8 @@ impl DesktopRuntime {
     }
 
     pub async fn apply_downloaded_update(&self) -> Result<bool> {
-        self.updater.apply_downloaded_update().await
+        // UPDATE-001：桌面自更新暂停，等待 Tauri 签名 updater。
+        anyhow::bail!("桌面自更新已暂停：请从官方 Release 页面手动下载安装。")
     }
 }
 

@@ -242,21 +242,20 @@ crates/
 ├── yode-core     # engine、context、permissions、hooks、session/runtime state
 ├── yode-llm      # provider abstraction
 ├── yode-tools    # built-in tools 与 runtime tool surface
-├── yode-tui      # terminal UI 与 operator commands
 ├── yode-mcp      # MCP integration
-└── yode-agent    # agent/runtime helpers
+├── yode-agent    # agent/runtime helpers
+└── yode-runtime  # shared runtime bootstrap
 ```
 
 ## 最新版本
 
-`0.0.18` 重点改进长会话 remote continuity、skill persistence 与 remote replay/state diagnostics：
+`1.0.0` 发布就绪版本，重点改进：
 
-- compact boundary 会作为一等 session event 记录
-- restore blocks 会在 compact 后保留最近使用的 skills
-- remote transport events 会写入 durable JSONL logs，并支持 replay diagnostics
-- remote control summaries 会展示重建后的 transport 与 queue state
+- 安全：仓库外工作区/插件信任存储、Managed 权限不可绕过、子进程最小环境、截断流不执行工具调用
+- 可靠性：单轮硬预算、原子文件写入、SQLite WAL + 事务化迁移、数据库损坏显式报错
+- 桌面：后端唯一权限真相源、运行状态注册表、工作区信任流程
 
-Release: [v0.0.18](https://github.com/anYuJia/yode/releases/tag/v0.0.18)
+Release: [v1.0.0](https://github.com/anYuJia/yode/releases/tag/v1.0.0)
 
 ## 贡献
 

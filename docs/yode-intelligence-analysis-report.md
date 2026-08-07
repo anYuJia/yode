@@ -10,7 +10,7 @@ Yode 的架构已经呈现出典型 coding agent 的分层设计：
 - `yode-llm` 负责 provider 抽象、消息协议、流式输出、tool call 转换和模型列表。
 - `yode-core` 负责 AgentEngine、上下文压缩、权限、会话数据库、记忆、hook、成本、恢复和遥测。
 - `yode-tools` 负责文件、shell、搜索、LSP、MCP、计划、子代理、审查、工作流、远程任务等工具系统。
-- `yode-tui` 负责终端交互、命令系统、确认流、状态栏、诊断面板、详情 inspector。
+- `src/main.rs` 负责终端交互、命令系统、确认流、状态栏、诊断面板、详情 inspector。
 - `yode-agent` 和 `yode-mcp` 扩展多代理和外部资源接入。
 
 核心入口是 `AgentEngine`，其字段不仅保存 provider、工具注册表和消息历史，还维护 tool budget、失败计数、上下文压缩状态、prompt cache 状态、权限解释、恢复状态、parallel tool 统计和 runtime artifact 路径。这说明当前设计重点不是“问模型一次”，而是围绕长任务构建一套可观测、可恢复、可约束的执行系统。对应代码见 `crates/yode-core/src/engine.rs:98`。

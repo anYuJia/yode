@@ -74,7 +74,15 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
     let builtin_register_ms = builtin_started.elapsed().as_millis() as u64;
     let builtin_tool_count = tool_registry.total_count();
 
-    let skill_paths = SkillRegistry::default_paths(workdir);
+    // 未信任的工作区不得加载插件贡献（MCP/Skills/Hooks/Commands）。
+    let workspace_trusted =
+        yode_core::workspace_trust::WorkspaceTrustStore::load().is_trusted(workdir);
+
+    let skill_paths = if workspace_trusted {
+        SkillRegistry::default_paths(workdir)
+    } else {
+        vec![workdir.join(".yode").join("skills")]
+    };
     let skill_started = Instant::now();
     let skill_discovery_task =
         tokio::task::spawn_blocking(move || SkillRegistry::discover(&skill_paths));
@@ -82,7 +90,11 @@ pub(crate) async fn setup_tooling(config: &Config, workdir: &Path) -> Result<Too
     let mcp_started = Instant::now();
     let mut mcp_connect_set = tokio::task::JoinSet::new();
     let mut effective_mcp_servers = config.mcp.servers.clone();
-    let plugin_mcp = yode_core::plugins::discover_plugin_mcp_servers(workdir);
+    let plugin_mcp = if workspace_trusted {
+        yode_core::plugins::discover_plugin_mcp_servers(workdir)
+    } else {
+        yode_core::plugins::PluginMcpDiscovery::default()
+    };
     for (name, server_config) in plugin_mcp.servers {
         effective_mcp_servers.entry(name).or_insert(server_config);
     }

@@ -263,3 +263,99 @@ fn upsert_session_artifacts_persists_and_lists_metadata() {
     );
     assert!(sessions[0].artifacts.last_session_memory_generated_summary);
 }
+
+#[test]
+fn open_enables_pragmas_and_sets_schema_version() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("pragma.db");
+    {
+        let db = Database::open(&path).unwrap();
+        let conn = db.lock_connection().unwrap();
+        let foreign_keys: i64 = conn
+            .query_row("PRAGMA foreign_keys", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(foreign_keys, 1, "foreign_keys must be ON");
+        let journal_mode: String = conn
+            .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(journal_mode.to_lowercase(), "wal");
+        let busy_timeout: i64 = conn
+            .query_row("PRAGMA busy_timeout", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(busy_timeout, 5_000);
+        let version: i64 = conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(version, 5, "all migrations must be applied");
+    }
+    // 重新打开后 pragma 仍生效（WAL 持久化在库上，user_version 持久化）
+    let db = Database::open(&path).unwrap();
+    let conn = db.lock_connection().unwrap();
+    let version: i64 = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, 5);
+}
+
+#[test]
+fn foreign_keys_enforced_on_delete() {
+    let temp = tempdir().unwrap();
+    let db = Database::open(&temp.path().join("fk.db")).unwrap();
+    db.create_session(&Session {
+        id: "fk-session".to_string(),
+        name: None,
+        project_root: None,
+        provider: "mock".to_string(),
+        model: "mock-model".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    })
+    .unwrap();
+    db.save_message("fk-session", "user", Some("hello"), None, None, None)
+        .unwrap();
+
+    // 外键约束启用时，删除不存在外键引用的消息应报错
+    let conn = db.lock_connection().unwrap();
+    let result = conn.execute(
+        "INSERT INTO messages (session_id, role, content, created_at) VALUES ('ghost', 'user', 'x', '2024-01-01T00:00:00Z')",
+        [],
+    );
+    assert!(
+        result.is_err(),
+        "orphan message insert must fail with FK enabled"
+    );
+}
+
+#[test]
+fn corrupt_timestamp_is_reported_as_corruption() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("corrupt.db");
+    {
+        let db = Database::open(&path).unwrap();
+        db.create_session(&Session {
+            id: "corrupt-session".to_string(),
+            name: None,
+            project_root: None,
+            provider: "mock".to_string(),
+            model: "mock-model".to_string(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .unwrap();
+    }
+    // 直接破坏时间戳
+    {
+        let conn = Connection::open(&path).unwrap();
+        conn.execute(
+            "UPDATE sessions SET created_at = 'not-a-timestamp' WHERE id = 'corrupt-session'",
+            [],
+        )
+        .unwrap();
+    }
+    let db = Database::open(&path).unwrap();
+    let error = db.get_session("corrupt-session").unwrap_err();
+    assert!(
+        error.to_string().contains("时间戳损坏"),
+        "corruption must surface: {error}"
+    );
+}

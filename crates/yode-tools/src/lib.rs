@@ -2,6 +2,7 @@ pub mod builtin;
 pub mod cron_manager;
 pub mod lsp_manager;
 mod path_format;
+pub mod process_env;
 pub mod registry;
 pub mod runtime_tasks;
 pub mod state;

@@ -11,19 +11,19 @@ fi
 tmp_tests="$(mktemp)"
 trap 'rm -f "$tmp_tests"' EXIT
 
-cargo test -q -p yode-tui -- --list >"$tmp_tests"
+cargo test -q -p yode-core -- --list >"$tmp_tests"
 
 validate_command() {
   local row_id="$1"
   local command="$2"
 
   case "$command" in
-    "cargo test -p yode-tui "*)
+    "cargo test -p yode-core "*)
       local pattern
-      pattern="${command#cargo test -p yode-tui }"
+      pattern="${command#cargo test -p yode-core }"
       pattern="${pattern%% *}"
       if ! grep -Fq "$pattern" "$tmp_tests"; then
-        echo "Row $row_id references missing yode-tui test: $pattern" >&2
+        echo "Row $row_id references missing yode-core test: $pattern" >&2
         exit 1
       fi
       ;;

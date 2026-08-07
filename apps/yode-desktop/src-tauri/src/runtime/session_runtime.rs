@@ -239,7 +239,8 @@ impl DesktopRuntime {
             build_desktop_agent_context(&session, workspace_path, &config, &personalization);
 
         let restored_messages = restore_messages_from_stored(self.db.load_messages(&session.id)?);
-        let hook_manager = build_desktop_hook_manager(&self.workspace_path).await?;
+        let hook_manager =
+            build_desktop_hook_manager(&self.workspace_path, self.workspace_trusted()).await?;
         let db = Database::open(&self.db_path)?;
         let mut engine = AgentEngine::new(provider, tools, permissions, context);
         engine.set_database(db);

@@ -9,7 +9,7 @@
 
 Yode 已具备非常好的基础：
 - 核心引擎循环、工具调用、重试与超时、上下文压缩、成本追踪、权限系统、TUI 都已落地。
-- Rust 架构清晰（`yode-core/yode-tools/yode-tui/yode-llm/yode-mcp/yode-agent`）。
+- Rust 架构清晰（`yode-core/yode-tools/yode-llm/yode-mcp/yode-agent/yode-runtime`）。
 
 但距离“顶级 CLI”仍有关键缺口，集中在：
 1. **跨项目与 cwd 状态管理**（会话锚点/目录切换可靠性）

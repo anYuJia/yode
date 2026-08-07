@@ -83,6 +83,47 @@ fn test_partition_unknown_tool() {
     assert_eq!(seq.len(), 1);
 }
 
+/// PERM-003：capability 注解要求确认的只读工具（如 web_fetch/web_search）
+/// 不能进入并行静默执行路径，必须走顺序确认。
+#[test]
+fn test_partition_read_only_requiring_confirmation_goes_sequential() {
+    let engine = make_engine(
+        vec![Arc::new(MockReadToolWithConfirmation {
+            name: "web_fetch_like".into(),
+        })],
+        vec![],
+    );
+    let tcs = vec![ToolCall {
+        id: "1".into(),
+        name: "web_fetch_like".into(),
+        arguments: "{}".into(),
+    }];
+    let (par, seq) = engine.partition_tool_calls(&tcs);
+    assert_eq!(par.len(), 0);
+    assert_eq!(seq.len(), 1);
+    assert_eq!(seq[0].name, "web_fetch_like");
+}
+
+/// PERM-003：默认注解（全 false，MCP 动态工具/插件）的只读假象不存在——
+/// 未注解工具既不是只读也不可自动执行，必须走顺序路径。
+#[test]
+fn test_partition_unannotated_tool_goes_sequential() {
+    let engine = make_engine(
+        vec![Arc::new(UnannotatedTool {
+            name: "dynamic_mcp_tool".into(),
+        })],
+        vec![],
+    );
+    let tcs = vec![ToolCall {
+        id: "1".into(),
+        name: "dynamic_mcp_tool".into(),
+        arguments: "{}".into(),
+    }];
+    let (par, seq) = engine.partition_tool_calls(&tcs);
+    assert_eq!(par.len(), 0);
+    assert_eq!(seq.len(), 1);
+}
+
 #[test]
 fn test_partition_read_only_needing_confirm() {
     let engine = make_engine(
@@ -133,7 +174,7 @@ async fn test_parallel_returns_all_results_in_order() {
         },
     ];
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let results = engine.execute_tools_parallel(&tcs, &tx).await;
+    let results = engine.execute_tools_parallel(&tcs, &tx, None).await;
 
     assert_eq!(results.len(), 3);
     assert_eq!(results[0].tool_call.id, "x1");
@@ -156,6 +197,6 @@ async fn test_parallel_returns_all_results_in_order() {
 async fn test_parallel_empty() {
     let mut engine = make_engine(vec![], vec![]);
     let (tx, _rx) = mpsc::unbounded_channel();
-    let results = engine.execute_tools_parallel(&[], &tx).await;
+    let results = engine.execute_tools_parallel(&[], &tx, None).await;
     assert!(results.is_empty());
 }

@@ -123,6 +123,7 @@ impl Tool for WebSearchTool {
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
+            .proxy(crate::builtin::http_client::loopback_aware_proxy())
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
 

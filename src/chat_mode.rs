@@ -59,6 +59,11 @@ pub(crate) async fn run_noninteractive_chat(run: NoninteractiveChatRun<'_>) -> R
             engine.cost_tracker_mut().set_budget_limit(budget);
         }
     }
+    engine.set_turn_budget(
+        config.budget.max_tool_calls,
+        config.budget.max_steps,
+        config.budget.max_wall_secs,
+    );
 
     if !config.hooks.hooks.is_empty() {
         let mut hook_manager = HookManager::new(engine.context().working_dir_compat());
@@ -216,9 +221,20 @@ pub(crate) async fn run_noninteractive_chat(run: NoninteractiveChatRun<'_>) -> R
 
 fn truncate_str(input: &str, max: usize) -> String {
     let input = input.replace('\n', " ");
-    if input.len() > max {
-        format!("{}...", &input[..max])
+    if input.chars().count() > max {
+        format!("{}...", input.chars().take(max).collect::<String>())
     } else {
         input
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::truncate_str;
+
+    #[test]
+    fn truncate_str_is_unicode_safe() {
+        assert_eq!(truncate_str("你好🙂世界", 3), "你好🙂...");
+        assert_eq!(truncate_str("你好🙂", 3), "你好🙂");
     }
 }

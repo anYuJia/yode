@@ -19,6 +19,15 @@ bash_timeout = 120
 # 需要确认的工具列表
 require_confirmation = ["bash", "write_file", "edit_file"]
 
+[budget]
+# 单轮硬预算：达到上限会暂停本轮，由用户决定续批或停止。
+# 每轮最大工具调用次数（0 = 不限）
+max_tool_calls = 40
+# 每轮最大 LLM 循环步数（0 = 不限）
+max_steps = 0
+# 每轮最大墙钟时间（秒，0 = 不限）
+max_wall_secs = 0
+
 [session]
 # 会话数据库路径（空则使用默认 ~/.yode/sessions.db）
 db_path = ""

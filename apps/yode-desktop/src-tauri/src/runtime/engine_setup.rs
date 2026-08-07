@@ -117,4 +117,9 @@ pub(super) fn configure_engine_services(
         engine.set_mcp_resource_provider(mcp);
     }
     engine.set_mcp_resource_policy(mcp_resource_policy_from_config(config));
+    engine.set_turn_budget(
+        config.budget.max_tool_calls,
+        config.budget.max_steps,
+        config.budget.max_wall_secs,
+    );
 }

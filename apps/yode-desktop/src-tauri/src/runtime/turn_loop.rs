@@ -11,8 +11,10 @@ use yode_tools::tool::UserQuery;
 
 use super::settings_system::stop_sleep_guard;
 use super::turn_events::emit_desktop_event;
+use super::turn_runtime::update_run_state;
 use super::PendingConfirmation;
 use crate::protocol::DesktopEvent;
+use crate::protocol::SessionRunState;
 
 type TurnKey = (String, String);
 type ConfirmSenderMap = Arc<
@@ -39,6 +41,7 @@ pub(super) async fn run_desktop_turn_event_loop(
     sleep_guard: Arc<Mutex<Option<Child>>>,
     cancel_token: tokio_util::sync::CancellationToken,
     active_sessions: Arc<Mutex<HashSet<String>>>,
+    run_registry: Arc<Mutex<HashMap<String, SessionRunState>>>,
 ) {
     let mut cancelled = false;
     loop {
@@ -49,8 +52,28 @@ pub(super) async fn run_desktop_turn_event_loop(
             // 前端收到 cancelled 时旧工具已停止，可安全发起新 turn。
             _ = cancel_token.cancelled() => {
                 cancelled = true;
-                while event_rx.recv().await.is_some() {}
-                while ask_user_query_rx.recv().await.is_some() {}
+                emit_desktop_event(
+                    &app,
+                    DesktopEvent {
+                        session_id: session_id.clone(),
+                        turn_id: turn_id.clone(),
+                        seq,
+                        kind: "cancelling".to_string(),
+                        timestamp: Utc::now().to_rfc3339(),
+                        payload: json!({ "title": "正在取消", "body": "正在停止本轮运行。" }),
+                    },
+                );
+                seq += 1;
+                let drain = async {
+                    while event_rx.recv().await.is_some() {}
+                    while ask_user_query_rx.recv().await.is_some() {}
+                };
+                if tokio::time::timeout(std::time::Duration::from_secs(10), drain)
+                    .await
+                    .is_err()
+                {
+                    handle.abort();
+                }
                 if let Ok(mut tokens) = cancel_tokens.lock() {
                     tokens.remove(&(session_id.clone(), turn_id.clone()));
                 }
@@ -68,6 +91,7 @@ pub(super) async fn run_desktop_turn_event_loop(
                         payload: json!({ "title": "已取消", "body": "本轮运行已停止。" }),
                     },
                 );
+                update_run_state(&run_registry, &session_id, &turn_id, "cancelled", None);
                 break;
             }
             Some(query) = ask_user_query_rx.recv() => {
@@ -86,6 +110,7 @@ pub(super) async fn run_desktop_turn_event_loop(
                     }),
                 };
                 emit_desktop_event(&app, desktop_event);
+                update_run_state(&run_registry, &session_id, &turn_id, "waiting_user", None);
                 seq += 1;
                 continue;
             }
@@ -105,6 +130,20 @@ pub(super) async fn run_desktop_turn_event_loop(
 
                 let kind = mapped.kind;
                 let payload = mapped.payload;
+
+                let next_status = match kind {
+                    "tool_confirm_required" | "permission" => Some("waiting_approval"),
+                    "error" => Some("failed"),
+                    "turn_completed" | "done" => Some("completed"),
+                    "turn_started" | "tool_started" | "assistant_text_delta" | "assistant_reasoning_delta" => Some("running"),
+                    _ => None,
+                };
+                if let Some(status) = next_status {
+                    let detail = (status == "failed")
+                        .then(|| payload.get("body").and_then(|value| value.as_str()).map(str::to_string))
+                        .flatten();
+                    update_run_state(&run_registry, &session_id, &turn_id, status, detail);
+                }
 
                 if std::env::var("YODE_ACTION_NARRATIVE_DEBUG").is_ok_and(|value| value == "1")
                     && matches!(

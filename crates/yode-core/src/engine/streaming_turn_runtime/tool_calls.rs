@@ -20,7 +20,9 @@ impl AgentEngine {
             }
 
             info!("Executing {} tools in parallel (streaming)", parallel.len());
-            let parallel_results = self.execute_tools_parallel(&parallel, event_tx).await;
+            let parallel_results = self
+                .execute_tools_parallel(&parallel, event_tx, cancel_token)
+                .await;
             for outcome in parallel_results {
                 self.record_completed_tool_outcome(outcome, event_tx).await;
             }

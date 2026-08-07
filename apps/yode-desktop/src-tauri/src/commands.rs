@@ -22,6 +22,8 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         session::sessions_compact_engine,
         app::project_folder_pick,
         app::runtime_state_get,
+        app::runs_list,
+        app::workspace_trust,
         app::edit_diff_artifact_read,
         turn::turn_send_message,
         turn::permission_respond,

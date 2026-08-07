@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="${1:-$(pwd)}"
 
 echo "[1/4] cargo check"
-cargo check -p yode-core -p yode-tui -p yode-tools
+cargo check -p yode-core -p yode-tools
 
 echo "[2/4] targeted tests"
 cargo test -p yode-core --lib test_tool_runtime_state_and_artifact_are_recorded

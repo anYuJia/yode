@@ -23,7 +23,7 @@ use super::{
     DesktopRuntime,
 };
 use crate::hook_settings::build_desktop_hook_manager;
-use crate::protocol::{DesktopEvent, SendMessageRequest, TurnAccepted};
+use crate::protocol::{DesktopEvent, SendMessageRequest, SessionRunState, TurnAccepted};
 use crate::session_helpers::title_from_content_or_images;
 
 impl DesktopRuntime {
@@ -163,7 +163,8 @@ impl DesktopRuntime {
             .map_err(|_| anyhow::anyhow!("mcp resource provider lock poisoned"))?
             .clone();
         let db_path_clone = self.db_path.clone();
-        let hook_manager = build_desktop_hook_manager(&self.workspace_path).await?;
+        let hook_manager =
+            build_desktop_hook_manager(&self.workspace_path, self.workspace_trusted()).await?;
 
         let (confirm_tx, confirm_rx) = unbounded_channel::<ConfirmResponse>();
         {
@@ -221,6 +222,14 @@ impl DesktopRuntime {
             slot.disarm();
         }
         let active_sessions_clone = self.active_sessions.clone();
+        let run_registry_clone = self.run_registry.clone();
+        update_run_state(
+            &self.run_registry,
+            &session_id,
+            &emit_turn_id,
+            "running",
+            None,
+        );
 
         std::thread::spawn(move || {
             let rt = match tokio::runtime::Runtime::new() {
@@ -233,6 +242,13 @@ impl DesktopRuntime {
                         &cancel_tokens_clone,
                         &session_id,
                         &emit_turn_id,
+                    );
+                    update_run_state(
+                        &run_registry_clone,
+                        &session_id,
+                        &emit_turn_id,
+                        "failed",
+                        Some(format!("无法创建后台运行时：{err}")),
                     );
                     return;
                 }
@@ -259,6 +275,13 @@ impl DesktopRuntime {
                             &cancel_tokens_clone,
                             &session_id,
                             &emit_turn_id,
+                        );
+                        update_run_state(
+                            &run_registry_clone,
+                            &session_id,
+                            &emit_turn_id,
+                            "failed",
+                            Some(err.to_string()),
                         );
                         return;
                     }
@@ -314,6 +337,7 @@ impl DesktopRuntime {
                     sleep_guard_clone,
                     loop_cancel_token,
                     active_sessions_clone,
+                    run_registry_clone,
                 )
                 .await;
             });
@@ -333,11 +357,29 @@ impl DesktopRuntime {
         allow: bool,
         always_allow: bool,
     ) -> Result<()> {
+        let tx = self
+            .confirm_txs
+            .lock()
+            .map_err(|_| anyhow::anyhow!("poisoned"))?
+            .get(&(session_id.clone(), turn_id.clone()))
+            .cloned();
+        let Some(tx) = tx else {
+            anyhow::bail!("该权限请求已失效或对应任务已结束。");
+        };
+        let response = if allow && always_allow {
+            ConfirmResponse::AllowAlways
+        } else if allow {
+            ConfirmResponse::Allow
+        } else {
+            ConfirmResponse::Deny
+        };
+        tx.send(response)
+            .map_err(|_| anyhow::anyhow!("权限回复发送失败，任务可能已经结束。"))?;
         let pending_request = self
             .pending_confirmations
             .lock()
-            .ok()
-            .and_then(|mut pending| pending.remove(&(session_id.clone(), turn_id.clone())));
+            .map_err(|_| anyhow::anyhow!("poisoned"))?
+            .remove(&(session_id.clone(), turn_id.clone()));
 
         if allow && always_allow {
             if let Some(request) = pending_request {
@@ -356,30 +398,7 @@ impl DesktopRuntime {
                 rules.entry(session_id.clone()).or_default().push(rule);
             }
         }
-
-        let tx = self
-            .confirm_txs
-            .lock()
-            .map_err(|_| anyhow::anyhow!("poisoned"))?
-            .get(&(session_id.clone(), turn_id.clone()))
-            .cloned();
-        if let Some(tx) = tx {
-            let response = if allow && always_allow {
-                ConfirmResponse::AllowAlways
-            } else if allow {
-                ConfirmResponse::Allow
-            } else {
-                ConfirmResponse::Deny
-            };
-            if let Err(err) = tx.send(response) {
-                tracing::warn!(
-                    session_id = %session_id,
-                    turn_id = %turn_id,
-                    error = ?err,
-                    "Failed to send desktop permission response"
-                );
-            }
-        }
+        update_run_state(&self.run_registry, &session_id, &turn_id, "running", None);
         Ok(())
     }
 
@@ -393,16 +412,13 @@ impl DesktopRuntime {
             .ask_user_txs
             .lock()
             .map_err(|_| anyhow::anyhow!("poisoned"))?;
-        if let Some(tx) = txs.get(&(session_id.clone(), turn_id.clone())) {
-            if let Err(err) = tx.send(answer) {
-                tracing::warn!(
-                    session_id = %session_id,
-                    turn_id = %turn_id,
-                    error = %err,
-                    "Failed to send ask-user response"
-                );
-            }
-        }
+        let tx = txs
+            .get(&(session_id.clone(), turn_id.clone()))
+            .ok_or_else(|| anyhow::anyhow!("该问题已失效或对应任务已结束。"))?;
+        tx.send(answer)
+            .map_err(|_| anyhow::anyhow!("问题回复发送失败，请重试。"))?;
+        drop(txs);
+        update_run_state(&self.run_registry, &session_id, &turn_id, "running", None);
         Ok(())
     }
 
@@ -427,18 +443,36 @@ impl DesktopRuntime {
         session_id: String,
         turn_id: String,
     ) -> Result<()> {
-        emit_desktop_event(
-            &app,
-            DesktopEvent {
-                session_id: session_id.clone(),
-                turn_id: turn_id.clone(),
-                seq: 0,
-                kind: "cancelling".to_string(),
-                timestamp: Utc::now().to_rfc3339(),
-                payload: json!({ "title": "正在取消", "body": "正在停止本轮运行。" }),
-            },
+        let _ = app;
+        update_run_state(
+            &self.run_registry,
+            &session_id,
+            &turn_id,
+            "cancelling",
+            None,
         );
         self.turn_cancel(session_id, turn_id)
+    }
+}
+
+pub(super) fn update_run_state(
+    registry: &std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, SessionRunState>>>,
+    session_id: &str,
+    turn_id: &str,
+    status: &str,
+    detail: Option<String>,
+) {
+    if let Ok(mut runs) = registry.lock() {
+        runs.insert(
+            session_id.to_string(),
+            SessionRunState {
+                session_id: session_id.to_string(),
+                turn_id: turn_id.to_string(),
+                status: status.to_string(),
+                updated_at: Utc::now().to_rfc3339(),
+                detail,
+            },
+        );
     }
 }
 

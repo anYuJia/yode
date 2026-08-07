@@ -68,6 +68,7 @@ IMPORTANT: WebFetch WILL FAIL for authenticated or private URLs. Before using th
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(30))
             .user_agent("yode/0.1")
+            .proxy(crate::builtin::http_client::loopback_aware_proxy())
             .build()
             .map_err(|e| anyhow::anyhow!("Failed to create HTTP client: {}", e))?;
 

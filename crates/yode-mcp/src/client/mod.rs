@@ -704,6 +704,9 @@ async fn start_stdio_mcp_service(
     let service = match YodeMcpClientHandler::new(name)
         .serve(TokioChildProcess::new(Command::new(&command).configure(
             |cmd| {
+                // 仓库可控的 MCP 服务器不得继承父进程环境：只放行基础白名单
+                // 与用户在配置里显式声明的 env（即用户明确授权的变量）。
+                yode_tools::process_env::apply_minimal_env(cmd);
                 cmd.args(&args);
                 for (k, v) in &env_vars {
                     cmd.env(k, v);

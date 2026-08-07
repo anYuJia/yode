@@ -17,9 +17,8 @@ cargo build
 # 运行 Yode
 cargo run
 
-# 运行特定 crate
-cargo run -p yode-tui
-cargo run -p yode-core
+# 运行桌面应用（Tauri）
+cargo run -p yode-desktop
 ```
 
 ### 测试
@@ -52,14 +51,14 @@ cargo fmt
 ```
 yode/
 ├── Cargo.toml              # Workspace 根目录
-├── src/main.rs             # CLI 入口
+├── src/main.rs             # CLI 入口（含 TUI）
 ├── crates/
-│   ├── yode-core/          # 核心引擎（AgentEngine、上下文、权限、会话 DB）
+│   ├── yode-core/          # 核心引擎（AgentEngine、上下文、权限、会话 DB、信任存储）
 │   ├── yode-llm/           # LLM 抽象层（提供商接口、消息类型）
 │   ├── yode-tools/         # 工具系统（bash、文件操作、LSP 等）
-│   ├── yode-tui/           # TUI 界面（ratatui、命令系统、UI 渲染）
+│   ├── yode-mcp/           # MCP 协议支持
 │   ├── yode-agent/         # Agent 编排
-│   └── yode-mcp/           # MCP 协议支持
+│   └── yode-runtime/       # 共享运行时装配（provider bootstrap 等）
 └── config/
     └── default.toml        # 默认配置
 ```
@@ -67,12 +66,14 @@ yode/
 ### 核心模块依赖关系
 
 ```
-yode (main)
-  └── yode-tui (TUI + 命令系统)
-        ├── yode-core (引擎、上下文)
-        ├── yode-llm (LLM 抽象)
-        └── yode-tools (工具注册表)
+yode (main, 含 TUI)
+  ├── yode-core (引擎、上下文、权限)
+  ├── yode-llm (LLM 抽象)
+  ├── yode-tools (工具注册表)
+  └── yode-runtime (运行时装配)
 ```
+
+桌面应用：`apps/yode-desktop/`（Tauri 后端 src-tauri + React 前端）
 
 ### yode-core 核心组件
 
@@ -84,22 +85,20 @@ yode (main)
 - `cost_tracker.rs` - Token 成本追踪
 - `hooks.rs` - Hook 系统（pre/post tool hooks）
 - `updater.rs` - 自动更新（GitHub Releases、锁机制、版本保留）
+- `plugin_trust.rs` / `workspace_trust.rs` - 仓库外信任存储（canonical path + 哈希绑定）
 
-### yode-tui 架构
+### src/（CLI）架构
 
-- `app/mod.rs` - App 状态（chat_entries、SessionState、ThinkingState）
-- `commands/` - Slash 命令系统（/clear、/compact、/export、/rename、/theme、/copy 等）
-- `ui/` - TUI 渲染（status_bar、chat、input）
-- `event.rs` - 事件轮询
-
+- `main.rs` - CLI 入口（clap 解析、更新检查、setup 引导）
+- `chat_mode.rs` - 交互/非交互回合循环（引擎装配、预算、Hook 注册）
+- `app_bootstrap/` - 启动装配（session_restore 权限分层、tooling 工具注册）
 
 ## 开发惯例
 
 - 所有用户可见文本使用中文（简体中文）
 - 提交信息使用中文
-- 新增命令参考 `crates/yode-tui/src/commands/` 现有模式
 - 核心逻辑修改后运行 `cargo test -p yode-core`
-- TUI 修改后运行 `cargo build` 验证编译
+- 修改后运行完整门禁：`cargo fmt --all -- --check`、`cargo clippy --workspace --all-targets --no-deps -- -D warnings`、`cargo test --workspace`
 
 ## 参考资料
 

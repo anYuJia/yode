@@ -348,18 +348,19 @@ mod tests {
     use super::EnterWorktreeTool;
     use crate::tool::{Tool, ToolContext, WorktreeState};
     use serde_json::json;
-    use std::sync::Arc;
-    use std::sync::{Mutex as StdMutex, OnceLock};
+    use std::sync::{Arc, OnceLock};
     use tokio::sync::Mutex;
 
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| StdMutex::new(())).lock().unwrap()
+    async fn env_lock() -> tokio::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock()
+            .await
     }
 
     #[tokio::test]
     async fn enter_worktree_returns_metadata() {
-        let _guard = env_lock();
+        let _guard = env_lock().await;
         std::env::remove_var("YODE_GIT_SETTINGS");
         let dir = tempfile::tempdir().unwrap();
         std::process::Command::new("git")
@@ -408,7 +409,7 @@ mod tests {
 
     #[tokio::test]
     async fn enter_worktree_uses_git_branch_prefix_setting() {
-        let _guard = env_lock();
+        let _guard = env_lock().await;
         std::env::set_var("YODE_GIT_SETTINGS", r#"{"branchPrefix":"feature/"}"#);
         let dir = tempfile::tempdir().unwrap();
         std::process::Command::new("git")

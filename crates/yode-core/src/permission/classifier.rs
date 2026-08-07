@@ -185,7 +185,13 @@ impl CommandClassifier {
     }
 
     pub fn analyze(command: &str) -> CommandSemanticAnalysis {
-        let mut best: Option<CommandSemanticAnalysis> = None;
+        // Shell composition changes the semantics of otherwise harmless-looking
+        // binaries.  In particular, `echo` can write through a redirect, `tee`
+        // writes by design, and command substitutions can execute arbitrary
+        // nested commands.  Seed the analysis with that syntax risk before
+        // classifying individual command segments so a read-only prefix can
+        // never erase it.
+        let mut best = shell_syntax_analysis(command);
 
         for segment in split_command_segments(command) {
             let analysis = classify_segment(&segment, command);
@@ -306,6 +312,37 @@ fn classify_segment(segment: &str, full_command: &str) -> CommandSemanticAnalysi
             CommandRiskLevel::Destructive,
             segment,
             "recursive forced deletion requires an explicit destructive confirmation",
+        );
+    }
+
+    if command == "find"
+        && tokens.iter().skip(1).any(|token| {
+            matches!(
+                token.as_str(),
+                "-delete" | "-exec" | "-execdir" | "-ok" | "-okdir"
+            )
+        })
+    {
+        let (risk, reason) = if tokens.iter().any(|token| token == "-delete") {
+            (
+                CommandRiskLevel::Destructive,
+                "find -delete recursively removes matching filesystem entries",
+            )
+        } else {
+            (
+                CommandRiskLevel::PotentiallyRisky,
+                "find execution predicates can run mutating commands",
+            )
+        };
+        return segment_analysis(CommandSemanticCategory::Destructive, risk, segment, reason);
+    }
+
+    if command == "tee" {
+        return segment_analysis(
+            CommandSemanticCategory::Destructive,
+            CommandRiskLevel::PotentiallyRisky,
+            segment,
+            "tee writes command input to files",
         );
     }
 
@@ -506,6 +543,102 @@ fn split_command_segments(command: &str) -> Vec<String> {
     } else {
         segments
     }
+}
+
+/// Return a conservative risk for shell syntax whose effects cannot be
+/// determined by looking only at the leading executable.  Quoted metacharacters
+/// are ignored; substitutions inside double quotes still execute and therefore
+/// remain risky.
+fn shell_syntax_analysis(command: &str) -> Option<CommandSemanticAnalysis> {
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    let chars = command.char_indices().collect::<Vec<_>>();
+    let mut index = 0;
+
+    while index < chars.len() {
+        let (byte_index, ch) = chars[index];
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+        if ch == '\\' && quote != Some('\'') {
+            escaped = true;
+            index += 1;
+            continue;
+        }
+        if quote == Some('\'') {
+            if ch == '\'' {
+                quote = None;
+            }
+            index += 1;
+            continue;
+        }
+        if ch == '\'' {
+            quote = Some('\'');
+            index += 1;
+            continue;
+        }
+        if ch == '"' {
+            quote = if quote == Some('"') { None } else { Some('"') };
+            index += 1;
+            continue;
+        }
+
+        let rest = &command[byte_index..];
+        // 双引号内：只有命令替换类语法（$()、`、${}、(()）会真实执行；
+        // >、<、|、& 在双引号内是字面量，不触发风险。
+        let inside_double_quote = quote == Some('"');
+        let analysis = if rest.starts_with("$(") || ch == '`' {
+            Some((
+                CommandSemanticCategory::Unknown,
+                "command substitution executes a nested shell command",
+            ))
+        } else if !inside_double_quote && matches!(ch, '>' | '<') {
+            Some((
+                CommandSemanticCategory::Destructive,
+                "shell redirection can read from or write to filesystem/process targets",
+            ))
+        } else if !inside_double_quote && ch == '|' {
+            if rest.starts_with("||") {
+                // `||` 与 `&&` 一样是分隔符：两侧子命令分别分类即可。
+                index += 2;
+                continue;
+            }
+            Some((
+                CommandSemanticCategory::Unknown,
+                "shell pipelines compose commands with effects that require confirmation",
+            ))
+        } else if !inside_double_quote && ch == '&' {
+            if rest.starts_with("&&") {
+                index += 2;
+                continue;
+            }
+            Some((
+                CommandSemanticCategory::Unknown,
+                "background shell execution requires confirmation",
+            ))
+        } else if rest.starts_with("${") || rest.starts_with("((") {
+            Some((
+                CommandSemanticCategory::Unknown,
+                "shell expansion syntax could not be classified safely",
+            ))
+        } else {
+            None
+        };
+
+        if let Some((category, reason)) = analysis {
+            return Some(segment_analysis(
+                category,
+                CommandRiskLevel::PotentiallyRisky,
+                command.trim(),
+                reason,
+            ));
+        }
+        index += 1;
+    }
+
+    None
 }
 
 fn push_segment(segments: &mut Vec<String>, current: &mut String) {

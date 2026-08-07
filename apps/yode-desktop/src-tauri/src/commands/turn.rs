@@ -53,9 +53,11 @@ pub fn turn_cancel(
 pub async fn permission_mode_set(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     mode: String,
-) -> Result<(), String> {
+    bypass_confirmed: Option<bool>,
+    scope: Option<String>,
+) -> Result<protocol::PermissionModeState, String> {
     runtime
-        .permission_mode_set(mode)
+        .permission_mode_set(mode, bypass_confirmed.unwrap_or(false), scope)
         .await
         .map_err(|err| err.to_string())
 }

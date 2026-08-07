@@ -220,13 +220,15 @@ While the bash tool can do similar things, it's better to use the built-in tools
         let before_changes = GitChangeSnapshot::capture(working_dir).await;
         let timeout_duration = Duration::from_secs(timeout_secs);
 
-        let mut child = Command::new("sh")
-            .arg("-c")
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c")
             .arg(command)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .current_dir(working_dir)
-            .spawn()?;
+            .current_dir(working_dir);
+        // 独立进程组：超时/取消时能连同全部后代进程一起终止。
+        crate::process_env::spawn_in_new_process_group(&mut cmd);
+        let mut child = cmd.spawn()?;
 
         let stall_check = self
             .run_with_stall_watchdog(&mut child, timeout_duration, ctx.progress_tx.clone())
@@ -282,7 +284,7 @@ While the bash tool can do similar things, it's better to use the built-in tools
 }
 
 async fn kill_child_after_bash_interruption(child: &mut Child, command: &str, reason: &str) {
-    if let Err(err) = child.kill().await {
+    if let Err(err) = crate::process_env::kill_process_group(child).await {
         tracing::warn!(
             command = %command,
             reason,

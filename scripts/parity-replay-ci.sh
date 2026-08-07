@@ -16,7 +16,7 @@ tests=(
 )
 
 for test_name in "${tests[@]}"; do
-  cargo test -p yode-tui "$test_name" --quiet
+  cargo test -p yode-core "$test_name" --quiet
 done
 
 echo "Parity replay CI ok"

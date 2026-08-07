@@ -31,6 +31,7 @@ fn test_runtime(name: &str) -> (DesktopRuntime, PathBuf) {
         db: Database::open(&db_path).unwrap(),
         db_path,
         workspace_path: dir.clone(),
+        workspace_trusted: std::sync::atomic::AtomicBool::new(false),
         provider_registry: Mutex::new(Arc::new(ProviderRegistry::new())),
         tool_registry: Mutex::new(Arc::new(ToolRegistry::new())),
         mcp_resource_provider: Mutex::new(None),
@@ -40,6 +41,7 @@ fn test_runtime(name: &str) -> (DesktopRuntime, PathBuf) {
         ask_user_txs: Arc::new(Mutex::new(HashMap::new())),
         cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
         active_sessions: Arc::new(Mutex::new(HashSet::new())),
+        run_registry: Arc::new(Mutex::new(HashMap::new())),
         pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
         session_permission_rules: Arc::new(Mutex::new(HashMap::new())),
         terminal_sessions: Mutex::new(HashMap::new()),
@@ -234,7 +236,7 @@ async fn edit_diff_artifact_read_rejects_parent_components() {
 
     let error = read_edit_diff_artifact_from_roots(
         ".yode/edit-diffs/../secret.diff",
-        &[project_root.clone()],
+        std::slice::from_ref(&project_root),
     )
     .await
     .unwrap_err()

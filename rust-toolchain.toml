@@ -1,3 +1,4 @@
 [toolchain]
-channel = "stable"
+# 固定工具链：CI 与本地使用完全一致的编译器版本（MSRV 声明）。
+channel = "1.97.1"
 components = ["clippy", "rustfmt"]

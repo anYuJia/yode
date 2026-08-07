@@ -51,8 +51,8 @@ impl Tool for SendUserMessageTool {
 
     fn activity_description(&self, params: &Value) -> String {
         let msg = params.get("message").and_then(|v| v.as_str()).unwrap_or("");
-        let truncated = if msg.len() > 30 {
-            format!("{}...", &msg[..30])
+        let truncated = if msg.chars().count() > 30 {
+            format!("{}...", msg.chars().take(30).collect::<String>())
         } else {
             msg.to_string()
         };
@@ -108,5 +108,20 @@ impl Tool for SendUserMessageTool {
             "Message delivered to user.{}",
             suffix
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SendUserMessageTool;
+    use crate::tool::Tool;
+
+    #[test]
+    fn activity_description_truncates_unicode_on_character_boundaries() {
+        let message = "中文🙂".repeat(20);
+        let description =
+            SendUserMessageTool.activity_description(&serde_json::json!({"message": message}));
+        assert!(description.ends_with("..."));
+        assert_eq!(description.trim_end_matches("...").chars().count(), 47);
     }
 }

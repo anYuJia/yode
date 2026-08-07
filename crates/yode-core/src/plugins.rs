@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+
+use crate::plugin_trust::PluginTrustStore;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginRegistry {
@@ -11,11 +13,18 @@ pub struct PluginRegistry {
 
 impl PluginRegistry {
     pub fn discover(project_root: &Path) -> Self {
-        discover_plugins(&project_root.join(".yode").join("plugins"))
+        discover_plugins_with_store(
+            &project_root.join(".yode").join("plugins"),
+            &PluginTrustStore::load(),
+        )
     }
 
     pub async fn discover_async(project_root: &Path) -> Self {
-        discover_plugins_async(&project_root.join(".yode").join("plugins")).await
+        discover_plugins_with_store_async(
+            &project_root.join(".yode").join("plugins"),
+            &PluginTrustStore::load(),
+        )
+        .await
     }
 
     pub fn discover_dir(plugins_dir: &Path) -> Self {
@@ -24,6 +33,11 @@ impl PluginRegistry {
 
     pub async fn discover_dir_async(plugins_dir: &Path) -> Self {
         discover_plugins_async(plugins_dir).await
+    }
+
+    /// 使用显式信任存储发现插件（测试与桌面端注入自定义存储）。
+    pub fn discover_dir_with_store(plugins_dir: &Path, store: &PluginTrustStore) -> Self {
+        discover_plugins_with_store(plugins_dir, store)
     }
 
     pub fn plugins(&self) -> &[Plugin] {
@@ -98,7 +112,7 @@ impl PluginContributions {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PluginTrustState {
     #[default]
@@ -189,6 +203,14 @@ struct PluginManifest {
 }
 
 fn discover_plugins(plugins_dir: &Path) -> PluginRegistry {
+    discover_plugins_with_store(plugins_dir, &PluginTrustStore::default())
+}
+
+/// 发现插件并把信任状态绑定到仓库外的信任存储：
+/// - 仓库内 manifest 的 `trust`/`enabled` 不是信任来源；
+/// - 只有信任存储中存在与 canonical path + manifest 哈希匹配的记录时，
+///   插件才可能处于 Enabled/Disabled/Blocked，否则一律 Installed（需授权）。
+fn discover_plugins_with_store(plugins_dir: &Path, store: &PluginTrustStore) -> PluginRegistry {
     let mut plugins = Vec::new();
     let mut diagnostics = Vec::new();
 
@@ -219,7 +241,17 @@ fn discover_plugins(plugins_dir: &Path) -> PluginRegistry {
         }
 
         match parse_plugin_manifest(&plugin_dir, &manifest_path) {
-            Ok(plugin) => plugins.push(plugin),
+            Ok((mut plugin, legacy_trust_warning)) => {
+                apply_trust_store(&mut plugin, &manifest_path, store);
+                if let Some(warning) = legacy_trust_warning {
+                    diagnostics.push(PluginDiagnostic {
+                        plugin_dir: plugin_dir.clone(),
+                        manifest_path: manifest_path.clone(),
+                        message: warning,
+                    });
+                }
+                plugins.push(plugin);
+            }
             Err(message) => diagnostics.push(PluginDiagnostic {
                 plugin_dir,
                 manifest_path,
@@ -235,6 +267,13 @@ fn discover_plugins(plugins_dir: &Path) -> PluginRegistry {
 }
 
 async fn discover_plugins_async(plugins_dir: &Path) -> PluginRegistry {
+    discover_plugins_with_store_async(plugins_dir, &PluginTrustStore::default()).await
+}
+
+async fn discover_plugins_with_store_async(
+    plugins_dir: &Path,
+    store: &PluginTrustStore,
+) -> PluginRegistry {
     let mut plugins = Vec::new();
     let mut diagnostics = Vec::new();
 
@@ -276,7 +315,17 @@ async fn discover_plugins_async(plugins_dir: &Path) -> PluginRegistry {
         }
 
         match parse_plugin_manifest_async(&plugin_dir, &manifest_path).await {
-            Ok(plugin) => plugins.push(plugin),
+            Ok((mut plugin, legacy_trust_warning)) => {
+                apply_trust_store(&mut plugin, &manifest_path, store);
+                if let Some(warning) = legacy_trust_warning {
+                    diagnostics.push(PluginDiagnostic {
+                        plugin_dir: plugin_dir.clone(),
+                        manifest_path: manifest_path.clone(),
+                        message: warning,
+                    });
+                }
+                plugins.push(plugin);
+            }
             Err(message) => diagnostics.push(PluginDiagnostic {
                 plugin_dir,
                 manifest_path,
@@ -291,7 +340,23 @@ async fn discover_plugins_async(plugins_dir: &Path) -> PluginRegistry {
     }
 }
 
-fn parse_plugin_manifest(plugin_dir: &Path, manifest_path: &Path) -> Result<Plugin, String> {
+/// 从仓库外信任存储解析插件的有效信任状态。manifest 哈希不匹配或
+/// 无记录时回退到 Installed（必须重新授权）。
+fn apply_trust_store(plugin: &mut Plugin, manifest_path: &Path, store: &PluginTrustStore) {
+    let canonical = std::fs::canonicalize(&plugin.root).unwrap_or_else(|_| plugin.root.clone());
+    let Ok(content) = std::fs::read_to_string(manifest_path) else {
+        return;
+    };
+    let hash = PluginTrustStore::manifest_sha256(&content);
+    if let Some(state) = store.state_for(&canonical, &hash) {
+        plugin.trust = state;
+    }
+}
+
+fn parse_plugin_manifest(
+    plugin_dir: &Path,
+    manifest_path: &Path,
+) -> Result<(Plugin, Option<String>), String> {
     let content = std::fs::read_to_string(manifest_path)
         .map_err(|err| format!("failed to read plugin.toml: {err}"))?;
     parse_plugin_manifest_content(plugin_dir, manifest_path, &content)
@@ -300,7 +365,7 @@ fn parse_plugin_manifest(plugin_dir: &Path, manifest_path: &Path) -> Result<Plug
 async fn parse_plugin_manifest_async(
     plugin_dir: &Path,
     manifest_path: &Path,
-) -> Result<Plugin, String> {
+) -> Result<(Plugin, Option<String>), String> {
     let content = tokio::fs::read_to_string(manifest_path)
         .await
         .map_err(|err| format!("failed to read plugin.toml: {err}"))?;
@@ -311,7 +376,7 @@ fn parse_plugin_manifest_content(
     plugin_dir: &Path,
     manifest_path: &Path,
     content: &str,
-) -> Result<Plugin, String> {
+) -> Result<(Plugin, Option<String>), String> {
     let manifest: PluginManifest =
         toml::from_str(content).map_err(|err| format!("invalid plugin.toml: {err}"))?;
 
@@ -320,11 +385,21 @@ fn parse_plugin_manifest_content(
         return Err("plugin name is required".to_string());
     }
 
-    let trust = manifest.trust.unwrap_or(match manifest.enabled {
-        Some(true) => PluginTrustState::Enabled,
-        Some(false) => PluginTrustState::Disabled,
-        None => PluginTrustState::Installed,
-    });
+    // 仓库内 manifest 的 trust/enabled 字段不具权威性：信任状态一律从
+    // 仓库外的信任存储解析（apply_trust_store），此处固定为 Installed。
+    let trust = PluginTrustState::Installed;
+    // 旧 manifest 里的自授信字段虽然不再生效，但暴露为可观察的诊断，
+    // 让用户知道该字段被忽略，避免"明明 enabled 却不生效"的困惑。
+    let legacy_trust_warning = if manifest.trust == Some(PluginTrustState::Enabled)
+        || manifest.enabled == Some(true)
+    {
+        Some(
+            "plugin.toml 中的 trust/enabled 字段已被忽略；信任状态由仓库外的 plugin-trust.toml 决定。"
+                .to_string(),
+        )
+    } else {
+        None
+    };
 
     let contributions = PluginContributions {
         skills: resolve_contribution_paths(plugin_dir, &manifest.skills, "skills")?,
@@ -334,19 +409,22 @@ fn parse_plugin_manifest_content(
         mcp_servers: normalized_names(&manifest.mcp_servers),
     };
 
-    Ok(Plugin {
-        name: name.to_string(),
-        description: manifest
-            .description
-            .as_deref()
-            .map(str::trim)
-            .filter(|description| !description.is_empty())
-            .map(ToString::to_string),
-        trust,
-        root: plugin_dir.to_path_buf(),
-        manifest_path: manifest_path.to_path_buf(),
-        contributions,
-    })
+    Ok((
+        Plugin {
+            name: name.to_string(),
+            description: manifest
+                .description
+                .as_deref()
+                .map(str::trim)
+                .filter(|description| !description.is_empty())
+                .map(ToString::to_string),
+            trust,
+            root: plugin_dir.to_path_buf(),
+            manifest_path: manifest_path.to_path_buf(),
+            contributions,
+        },
+        legacy_trust_warning,
+    ))
 }
 
 fn resolve_contribution_paths(
@@ -393,41 +471,54 @@ fn normalized_names(values: &[String]) -> Vec<String> {
     names
 }
 
+/// 设置插件信任状态：写入仓库外的信任存储（canonical path + manifest 哈希绑定），
+/// 绝不修改仓库内的 plugin.toml。返回信任存储文件路径。
 pub fn set_plugin_trust(
     project_root: &Path,
     name: &str,
     trust: PluginTrustState,
 ) -> Result<PathBuf, String> {
-    let registry = PluginRegistry::discover(project_root);
+    let mut store = PluginTrustStore::load();
+    let store_path =
+        PluginTrustStore::default_path().ok_or_else(|| "无法定位用户主目录".to_string())?;
+    set_plugin_trust_at(project_root, name, trust, &mut store, &store_path)
+}
+
+/// 将信任写入指定存储（测试与桌面端注入自定义位置）。
+pub fn set_plugin_trust_at(
+    project_root: &Path,
+    name: &str,
+    trust: PluginTrustState,
+    store: &mut PluginTrustStore,
+    store_path: &Path,
+) -> Result<PathBuf, String> {
+    let registry =
+        PluginRegistry::discover_dir_with_store(&project_root.join(".yode").join("plugins"), store);
     let plugin = registry
         .get(name)
         .ok_or_else(|| format!("Plugin '{name}' not found."))?;
-    let manifest_path = plugin.manifest_path.clone();
-    let content = std::fs::read_to_string(&manifest_path)
-        .map_err(|err| format!("failed to read {}: {err}", manifest_path.display()))?;
-    let mut value = content
-        .parse::<toml::Value>()
-        .map_err(|err| format!("invalid plugin.toml {}: {err}", manifest_path.display()))?;
-    let table = value
-        .as_table_mut()
-        .ok_or_else(|| format!("plugin.toml {} must be a table", manifest_path.display()))?;
-    table.insert(
-        "trust".to_string(),
-        toml::Value::String(trust.as_str().to_string()),
-    );
-    table.remove("enabled");
-    std::fs::write(
-        &manifest_path,
-        toml::to_string_pretty(&value)
-            .map_err(|err| format!("failed to render {}: {err}", manifest_path.display()))?,
-    )
-    .map_err(|err| format!("failed to write {}: {err}", manifest_path.display()))?;
-    Ok(manifest_path)
+    let content = std::fs::read_to_string(&plugin.manifest_path)
+        .map_err(|err| format!("failed to read {}: {err}", plugin.manifest_path.display()))?;
+    let hash = PluginTrustStore::manifest_sha256(&content);
+    let canonical = std::fs::canonicalize(&plugin.root)
+        .map_err(|err| format!("无法解析插件路径 {}: {err}", plugin.root.display()))?;
+    store.set_at(&canonical, hash, trust, store_path)?;
+    Ok(store_path.to_path_buf())
 }
 
 pub fn discover_plugin_mcp_servers(project_root: &Path) -> PluginMcpDiscovery {
+    discover_plugin_mcp_servers_with_store(project_root, &PluginTrustStore::load())
+}
+
+pub fn discover_plugin_mcp_servers_with_store(
+    project_root: &Path,
+    store: &PluginTrustStore,
+) -> PluginMcpDiscovery {
     let mut discovery = PluginMcpDiscovery::default();
-    for plugin in PluginRegistry::discover(project_root).enabled_plugins() {
+    for plugin in
+        PluginRegistry::discover_dir_with_store(&project_root.join(".yode").join("plugins"), store)
+            .enabled_plugins()
+    {
         for contribution in &plugin.contributions.mcp_servers {
             let path = Path::new(contribution);
             if path.extension().and_then(|ext| ext.to_str()) != Some("toml") {
@@ -504,8 +595,18 @@ pub async fn discover_plugin_mcp_servers_async(project_root: &Path) -> PluginMcp
 }
 
 pub fn discover_plugin_commands(project_root: &Path) -> PluginCommandDiscovery {
+    discover_plugin_commands_with_store(project_root, &PluginTrustStore::load())
+}
+
+pub fn discover_plugin_commands_with_store(
+    project_root: &Path,
+    store: &PluginTrustStore,
+) -> PluginCommandDiscovery {
     let mut discovery = PluginCommandDiscovery::default();
-    for path in PluginRegistry::discover(project_root).enabled_command_paths() {
+    for path in
+        PluginRegistry::discover_dir_with_store(&project_root.join(".yode").join("plugins"), store)
+            .enabled_command_paths()
+    {
         for command_path in expand_toml_contribution(path) {
             match std::fs::read_to_string(&command_path)
                 .map_err(|err| format!("failed to read {}: {}", command_path.display(), err))
@@ -661,11 +762,29 @@ async fn expand_toml_contribution_async(path: PathBuf) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plugin_trust::{PluginTrustEntry, PluginTrustStore};
 
     fn write_manifest(dir: &Path, plugin: &str, manifest: &str) {
         let plugin_dir = dir.join(plugin);
         std::fs::create_dir_all(&plugin_dir).unwrap();
         std::fs::write(plugin_dir.join("plugin.toml"), manifest).unwrap();
+    }
+
+    /// 构造一个把指定插件标记为指定信任状态的仓库外信任存储（绑定 canonical path + 哈希）。
+    fn trust_store_for(dir: &Path, plugin: &str, trust: PluginTrustState) -> PluginTrustStore {
+        let mut store = PluginTrustStore::default();
+        let plugin_dir = dir.join(plugin);
+        let manifest = std::fs::read_to_string(plugin_dir.join("plugin.toml")).unwrap();
+        let canonical = std::fs::canonicalize(&plugin_dir).unwrap();
+        store.plugins.insert(
+            canonical.to_string_lossy().to_string(),
+            PluginTrustEntry {
+                path: canonical,
+                manifest_sha256: PluginTrustStore::manifest_sha256(&manifest),
+                trust,
+            },
+        );
+        store
     }
 
     #[test]
@@ -702,15 +821,21 @@ commands = ["commands/alpha.toml"]
             .collect::<Vec<_>>();
 
         assert_eq!(names, vec!["alpha", "zeta"]);
-        assert!(registry.diagnostics().is_empty());
+        // 没有仓库外信任记录时，manifest 里的 trust/enabled 不具权威性：
+        // 所有插件都是 Installed（需要用户授权）。
         assert_eq!(
             registry.get("alpha").unwrap().trust,
-            PluginTrustState::Disabled
+            PluginTrustState::Installed
         );
         assert_eq!(
             registry.get("zeta").unwrap().trust,
-            PluginTrustState::Enabled
+            PluginTrustState::Installed
         );
+        // 自授信字段被忽略时要暴露诊断
+        assert!(registry
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| { diagnostic.message.contains("trust/enabled 字段已被忽略") }));
         assert_eq!(
             registry.get("zeta").unwrap().contributions.mcp_servers,
             vec!["docs".to_string(), "review".to_string()]
@@ -731,9 +856,7 @@ commands = ["commands/alpha.toml"]
             .collect::<Vec<_>>();
 
         assert_eq!(registry.plugins().len(), 0);
-        assert!(messages
-            .iter()
-            .any(|message| *message == "missing plugin.toml"));
+        assert!(messages.contains(&"missing plugin.toml"));
         assert!(messages
             .iter()
             .any(|message| message.starts_with("invalid plugin.toml")));
@@ -781,17 +904,38 @@ trust = "blocked"
 "#,
         );
 
+        // 无信任存储：没有任何插件被启用（manifest 自授信不生效）
         let registry = PluginRegistry::discover_dir(dir.path());
+        assert_eq!(registry.enabled_plugins().count(), 0);
+
+        // 有信任存储：只有 Enabled 记录贡献，Blocked/Installed 不贡献
+        let mut store = trust_store_for(dir.path(), "enabled", PluginTrustState::Enabled);
+        let blocked_dir = dir.path().join("blocked");
+        let manifest = std::fs::read_to_string(blocked_dir.join("plugin.toml")).unwrap();
+        let canonical = std::fs::canonicalize(&blocked_dir).unwrap();
+        store.plugins.insert(
+            canonical.to_string_lossy().to_string(),
+            PluginTrustEntry {
+                path: canonical,
+                manifest_sha256: PluginTrustStore::manifest_sha256(&manifest),
+                trust: PluginTrustState::Blocked,
+            },
+        );
+        let registry = PluginRegistry::discover_dir_with_store(dir.path(), &store);
         let enabled = registry
             .enabled_plugins()
             .map(|plugin| plugin.name.as_str())
             .collect::<Vec<_>>();
 
         assert_eq!(enabled, vec!["enabled"]);
+        assert_eq!(
+            registry.get("blocked").unwrap().trust,
+            PluginTrustState::Blocked
+        );
     }
 
     #[test]
-    fn set_plugin_trust_updates_manifest() {
+    fn set_plugin_trust_writes_external_store_not_repo_manifest() {
         let dir = tempfile::tempdir().unwrap();
         write_manifest(
             &dir.path().join(".yode").join("plugins"),
@@ -803,16 +947,86 @@ skills = ["skills/demo/SKILL.md"]
 "#,
         );
 
-        let manifest = set_plugin_trust(dir.path(), "demo", PluginTrustState::Enabled).unwrap();
-        let updated = std::fs::read_to_string(manifest).unwrap();
-        let registry = PluginRegistry::discover(dir.path());
+        let store_path = dir.path().join("plugin-trust.toml");
+        let mut store = PluginTrustStore::default();
+        let written = set_plugin_trust_at(
+            dir.path(),
+            "demo",
+            PluginTrustState::Enabled,
+            &mut store,
+            &store_path,
+        )
+        .unwrap();
+        assert_eq!(written, store_path);
 
-        assert!(updated.contains("trust = \"enabled\""));
-        assert!(!updated.contains("enabled = false"));
+        // 仓库内 manifest 必须保持原样：不被写入 trust/enabled
+        let manifest = std::fs::read_to_string(
+            dir.path()
+                .join(".yode")
+                .join("plugins")
+                .join("demo")
+                .join("plugin.toml"),
+        )
+        .unwrap();
+        assert!(!manifest.contains("trust"));
+        assert!(manifest.contains("enabled = false"));
+
+        // 使用该信任存储发现时插件处于 Enabled
+        let registry = PluginRegistry::discover_dir_with_store(
+            &dir.path().join(".yode").join("plugins"),
+            &store,
+        );
         assert_eq!(
             registry.get("demo").unwrap().trust,
             PluginTrustState::Enabled
         );
+
+        // 篡改 manifest 后既有信任失效，插件回到 Installed
+        std::fs::write(
+            dir.path()
+                .join(".yode")
+                .join("plugins")
+                .join("demo")
+                .join("plugin.toml"),
+            "name = \"demo\"\n",
+        )
+        .unwrap();
+        let registry = PluginRegistry::discover_dir_with_store(
+            &dir.path().join(".yode").join("plugins"),
+            &store,
+        );
+        assert_eq!(
+            registry.get("demo").unwrap().trust,
+            PluginTrustState::Installed
+        );
+    }
+
+    #[test]
+    fn malicious_manifest_cannot_self_enable() {
+        let dir = tempfile::tempdir().unwrap();
+        // 恶意仓库：plugin.toml 里直接写 trust = "enabled"
+        write_manifest(
+            &dir.path().join(".yode").join("plugins"),
+            "evil",
+            r#"
+name = "evil"
+trust = "enabled"
+enabled = true
+hooks = ["hooks/evil.toml"]
+"#,
+        );
+
+        // 没有仓库外信任记录 => 即使仓库自授信也不启用
+        let registry = PluginRegistry::discover(dir.path());
+        assert_eq!(registry.enabled_plugins().count(), 0);
+        assert_eq!(
+            registry.get("evil").unwrap().trust,
+            PluginTrustState::Installed
+        );
+        assert!(registry
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("已被忽略")));
     }
 
     #[test]
@@ -844,7 +1058,12 @@ args = ["--stdio"]
         )
         .unwrap();
 
-        let discovery = discover_plugin_mcp_servers(dir.path());
+        let store = trust_store_for(
+            &dir.path().join(".yode").join("plugins"),
+            "demo",
+            PluginTrustState::Enabled,
+        );
+        let discovery = discover_plugin_mcp_servers_with_store(dir.path(), &store);
 
         assert!(discovery.diagnostics.is_empty());
         let server = discovery.servers.get("plugin_docs").unwrap();
@@ -880,7 +1099,13 @@ command = "yode-mcp-demo"
         )
         .unwrap();
 
-        let discovery = discover_plugin_mcp_servers(dir.path());
+        // 无信任记录 => 插件未被启用，MCP 服务器不加载
+        let store = trust_store_for(
+            &dir.path().join(".yode").join("plugins"),
+            "demo",
+            PluginTrustState::Installed,
+        );
+        let discovery = discover_plugin_mcp_servers_with_store(dir.path(), &store);
 
         assert!(discovery.servers.is_empty());
         assert!(discovery.diagnostics.is_empty());
@@ -916,7 +1141,12 @@ prompt = "Review this plugin contribution."
         )
         .unwrap();
 
-        let discovery = discover_plugin_commands(dir.path());
+        let store = trust_store_for(
+            &dir.path().join(".yode").join("plugins"),
+            "demo",
+            PluginTrustState::Enabled,
+        );
+        let discovery = discover_plugin_commands_with_store(dir.path(), &store);
 
         assert!(discovery.diagnostics.is_empty());
         assert_eq!(discovery.commands.len(), 1);
@@ -956,7 +1186,12 @@ description = "Run plugin review prompt"
         )
         .unwrap();
 
-        let discovery = discover_plugin_commands(dir.path());
+        let store = trust_store_for(
+            &dir.path().join(".yode").join("plugins"),
+            "demo",
+            PluginTrustState::Installed,
+        );
+        let discovery = discover_plugin_commands_with_store(dir.path(), &store);
 
         assert!(discovery.commands.is_empty());
         assert!(discovery.diagnostics.is_empty());

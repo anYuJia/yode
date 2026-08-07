@@ -2,10 +2,14 @@ use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::Path;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct ReadFileTool;
+
+const DEFAULT_READ_LINES: usize = 2_000;
+const MAX_READ_LINES: usize = 20_000;
 
 #[async_trait]
 impl Tool for ReadFileTool {
@@ -69,28 +73,31 @@ Usage:
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: file_path"))?;
 
-        // Update read history
-        if let Some(history) = &ctx.read_file_history {
-            let mut h = history.lock().await;
-            h.insert(normalize_history_path(file_path));
-        }
-
         let offset = params
             .get("offset")
             .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .unwrap_or(1);
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(1)
+            .max(1);
 
         let limit = params
             .get("limit")
             .and_then(|v| v.as_u64())
-            .map(|v| v as usize)
-            .or(Some(2000)); // Default limit: 2000 lines
+            .and_then(|value| usize::try_from(value).ok())
+            .unwrap_or(DEFAULT_READ_LINES);
+        if limit == 0 || limit > MAX_READ_LINES {
+            return Ok(ToolResult::error_typed(
+                format!("limit must be between 1 and {MAX_READ_LINES} lines"),
+                crate::tool::ToolErrorType::Validation,
+                true,
+                Some("Use pagination with a smaller limit.".to_string()),
+            ));
+        }
 
         tracing::debug!(
             file_path = %file_path,
             offset = offset,
-            limit = ?limit,
+            limit = limit,
             "Reading file"
         );
 
@@ -107,8 +114,8 @@ Usage:
             ));
         }
 
-        let content = match tokio::fs::read_to_string(file_path).await {
-            Ok(content) => content,
+        let metadata = match tokio::fs::metadata(path).await {
+            Ok(metadata) => metadata,
             Err(e) => {
                 tracing::warn!(file_path = %file_path, error = %e, "Failed to read file");
                 return Ok(ToolResult::error(format!(
@@ -117,50 +124,102 @@ Usage:
                 )));
             }
         };
-
-        let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
-
-        // offset is 1-based; clamp to valid range
-        let start = offset.saturating_sub(1);
-        let start = start.min(total_lines);
-
-        let end = match limit {
-            Some(lim) => (start + lim).min(total_lines),
-            None => total_lines,
+        let file = match tokio::fs::File::open(path).await {
+            Ok(file) => file,
+            Err(e) => {
+                tracing::warn!(file_path = %file_path, error = %e, "Failed to open file");
+                return Ok(ToolResult::error(format!(
+                    "Failed to read file '{}': {}",
+                    file_path, e
+                )));
+            }
         };
-
+        let mut reader = BufReader::new(file);
         let mut output = String::new();
-        let was_truncated = end < total_lines && limit.is_some();
-        for (idx, line) in lines[start..end].iter().enumerate() {
-            let line_num = start + idx + 1; // 1-based line number
-                                            // cat -n format: right-justified 6-wide line number, then tab, then content
-            output.push_str(&format!("{:>6}\t{}\n", line_num, line));
+        let mut line = String::new();
+        let mut line_number = 0usize;
+        let mut returned = 0usize;
+        let mut has_more = false;
+        loop {
+            if ctx
+                .cancellation
+                .as_ref()
+                .is_some_and(tokio_util::sync::CancellationToken::is_cancelled)
+            {
+                return Ok(ToolResult::error_typed(
+                    "File read cancelled.".to_string(),
+                    crate::tool::ToolErrorType::Execution,
+                    false,
+                    None,
+                ));
+            }
+            line.clear();
+            let bytes = match reader.read_line(&mut line).await {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    return Ok(ToolResult::error(format!(
+                        "Failed to read file '{}': {}",
+                        file_path, error
+                    )));
+                }
+            };
+            if bytes == 0 {
+                break;
+            }
+            line_number = line_number.saturating_add(1);
+            if line_number < offset {
+                continue;
+            }
+            if returned >= limit {
+                has_more = true;
+                break;
+            }
+            let text = line.strip_suffix('\n').unwrap_or(&line);
+            let text = text.strip_suffix('\r').unwrap_or(text);
+            output.push_str(&format!("{:>6}\t{}\n", line_number, text));
+            returned = returned.saturating_add(1);
         }
 
-        if was_truncated {
+        if has_more {
             output.push_str(&format!(
-                "\n... (showing lines {}-{} of {} total, use offset/limit to read more)\n",
-                start + 1,
-                end,
-                total_lines
+                "\n... (showing lines {}-{}, more lines are available; use offset/limit to continue)\n",
+                offset,
+                offset.saturating_add(returned).saturating_sub(1),
             ));
         }
 
+        // A failed read must never authorize a subsequent overwrite.
+        if let Some(history) = &ctx.read_file_history {
+            history
+                .lock()
+                .await
+                .insert(normalize_history_path(file_path));
+        }
+
+        let end_line = if returned == 0 {
+            offset.saturating_sub(1).min(line_number)
+        } else {
+            offset.saturating_add(returned).saturating_sub(1)
+        };
+        let total_lines = (!has_more).then_some(line_number);
+
         tracing::debug!(
             file_path = %file_path,
-            lines_returned = end - start,
-            total_lines = total_lines,
+            lines_returned = returned,
+            lines_scanned = line_number,
+            total_lines = ?total_lines,
             "File read successfully"
         );
 
         let metadata = json!({
             "file_path": file_path,
             "total_lines": total_lines,
-            "start_line": start + 1,
-            "end_line": end,
-            "was_truncated": was_truncated,
-            "file_size": content.len(),
+            "total_lines_known": total_lines.is_some(),
+            "start_line": offset,
+            "end_line": end_line,
+            "was_truncated": has_more,
+            "file_size": metadata.len(),
+            "lines_scanned": line_number,
         });
 
         Ok(ToolResult::success_with_metadata(output, metadata))

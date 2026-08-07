@@ -1,5 +1,5 @@
 mod cancel;
-mod finalization;
+pub(super) mod finalization;
 mod protocol;
 mod stream_loop;
 mod tool_calls;
@@ -57,6 +57,23 @@ impl AgentEngine {
 
         loop {
             if self.turn_cancelled(cancel_token.as_ref(), &event_tx).await {
+                return Ok(());
+            }
+
+            // BUDGET-001：硬预算在每步开始前检查，达到上限即暂停本轮，
+            // 由用户决定续批（发起新 turn）或停止，绝不只发 warning 后继续。
+            self.turn_step_count = self.turn_step_count.saturating_add(1);
+            if let Some(reason) = self.hard_budget_exhausted_reason() {
+                let cost = self.cost_tracker.estimated_cost();
+                let _ = event_tx.send(EngineEvent::BudgetExceeded {
+                    cost,
+                    limit: self.cost_tracker.remaining_budget().unwrap_or(0.0),
+                });
+                let _ = event_tx.send(EngineEvent::Error(format!(
+                    "本轮运行预算已用尽：{}。请回复用户说明进展，等待用户决定是否续批。",
+                    reason
+                )));
+                let _ = event_tx.send(EngineEvent::Done);
                 return Ok(());
             }
 

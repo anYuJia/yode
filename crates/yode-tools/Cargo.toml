@@ -13,6 +13,7 @@ categories.workspace = true
 yode-agent = { workspace = true }
 async-trait = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 futures = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -27,6 +28,9 @@ chrono = { workspace = true }
 dirs = { workspace = true }
 toml = { workspace = true }
 sha2 = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 base64 = { workspace = true }
 parking_lot = { workspace = true }
 cron = "0.15"

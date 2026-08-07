@@ -31,6 +31,9 @@ pub struct SubAgentRunnerImpl {
     pub provider: Arc<dyn LlmProvider>,
     pub tools: Arc<ToolRegistry>,
     pub context: AgentContext,
+    /// 父级有效权限管理器快照：子 Agent 继承父级模式、Managed/User 规则
+    /// 与拒绝追踪状态，任何权限提升都需要父级流程重新确认。
+    pub permissions: PermissionManager,
     pub runtime_tasks: Arc<Mutex<RuntimeTaskStore>>,
     pub team_runtime: Arc<Mutex<AgentTeamManager>>,
     pub skill_invocation_store: Arc<Mutex<Vec<SkillInvocation>>>,
@@ -141,6 +144,7 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                 if let Some(m) = subagent_model.clone() {
                     sub_context.model = m;
                 }
+                let permissions = self.permissions.clone();
                 let runtime_tasks = Arc::clone(&self.runtime_tasks);
                 let team_runtime = Arc::clone(&self.team_runtime);
                 let skill_invocation_store = Arc::clone(&self.skill_invocation_store);
@@ -169,7 +173,9 @@ impl SubAgentRunner for SubAgentRunnerImpl {
                         team_id.is_some() && member_id.is_some(),
                     );
 
-                    let permissions = PermissionManager::permissive();
+                    // 子 Agent 继承父级有效权限：Managed 规则、模式、规则与
+                    // 拒绝追踪都不能被绕过；其工具面已受限为父级工具 ∩ allowlist。
+                    let permissions = permissions.clone();
                     let hook_context = sub_context.clone();
                     let mut engine = AgentEngine::new(
                         provider,
@@ -382,7 +388,8 @@ impl SubAgentRunner for SubAgentRunnerImpl {
             );
 
             let sub_registry = Arc::new(sub_registry);
-            let permissions = PermissionManager::permissive();
+            // 子 Agent 继承父级有效权限（Managed 规则优先，模式与规则不可绕过）。
+            let permissions = self.permissions.clone();
 
             let mut sub_context = subagent_context.clone();
             if let Some(m) = subagent_model {
@@ -829,6 +836,23 @@ fn sanitize_workspace_name(raw: &str) -> String {
         .collect()
 }
 
+/// 空 allowlist 的默认只读工具集：未显式授权任何工具的子 Agent 只能观察，
+/// 绝不能获得父级全部工具（AGENT-002 fail-closed）。
+const SUBAGENT_DEFAULT_READONLY_TOOLS: &[&str] = &[
+    "read_file",
+    "glob",
+    "grep",
+    "ls",
+    "git_status",
+    "git_log",
+    "git_diff",
+    "project_map",
+    "tool_search",
+    "task_output",
+    "memory",
+    "hypothesis",
+];
+
 fn register_subagent_tools(
     sub_registry: &ToolRegistry,
     tools: &ToolRegistry,
@@ -836,8 +860,11 @@ fn register_subagent_tools(
     include_team_runtime_tools: bool,
 ) {
     if allowed_tools.is_empty() {
-        for tool in tools.list() {
-            sub_registry.register(tool);
+        // 空 allowlist 不再代表"全部工具"：只注册安全的只读观察工具集。
+        for name in SUBAGENT_DEFAULT_READONLY_TOOLS {
+            if let Some(tool) = tools.get(name) {
+                sub_registry.register(tool);
+            }
         }
         return;
     }
@@ -1272,6 +1299,162 @@ mod tests {
         assert_eq!(
             sanitize_workspace_name("Review API & Tests!"),
             "review-api---tests"
+        );
+    }
+}
+
+#[cfg(test)]
+mod security_tests {
+    use super::register_subagent_tools;
+    use crate::permission::{
+        PermissionAction, PermissionManager, PermissionMode, PermissionRule, RuleBehavior,
+        RuleSource,
+    };
+    use yode_tools::registry::ToolRegistry;
+    use yode_tools::tool::ToolCapabilities;
+
+    struct MockTool {
+        name: &'static str,
+    }
+
+    #[async_trait::async_trait]
+    impl yode_tools::tool::Tool for MockTool {
+        fn name(&self) -> &str {
+            self.name
+        }
+
+        fn description(&self) -> &str {
+            "mock"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({"type": "object", "properties": {}})
+        }
+
+        fn capabilities(&self) -> ToolCapabilities {
+            ToolCapabilities::default()
+        }
+
+        async fn execute(
+            &self,
+            _params: serde_json::Value,
+            _ctx: &yode_tools::tool::ToolContext,
+        ) -> anyhow::Result<yode_tools::tool::ToolResult> {
+            Ok(yode_tools::tool::ToolResult::success("ok".to_string()))
+        }
+    }
+
+    fn parent_registry() -> ToolRegistry {
+        let registry = ToolRegistry::new();
+        for name in [
+            "read_file",
+            "glob",
+            "grep",
+            "bash",
+            "write_file",
+            "agent",
+            "mcp_custom",
+        ] {
+            registry.register(std::sync::Arc::new(MockTool { name }));
+        }
+        registry
+    }
+
+    /// AGENT-002：空 allowlist 只能得到安全的只读默认工具集，不能获得父级全部工具。
+    #[test]
+    fn empty_allowlist_grants_only_readonly_default_tools() {
+        let parent = parent_registry();
+        let sub = ToolRegistry::new();
+        register_subagent_tools(&sub, &parent, &[], false);
+
+        let names = sub
+            .list()
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"read_file".to_string()));
+        assert!(names.contains(&"grep".to_string()));
+        assert!(
+            !names.contains(&"bash".to_string()),
+            "bash must not be granted by an empty allowlist"
+        );
+        assert!(
+            !names.contains(&"write_file".to_string()),
+            "write_file must not be granted by an empty allowlist"
+        );
+        assert!(
+            !names.contains(&"agent".to_string()),
+            "recursive agent tool must not be granted by an empty allowlist"
+        );
+        assert!(
+            !names.contains(&"mcp_custom".to_string()),
+            "dynamic MCP tools must not be granted by an empty allowlist"
+        );
+    }
+
+    /// AGENT-002：显式 allowlist 是父级工具面的子集，未知名称被忽略。
+    #[test]
+    fn explicit_allowlist_is_intersection_with_parent_tools() {
+        let parent = parent_registry();
+        let sub = ToolRegistry::new();
+        register_subagent_tools(
+            &sub,
+            &parent,
+            &[
+                "read_file".to_string(),
+                "write_file".to_string(),
+                "not_a_real_tool".to_string(),
+            ],
+            false,
+        );
+
+        let names = sub
+            .list()
+            .iter()
+            .map(|tool| tool.name().to_string())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"read_file".to_string()));
+        assert!(names.contains(&"write_file".to_string()));
+        assert!(!names.contains(&"not_a_real_tool".to_string()));
+        assert!(!names.contains(&"bash".to_string()));
+    }
+
+    /// AGENT-001：父级 Managed deny 在子 Agent 权限快照中仍然生效。
+    #[test]
+    fn subagent_inherits_parent_managed_deny() {
+        let mut parent = PermissionManager::new(PermissionMode::Default);
+        parent.add_rule(PermissionRule {
+            source: RuleSource::ManagedConfig,
+            behavior: RuleBehavior::Deny,
+            tool_name: "bash".to_string(),
+            category: None,
+            pattern: None,
+            description: Some("enterprise deny bash".to_string()),
+        });
+
+        // 子 Agent 快照 = 父级快照（SubAgentRunnerImpl 通过 clone 传入）
+        let sub = parent.clone();
+        // Bypass 模式也不能绕过 Managed deny（PERM-001 契约在快照中保持）
+        let mut sub = sub;
+        sub.set_mode(PermissionMode::Bypass);
+        assert_eq!(
+            sub.explain_with_content("bash", None).action,
+            PermissionAction::Deny
+        );
+    }
+
+    /// AGENT-001：子 Agent 继承父级模式（如 Plan 模式对写工具的拒绝）。
+    #[test]
+    fn subagent_inherits_parent_plan_mode() {
+        let parent = PermissionManager::new(PermissionMode::Plan);
+        let sub = parent.clone();
+        assert_eq!(
+            sub.explain_with_content("write_file", None).action,
+            PermissionAction::Deny
+        );
+        assert_eq!(
+            sub.explain_with_content("read_file", None).action,
+            PermissionAction::Allow
         );
     }
 }

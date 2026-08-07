@@ -3,10 +3,23 @@ import type { UserQuery } from "./askUser";
 export type Bootstrap = {
   appVersion: string;
   workspacePath: string;
+  /** 后端计算的唯一工作区信任状态（仓库外存储绑定 path+hash+remote）。 */
+  workspaceTrusted: boolean;
   provider: string;
   model: string;
   permissionMode: string;
+  /** 后端计算后的唯一有效权限模式，前端不得自行推导。 */
+  effectivePermissionMode: string;
   sessions: SessionSummary[];
+  runs: RunState[];
+};
+
+export type RunState = {
+  sessionId: string;
+  turnId: string;
+  status: string;
+  updatedAt: string;
+  detail?: string | null;
 };
 
 export type DefaultLlm = {
@@ -187,8 +200,11 @@ export type UsageSnapshot = {
 export const fallbackBootstrap: Bootstrap = {
   appVersion: "",
   workspacePath: "",
+  workspaceTrusted: false,
   provider: "",
   model: "",
   permissionMode: "default",
-  sessions: []
+  effectivePermissionMode: "default",
+  sessions: [],
+  runs: []
 };

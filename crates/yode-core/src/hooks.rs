@@ -216,8 +216,20 @@ pub struct PluginHookDiscovery {
 }
 
 pub fn discover_plugin_hooks(project_root: &std::path::Path) -> PluginHookDiscovery {
+    discover_plugin_hooks_with_store(project_root, &crate::plugin_trust::PluginTrustStore::load())
+}
+
+pub fn discover_plugin_hooks_with_store(
+    project_root: &std::path::Path,
+    store: &crate::plugin_trust::PluginTrustStore,
+) -> PluginHookDiscovery {
     let mut discovery = PluginHookDiscovery::default();
-    for path in crate::plugins::PluginRegistry::discover(project_root).enabled_hook_paths() {
+    for path in crate::plugins::PluginRegistry::discover_dir_with_store(
+        &project_root.join(".yode").join("plugins"),
+        store,
+    )
+    .enabled_hook_paths()
+    {
         let hook_paths = expand_hook_contribution(path);
         for hook_path in hook_paths {
             match std::fs::read_to_string(&hook_path)

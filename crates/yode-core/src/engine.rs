@@ -232,6 +232,12 @@ pub struct AgentEngine {
     current_query_source: QuerySource,
     /// Start time for the current top-level user turn.
     current_turn_started_at: Option<std::time::Instant>,
+    /// BUDGET-001：本轮硬预算运行时状态。
+    turn_budget_started_at: Option<std::time::Instant>,
+    turn_step_count: u32,
+    turn_budget_max_tool_calls: u32,
+    turn_budget_max_steps: u32,
+    turn_budget_max_wall_secs: u64,
     /// Duration of the most recently completed top-level turn.
     last_turn_duration_ms: Option<u64>,
     /// Stop reason of the most recently completed top-level turn.

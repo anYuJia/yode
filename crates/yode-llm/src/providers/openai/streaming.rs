@@ -166,8 +166,7 @@ impl OpenAiProvider {
             }),
         )
         .await;
-        finalize_stream(state, &tx).await;
-        Ok(())
+        finalize_stream(state, &tx).await
     }
 }
 

@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod benchmark;
 pub mod config;
 mod constants;
 pub mod context;
@@ -10,6 +12,7 @@ pub mod error;
 pub mod hooks;
 pub mod instructions;
 pub mod permission;
+pub mod plugin_trust;
 pub mod plugins;
 pub mod session;
 pub mod session_memory;
@@ -18,6 +21,7 @@ pub mod skills;
 pub mod tool_runtime;
 pub mod transcript;
 pub mod updater;
+pub mod workspace_trust;
 
 pub use context::EffortLevel;
 pub use permission::PermissionMode;

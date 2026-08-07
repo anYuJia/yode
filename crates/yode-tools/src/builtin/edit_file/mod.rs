@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::builtin::edit_artifact::{diff_artifact_metadata, persist_edit_diff_artifact};
+use crate::builtin::file_io::atomic_write;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub mod snip;
@@ -150,7 +151,13 @@ Usage:
         };
 
         // Write back
-        match tokio::fs::write(file_path, &new_content).await {
+        match atomic_write(
+            std::path::Path::new(file_path),
+            new_content.as_bytes(),
+            ctx.cancellation.as_ref(),
+        )
+        .await
+        {
             Ok(()) => {
                 // --- LSP Notification ---
                 if let Some(_lsp) = &ctx.lsp_manager {

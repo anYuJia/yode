@@ -45,8 +45,8 @@ impl Database {
                 project_root: row.get(2)?,
                 provider: row.get(3)?,
                 model: row.get(4)?,
-                created_at: parse_rfc3339_or_now(row.get::<_, String>(5)?),
-                updated_at: parse_rfc3339_or_now(row.get::<_, String>(6)?),
+                created_at: parse_rfc3339_strict(row.get::<_, String>(5)?)?,
+                updated_at: parse_rfc3339_strict(row.get::<_, String>(6)?)?,
             }))
         } else {
             Ok(None)
@@ -67,8 +67,10 @@ impl Database {
                     project_root: row.get(2)?,
                     provider: row.get(3)?,
                     model: row.get(4)?,
-                    created_at: parse_rfc3339_or_now(row.get::<_, String>(5).unwrap_or_default()),
-                    updated_at: parse_rfc3339_or_now(row.get::<_, String>(6).unwrap_or_default()),
+                    created_at: parse_rfc3339_strict(row.get::<_, String>(5).unwrap_or_default())
+                        .map_err(|err| rusqlite_corruption(5, err))?,
+                    updated_at: parse_rfc3339_strict(row.get::<_, String>(6).unwrap_or_default())
+                        .map_err(|err| rusqlite_corruption(6, err))?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -101,12 +103,14 @@ impl Database {
                         project_root: row.get(2)?,
                         provider: row.get(3)?,
                         model: row.get(4)?,
-                        created_at: parse_rfc3339_or_now(
+                        created_at: parse_rfc3339_strict(
                             row.get::<_, String>(5).unwrap_or_default(),
-                        ),
-                        updated_at: parse_rfc3339_or_now(
+                        )
+                        .map_err(|err| rusqlite_corruption(5, err))?,
+                        updated_at: parse_rfc3339_strict(
                             row.get::<_, String>(6).unwrap_or_default(),
-                        ),
+                        )
+                        .map_err(|err| rusqlite_corruption(6, err))?,
                     },
                     artifacts: SessionArtifacts {
                         last_compaction_mode: row.get(7)?,

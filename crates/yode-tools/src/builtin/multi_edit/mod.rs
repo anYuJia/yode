@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::builtin::edit_artifact::{diff_artifact_metadata, persist_edit_diff_artifact};
+use crate::builtin::file_io::atomic_write;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
 
 pub struct MultiEditTool;
@@ -104,7 +105,7 @@ impl Tool for MultiEditTool {
         }
 
         // Read file
-        let mut content = match tokio::fs::read_to_string(file_path).await {
+        let content = match tokio::fs::read_to_string(file_path).await {
             Ok(c) => c,
             Err(e) => {
                 return Ok(ToolResult::error(format!(
@@ -134,30 +135,51 @@ impl Tool for MultiEditTool {
                 )));
             }
 
-            let count = content.matches(old_string).count();
-            if count == 0 {
+            let mut matches = content.match_indices(old_string);
+            let Some((start, _)) = matches.next() else {
                 return Ok(ToolResult::error(format!(
                     "Edit {}: old_string not found in '{}'.",
                     i, file_path
                 )));
-            }
-            if count > 1 {
+            };
+            if matches.next().is_some() {
                 return Ok(ToolResult::error(format!(
-                    "Edit {}: old_string found {} times in '{}'. Each old_string must be unique.",
-                    i, count, file_path
+                    "Edit {}: old_string was found more than once in '{}'. Each old_string must be unique.",
+                    i, file_path
                 )));
             }
 
-            parsed_edits.push((old_string, new_string));
+            parsed_edits.push((i, start, start + old_string.len(), old_string, new_string));
         }
 
-        // Apply all edits sequentially
+        parsed_edits.sort_by_key(|(_, start, _, _, _)| *start);
+        for pair in parsed_edits.windows(2) {
+            let (left_index, _, left_end, _, _) = pair[0];
+            let (right_index, right_start, _, _, _) = pair[1];
+            if right_start < left_end {
+                return Ok(ToolResult::error_typed(
+                    format!(
+                        "Edits {} and {} overlap in '{}'; no changes were written.",
+                        left_index, right_index, file_path
+                    ),
+                    ToolErrorType::Validation,
+                    true,
+                    Some(
+                        "Merge overlapping replacements into one exact edit and retry.".to_string(),
+                    ),
+                ));
+            }
+        }
+
+        // Apply from the end of the original document so every validated byte
+        // range remains stable and every requested edit is applied exactly once.
+        let mut updated = content.clone();
         let mut applied: usize = 0;
         let mut removed_preview = Vec::new();
         let mut added_preview = Vec::new();
         let mut removed_full = Vec::new();
         let mut added_full = Vec::new();
-        for (old_string, new_string) in parsed_edits {
+        for (_, start, end, old_string, new_string) in parsed_edits.iter().rev() {
             if removed_preview.len() < 5 {
                 removed_preview.push(old_string.lines().next().unwrap_or("").to_string());
             }
@@ -166,12 +188,18 @@ impl Tool for MultiEditTool {
             }
             removed_full.extend(old_string.lines().map(|line| line.to_string()));
             added_full.extend(new_string.lines().map(|line| line.to_string()));
-            content = content.replacen(old_string, new_string, 1);
+            updated.replace_range(*start..*end, new_string);
             applied += 1;
         }
 
         // Write back
-        match tokio::fs::write(file_path, &content).await {
+        match atomic_write(
+            std::path::Path::new(file_path),
+            updated.as_bytes(),
+            ctx.cancellation.as_ref(),
+        )
+        .await
+        {
             Ok(()) => {
                 let artifact =
                     persist_edit_diff_artifact(ctx, file_path, &removed_full, &added_full).await;
@@ -315,6 +343,75 @@ mod tests {
 
         assert!(result.is_error);
         assert!(result.content.contains("must be unique"));
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn multi_edit_rejects_overlapping_targets_without_writing() {
+        let path = temp_path("overlap.txt");
+        let original = "alpha beta gamma\n";
+        tokio::fs::write(&path, original).await.unwrap();
+
+        let mut seen = HashSet::new();
+        seen.insert(path.clone());
+        let history = Arc::new(Mutex::new(seen));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = MultiEditTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "edits": [
+                        {"old_string":"alpha beta","new_string":"one"},
+                        {"old_string":"beta gamma","new_string":"two"}
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(result.is_error);
+        assert_eq!(result.error_type, Some(ToolErrorType::Validation));
+        assert!(result.content.contains("overlap"));
+        assert_eq!(tokio::fs::read_to_string(&path).await.unwrap(), original);
+
+        let _ = tokio::fs::remove_file(&path).await;
+    }
+
+    #[tokio::test]
+    async fn multi_edit_applies_targets_that_would_be_invalidated_sequentially() {
+        let path = temp_path("stable-ranges.txt");
+        tokio::fs::write(&path, "alpha | beta\n").await.unwrap();
+
+        let mut seen = HashSet::new();
+        seen.insert(path.clone());
+        let history = Arc::new(Mutex::new(seen));
+        let mut ctx = ToolContext::empty();
+        ctx.read_file_history = Some(history);
+
+        let result = MultiEditTool
+            .execute(
+                json!({
+                    "file_path": path.display().to_string(),
+                    "edits": [
+                        {"old_string":"alpha","new_string":"beta"},
+                        {"old_string":"beta","new_string":"delta"}
+                    ]
+                }),
+                &ctx,
+            )
+            .await
+            .unwrap();
+
+        assert!(!result.is_error);
+        assert_eq!(result.metadata.as_ref().unwrap()["applied_edits"], json!(2));
+        assert_eq!(
+            tokio::fs::read_to_string(&path).await.unwrap(),
+            "beta | delta\n"
+        );
 
         let _ = tokio::fs::remove_file(&path).await;
     }

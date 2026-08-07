@@ -41,7 +41,7 @@ pub struct PermissionConflictView {
 }
 
 /// Manages permissions for tool execution with modes, rules, and tracking.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PermissionManager {
     mode: PermissionMode,
     rules: Vec<PermissionRule>,

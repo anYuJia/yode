@@ -7,7 +7,7 @@ pub(in crate::engine) enum StreamFinalizeAction {
 }
 
 impl AgentEngine {
-    pub(super) async fn finalize_stream_turn(
+    pub(in crate::engine) async fn finalize_stream_turn(
         &mut self,
         mut buffers: StreamTurnBuffers,
         event_tx: &mpsc::UnboundedSender<EngineEvent>,
@@ -89,6 +89,22 @@ impl AgentEngine {
         }
 
         if !buffers.tool_calls.is_empty() {
+            // 提交门（STREAM-001）：只有在收到 Done（final_response）证明流完整
+            // 结束之后，才允许执行工具调用。截断流、无 finish signal、取消或
+            // watchdog 中断时，缓冲区里的工具调用一律丢弃，绝不执行半截参数。
+            if buffers.final_response.is_none() {
+                warn!(
+                    "Streaming turn ended without a final response but produced {} tool call(s); discarding to prevent executing truncated tool calls.",
+                    buffers.tool_calls.len()
+                );
+                let _ = event_tx.send(EngineEvent::Error(
+                    "LLM 流在完成前中断，已丢弃未完整接收的工具调用。".to_string(),
+                ));
+                self.complete_tool_turn_artifact_async().await;
+                self.complete_turn_runtime_artifact(None).await;
+                let _ = event_tx.send(EngineEvent::Done);
+                return Ok(StreamFinalizeAction::Break);
+            }
             assistant_msg.normalize_in_place();
             self.push_and_persist_assistant_message(&assistant_msg);
             self.execute_stream_tool_calls(&buffers.tool_calls, event_tx, confirm_rx, cancel_token)

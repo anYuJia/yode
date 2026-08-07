@@ -66,11 +66,78 @@ impl Tool for MockReadTool {
     }
 }
 
+/// 只读但注解要求确认的工具（web_fetch / web_search 同型）。
+pub(super) struct MockReadToolWithConfirmation {
+    pub(super) name: String,
+}
+
+#[async_trait::async_trait]
+impl Tool for MockReadToolWithConfirmation {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        "mock read tool that requests confirmation"
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({"type": "object", "properties": {}})
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities {
+            requires_confirmation: true,
+            supports_auto_execution: false,
+            read_only: true,
+        }
+    }
+
+    async fn execute(
+        &self,
+        _params: serde_json::Value,
+        _ctx: &ToolContext,
+    ) -> anyhow::Result<ToolResult> {
+        Ok(ToolResult::success(format!("result from {}", self.name)))
+    }
+}
+
+/// 默认注解（全 false）的工具：MCP 动态工具、插件工具同型。
+pub(super) struct UnannotatedTool {
+    pub(super) name: String,
+}
+
+#[async_trait::async_trait]
+impl Tool for UnannotatedTool {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn description(&self) -> &str {
+        "mock tool with default capabilities"
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        serde_json::json!({"type": "object", "properties": {}})
+    }
+
+    fn capabilities(&self) -> ToolCapabilities {
+        ToolCapabilities::default()
+    }
+
+    async fn execute(
+        &self,
+        _params: serde_json::Value,
+        _ctx: &ToolContext,
+    ) -> anyhow::Result<ToolResult> {
+        Ok(ToolResult::success(format!("result from {}", self.name)))
+    }
+}
+
 /// A mock write tool that requires confirmation.
 pub(super) struct MockWriteTool {
     pub(super) name: String,
 }
-
 #[async_trait::async_trait]
 impl Tool for MockWriteTool {
     fn name(&self) -> &str {

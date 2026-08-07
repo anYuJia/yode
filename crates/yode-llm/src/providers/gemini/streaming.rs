@@ -38,14 +38,15 @@ pub(super) async fn stream_response(
     let mut final_usage = Usage::default();
     let mut tool_call_counter = 0u32;
     let mut stop_reason = None;
+    let mut chunk_count = 0u32;
     let mut debug_events = Vec::new();
 
     while let Some(event_result) = event_stream.next().await {
         let event = match event_result {
             Ok(event) => event,
             Err(err) => {
-                warn!("Gemini SSE error: {}", err);
-                continue;
+                // SSE 错误不能吞掉：截断流必须向上失败，不能当作成功。
+                return Err(anyhow::anyhow!("Gemini SSE stream error: {}", err));
             }
         };
 
@@ -62,6 +63,7 @@ pub(super) async fn stream_response(
                 continue;
             }
         };
+        chunk_count = chunk_count.saturating_add(1);
 
         if let Some(usage) = &chunk.usage_metadata {
             final_usage = gemini_usage_to_usage(usage);
@@ -90,16 +92,21 @@ pub(super) async fn stream_response(
                             GeminiPart::InlineData { .. } => {}
                         }
                     }
-                    if let Some(reason) = candidate.finish_reason.as_deref() {
-                        stop_reason = Some(map_gemini_finish_reason(reason));
-                    }
+                }
+                if let Some(reason) = candidate.finish_reason.as_deref() {
+                    stop_reason = Some(map_gemini_finish_reason(reason));
                 }
             }
         }
     }
 
-    if stop_reason.is_none() && !all_tool_calls.is_empty() {
-        stop_reason = Some(crate::types::StopReason::ToolUse);
+    // 没有任何 finish_reason 说明流被截断（连接中断、服务端异常退出等）：
+    // 绝不能把它当作成功，更不能再执行部分工具调用。
+    if stop_reason.is_none() {
+        return Err(anyhow::anyhow!(
+            "Gemini 流在收到 finish_reason 之前中断（已接收 {} 个 chunk）；丢弃部分输出。",
+            chunk_count
+        ));
     }
     crate::providers::write_debug_artifact(
         &provider_name,

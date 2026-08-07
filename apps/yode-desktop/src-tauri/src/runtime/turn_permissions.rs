@@ -12,14 +12,18 @@ use yode_core::permission::{
 /// - 本地覆盖 <workdir>/.yode/config.local.toml（LocalConfig）
 ///
 /// 规则优先级由 RuleSource 决定（Managed > Local > Project > User）；
-/// default_mode 按 User → Managed → Project → Local 顺序后写覆盖。
+/// 只有用户配置和受管策略可以设置 default_mode；仓库内配置（Project/Local）
+/// 只能贡献 always_deny 收紧规则，永远不能放宽权限或切换模式。
 pub(super) fn configure_desktop_permissions(config: &Config, workdir: &Path) -> PermissionManager {
     let mut permissions =
         PermissionManager::from_confirmation_list(config.tools.require_confirmation.clone());
     for (source, layer) in permission_layers(config, workdir) {
-        if let Some(mode_str) = &layer.default_mode {
-            if let Ok(mode) = mode_str.parse::<yode_core::permission::PermissionMode>() {
-                permissions.set_mode(mode);
+        // 仓库内配置只能收紧（deny），不能切换模式或添加 allow/ask。
+        if !matches!(source, RuleSource::ProjectConfig | RuleSource::LocalConfig) {
+            if let Some(mode_str) = &layer.default_mode {
+                if let Ok(mode) = mode_str.parse::<yode_core::permission::PermissionMode>() {
+                    permissions.set_mode(mode);
+                }
             }
         }
         let rules = layer.to_rules(source);
@@ -50,18 +54,18 @@ fn permission_layers_with_home(
         .map(|home| home.join(".yode").join("managed-config.toml"))
         .filter(|path| path.exists());
     if let Some(path) = managed_path.as_deref() {
-        if let Some(layer) = load_permission_config_from_path(path) {
+        if let Some(layer) = load_full_permission_config_from_path(path) {
             layers.push((RuleSource::ManagedConfig, layer));
         }
     }
 
     let project_path = workdir.join(".yode").join("config.toml");
-    if let Some(layer) = load_permission_config_from_path(&project_path) {
+    if let Some(layer) = load_tightening_permission_config_from_path(&project_path) {
         layers.push((RuleSource::ProjectConfig, layer));
     }
 
     let local_path = workdir.join(".yode").join("config.local.toml");
-    if let Some(layer) = load_permission_config_from_path(&local_path) {
+    if let Some(layer) = load_tightening_permission_config_from_path(&local_path) {
         layers.push((RuleSource::LocalConfig, layer));
     }
 
@@ -103,13 +107,35 @@ fn permission_rule_entry_to_config(
     }
 }
 
-fn load_permission_config_from_path(path: &Path) -> Option<PermissionConfig> {
+/// 加载完整权限配置（用户配置、受管策略）：保留 default_mode 与全部规则。
+fn load_full_permission_config_from_path(path: &Path) -> Option<PermissionConfig> {
     if !path.exists() {
         return None;
     }
     Config::load_from(Some(path))
         .ok()
         .map(|config| permission_config_from_runtime_config(&config))
+}
+
+/// 仓库内配置（项目/本地覆盖）只能收紧：只保留 always_deny 规则，
+/// 忽略 default_mode、always_allow 与 always_ask。
+fn load_tightening_permission_config_from_path(path: &Path) -> Option<PermissionConfig> {
+    if !path.exists() {
+        return None;
+    }
+    Config::load_from(Some(path))
+        .ok()
+        .map(|config| PermissionConfig {
+            default_mode: None,
+            always_allow: Vec::new(),
+            always_ask: Vec::new(),
+            always_deny: config
+                .permissions
+                .always_deny
+                .iter()
+                .map(permission_rule_entry_to_config)
+                .collect(),
+        })
 }
 
 #[cfg(test)]
@@ -174,12 +200,13 @@ tool = "write_file"
         let base: Config = toml::from_str(base_config_toml()).unwrap();
         let permissions = configure_desktop_permissions(&base, &dir);
 
-        // 分层 default_mode：local 层覆盖 project 层
-        assert_eq!(permissions.mode(), yode_core::PermissionMode::AcceptEdits);
-        // 分层规则：local 的 allow 覆盖 project 的 deny（按 RuleSource 优先级）
+        // 仓库内配置（project/local）不能切换权限模式：即使写入了 plan / accept-edits，
+        // 有效模式仍保持 Default，必须由用户或受管策略决定。
+        assert_eq!(permissions.mode(), yode_core::PermissionMode::Default);
+        // 仓库内配置不能放宽权限：local 的 always_allow 被忽略，项目 deny 仍然生效。
         assert_eq!(
             permissions.explain_with_content("write_file", None).action,
-            PermissionAction::Allow
+            PermissionAction::Deny
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

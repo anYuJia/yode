@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 
 use crate::builtin::edit_artifact::{diff_artifact_metadata, persist_edit_diff_artifact};
+use crate::builtin::file_io::atomic_write;
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct WriteFileTool;
@@ -109,7 +110,7 @@ Usage:
             }
         }
 
-        match tokio::fs::write(file_path, content).await {
+        match atomic_write(path, content.as_bytes(), ctx.cancellation.as_ref()).await {
             Ok(()) => {
                 let byte_count = content.len();
                 let line_count = content.lines().count();

@@ -22,6 +22,13 @@ pub fn runtime_state_get(
 }
 
 #[tauri::command]
+pub fn runs_list(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<Vec<protocol::SessionRunState>, String> {
+    runtime.runs_list().map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub async fn edit_diff_artifact_read(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     path: String,
@@ -69,6 +76,24 @@ pub async fn license_notices(
         .license_notices()
         .await
         .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub async fn workspace_trust(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    trusted: bool,
+) -> Result<bool, String> {
+    if trusted {
+        runtime
+            .trust_workspace()
+            .await
+            .map_err(|err| err.to_string())
+    } else {
+        runtime
+            .revoke_workspace_trust()
+            .await
+            .map_err(|err| err.to_string())
+    }
 }
 
 #[tauri::command]

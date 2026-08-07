@@ -110,6 +110,29 @@ impl AgentEngine {
                 "runtime-plan-mode: mutating capability -> deny".to_string(),
             );
         }
+        // PERM-003：capability 注解必须参与最终授权。当工具未被任何规则或模式
+        // 显式放行，且注解要求确认或未声明自动执行能力（包括 MCP 动态工具、
+        // 插件工具等默认注解）时，自动放行必须升级为确认，杜绝 fail-open。
+        let caps = tool.capabilities();
+        if capability_floor_should_confirm(
+            self.permissions.mode(),
+            &permission_explanation.action,
+            permission_explanation.matched_rule.as_deref(),
+            caps,
+        ) {
+            permission_explanation.action = PermissionAction::Confirm;
+            permission_explanation.reason = format!(
+                "Tool '{}' requires confirmation by its capability annotation and no rule or mode explicitly auto-approves it.",
+                tool_call.name
+            );
+            permission_explanation.precedence_chain.insert(
+                0,
+                format!(
+                    "capability-floor:requires_confirmation={} read_only={} supports_auto_execution={} -> confirm",
+                    caps.requires_confirmation, caps.read_only, caps.supports_auto_execution
+                ),
+            );
+        }
         self.last_permission_tool = Some(tool_call.name.clone());
         self.last_permission_action = Some(permission_explanation.action.label().to_string());
         self.last_permission_explanation = Some(permission_explanation.reason.clone());
@@ -146,7 +169,7 @@ impl AgentEngine {
         }
 
         Ok(self
-            .execute_tool_with_tracking(tool_call, &tool, prepared, event_tx)
+            .execute_tool_with_tracking(tool_call, &tool, prepared, event_tx, cancel_token)
             .await)
     }
 }
@@ -166,9 +189,32 @@ fn runtime_plan_mode_override_reason(
     ))
 }
 
+/// PERM-003 的纯决策函数：当工具未被规则/模式显式放行时，capability 注解
+/// 决定自动放行是否必须升级为确认。
+fn capability_floor_should_confirm(
+    mode: crate::permission::PermissionMode,
+    action: &PermissionAction,
+    matched_rule: Option<&str>,
+    caps: yode_tools::tool::ToolCapabilities,
+) -> bool {
+    if *action != PermissionAction::Allow || matched_rule.is_some() {
+        return false;
+    }
+    if matches!(
+        mode,
+        crate::permission::PermissionMode::Bypass
+            | crate::permission::PermissionMode::Plan
+            | crate::permission::PermissionMode::AcceptEdits
+    ) {
+        return false;
+    }
+    caps.requires_confirmation || (!caps.read_only && !caps.supports_auto_execution)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::runtime_plan_mode_override_reason;
+    use super::{capability_floor_should_confirm, runtime_plan_mode_override_reason};
+    use crate::permission::{PermissionAction, PermissionMode};
     use yode_tools::tool::ToolCapabilities;
 
     #[test]
@@ -206,5 +252,97 @@ mod tests {
             ToolCapabilities::default()
         )
         .is_none());
+    }
+
+    #[test]
+    fn capability_floor_confirms_unannotated_mutating_tools_in_default_mode() {
+        // 未注解工具（MCP 动态工具/插件等默认全 false）：任何模式都不能在
+        // 未显式放行时自动执行。
+        let caps = ToolCapabilities::default();
+        assert!(capability_floor_should_confirm(
+            PermissionMode::Default,
+            &PermissionAction::Allow,
+            None,
+            caps
+        ));
+        assert!(capability_floor_should_confirm(
+            PermissionMode::Auto,
+            &PermissionAction::Allow,
+            None,
+            caps
+        ));
+    }
+
+    #[test]
+    fn capability_floor_confirms_requires_confirmation_annotations() {
+        let caps = ToolCapabilities {
+            requires_confirmation: true,
+            supports_auto_execution: false,
+            read_only: true,
+        };
+        assert!(capability_floor_should_confirm(
+            PermissionMode::Default,
+            &PermissionAction::Allow,
+            None,
+            caps
+        ));
+    }
+
+    #[test]
+    fn capability_floor_respects_explicit_mode_decisions() {
+        let caps = ToolCapabilities {
+            requires_confirmation: true,
+            supports_auto_execution: false,
+            read_only: false,
+        };
+        assert!(!capability_floor_should_confirm(
+            PermissionMode::Bypass,
+            &PermissionAction::Allow,
+            None,
+            caps
+        ));
+        assert!(!capability_floor_should_confirm(
+            PermissionMode::AcceptEdits,
+            &PermissionAction::Allow,
+            None,
+            caps
+        ));
+    }
+
+    #[test]
+    fn capability_floor_respects_explicit_rules() {
+        let caps = ToolCapabilities::default();
+        assert!(!capability_floor_should_confirm(
+            PermissionMode::Default,
+            &PermissionAction::Allow,
+            Some("user:bash allow"),
+            caps
+        ));
+    }
+
+    #[test]
+    fn capability_floor_allows_declared_auto_execution_tools() {
+        let caps = ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: false,
+        };
+        assert!(!capability_floor_should_confirm(
+            PermissionMode::Default,
+            &PermissionAction::Allow,
+            None,
+            caps
+        ));
+        let readonly = ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: true,
+        };
+        assert!(!capability_floor_should_confirm(
+            PermissionMode::Default,
+            &PermissionAction::Allow,
+            None,
+            readonly
+        ));
     }
 }

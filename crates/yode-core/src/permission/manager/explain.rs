@@ -56,6 +56,42 @@ impl PermissionManager {
         tool_name: &str,
         content: Option<&str>,
     ) -> PermissionExplanation {
+        let mut matching_rules: Vec<&PermissionRule> = self
+            .rules
+            .iter()
+            .filter(|rule| rule.matches(tool_name, content))
+            .collect();
+        matching_rules.sort_by_key(|b| std::cmp::Reverse(b.source));
+        let precedence_chain = matching_rules
+            .iter()
+            .map(|rule| format_permission_rule(rule, tool_name))
+            .collect::<Vec<_>>();
+
+        // 受管（enterprise）规则先于一切模式短路求值：Bypass、Plan、AcceptEdits、
+        // Auto 以及普通用户规则都不能覆盖企业策略（deny/ask/allow 均不可绕过）。
+        if let Some(rule) = matching_rules
+            .iter()
+            .find(|rule| rule.source == RuleSource::ManagedConfig)
+        {
+            let action = match rule.behavior {
+                RuleBehavior::Allow => PermissionAction::Allow,
+                RuleBehavior::Deny => PermissionAction::Deny,
+                RuleBehavior::Ask => PermissionAction::Confirm,
+            };
+            return PermissionExplanation {
+                action,
+                reason: permission_rule_reason(rule, content),
+                mode: self.mode,
+                classifier_risk: None,
+                semantic_category: None,
+                semantic_segment: None,
+                matched_rule: Some(matched_rule_description(rule)),
+                denial_count: self.denial_tracker.denial_count(tool_name),
+                auto_skip_due_to_denials: false,
+                precedence_chain,
+            };
+        }
+
         if self.mode == PermissionMode::Bypass {
             return PermissionExplanation {
                 action: PermissionAction::Allow,
@@ -167,18 +203,17 @@ impl PermissionManager {
             };
         }
 
-        let mut matching_rules: Vec<&PermissionRule> = self
-            .rules
-            .iter()
-            .filter(|rule| rule.matches(tool_name, content))
+        let mut remaining_rules: Vec<&PermissionRule> = matching_rules
+            .into_iter()
+            .filter(|rule| rule.source != RuleSource::ManagedConfig)
             .collect();
-        matching_rules.sort_by_key(|b| std::cmp::Reverse(b.source));
-        let precedence_chain = matching_rules
+        remaining_rules.sort_by_key(|b| std::cmp::Reverse(b.source));
+        let precedence_chain = remaining_rules
             .iter()
             .map(|rule| format_permission_rule(rule, tool_name))
             .collect::<Vec<_>>();
 
-        if let Some(rule) = matching_rules.first() {
+        if let Some(rule) = remaining_rules.first() {
             let action = match rule.behavior {
                 RuleBehavior::Allow => PermissionAction::Allow,
                 RuleBehavior::Deny => PermissionAction::Deny,
@@ -191,23 +226,7 @@ impl PermissionManager {
                 classifier_risk: None,
                 semantic_category: None,
                 semantic_segment: None,
-                matched_rule: Some(format!(
-                    "{}:{}{}{}",
-                    rule.tool_name,
-                    match rule.behavior {
-                        RuleBehavior::Allow => "allow",
-                        RuleBehavior::Deny => "deny",
-                        RuleBehavior::Ask => "ask",
-                    },
-                    rule.category
-                        .as_ref()
-                        .map(|category| format!(" [category={}]", category))
-                        .unwrap_or_default(),
-                    rule.pattern
-                        .as_ref()
-                        .map(|pattern| format!(" ({})", pattern))
-                        .unwrap_or_default()
-                )),
+                matched_rule: Some(matched_rule_description(rule)),
                 denial_count: self.denial_tracker.denial_count(tool_name),
                 auto_skip_due_to_denials: false,
                 precedence_chain,
@@ -279,6 +298,26 @@ fn permission_rule_reason(rule: &PermissionRule, content: Option<&str>) -> Strin
                 .unwrap_or_default()
         ),
     }
+}
+
+fn matched_rule_description(rule: &PermissionRule) -> String {
+    format!(
+        "{}:{}{}{}",
+        rule.tool_name,
+        match rule.behavior {
+            RuleBehavior::Allow => "allow",
+            RuleBehavior::Deny => "deny",
+            RuleBehavior::Ask => "ask",
+        },
+        rule.category
+            .as_ref()
+            .map(|category| format!(" [category={}]", category))
+            .unwrap_or_default(),
+        rule.pattern
+            .as_ref()
+            .map(|pattern| format!(" ({})", pattern))
+            .unwrap_or_default()
+    )
 }
 
 fn format_permission_rule(rule: &PermissionRule, tool_name: &str) -> String {

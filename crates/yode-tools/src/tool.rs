@@ -7,6 +7,7 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tokio::sync::{mpsc, Mutex};
+use tokio_util::sync::CancellationToken;
 use yode_agent::AgentTeamManager;
 
 use crate::builtin::skill::SkillInvocation;
@@ -177,6 +178,9 @@ pub struct ToolProgress {
 /// Context passed to every tool execution, providing access to shared resources.
 #[derive(Clone, Default)]
 pub struct ToolContext {
+    /// Cancellation for the current top-level turn. Long-running tools must
+    /// observe it and stop any child resources they own.
+    pub cancellation: Option<CancellationToken>,
     /// Access to the full tool registry (needed by `batch`).
     pub registry: Option<Arc<ToolRegistry>>,
     /// Shared task store (needed by `todo`).

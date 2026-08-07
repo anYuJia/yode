@@ -415,6 +415,7 @@ impl AgentEngine {
     pub(super) async fn build_tool_context(
         &self,
         progress_tx: Option<mpsc::UnboundedSender<yode_tools::tool::ToolProgress>>,
+        cancel_token: Option<CancellationToken>,
     ) -> ToolContext {
         let cwd = self.context.runtime.lock().await.cwd.clone();
         let tool_pool_snapshot = self.build_tool_pool_snapshot();
@@ -424,6 +425,7 @@ impl AgentEngine {
             .estimate_tokens_for_messages(&self.messages);
 
         ToolContext {
+            cancellation: cancel_token,
             registry: Some(Arc::clone(&self.tools)),
             tasks: Some(Arc::clone(&self.task_store)),
             runtime_tasks: Some(Arc::clone(&self.runtime_task_store)),
@@ -446,6 +448,7 @@ impl AgentEngine {
                 provider: Arc::clone(&self.provider),
                 tools: Arc::clone(&self.tools),
                 context: self.context.clone(),
+                permissions: self.permissions.clone(),
                 runtime_tasks: Arc::clone(&self.runtime_task_store),
                 team_runtime: Arc::clone(&self.team_runtime_manager),
                 skill_invocation_store: Arc::clone(&self.skill_invocation_store),

@@ -6,10 +6,16 @@ use serde_json::Value;
 pub struct Bootstrap {
     pub app_version: &'static str,
     pub workspace_path: String,
+    /// 后端计算的唯一工作区信任状态（仓库外存储绑定 path+hash+remote）。
+    pub workspace_trusted: bool,
     pub provider: String,
     pub model: String,
     pub permission_mode: String,
+    /// 后端计算后的唯一有效权限模式。`permission_mode` 暂留给旧前端兼容，
+    /// 新代码必须读取该字段，不能从本地设置推导。
+    pub effective_permission_mode: String,
     pub sessions: Vec<DesktopSession>,
+    pub runs: Vec<SessionRunState>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -185,8 +191,28 @@ pub struct RuntimeState {
     pub active_session_id: Option<String>,
     pub status: String,
     pub permission_mode: String,
+    pub effective_permission_mode: String,
     pub context_percent: u8,
     pub tool_calls: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionModeState {
+    pub effective_permission_mode: String,
+    pub scope: String,
+    pub persisted: bool,
+    pub bypass_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRunState {
+    pub session_id: String,
+    pub turn_id: String,
+    pub status: String,
+    pub updated_at: String,
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -244,6 +270,7 @@ pub struct ConfigurationState {
     pub expose_dependencies: bool,
     pub config_path: String,
     pub project_config_path: String,
+    pub effective_permission_mode: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -6,7 +6,7 @@ run_snapshot_capture() {
   local start_pattern="$2"
   local out_file="$3"
 
-  cargo test -p yode-tui "$test_name" -- --nocapture 2>&1 \
+  cargo test -p yode-core "$test_name" -- --nocapture 2>&1 \
     | awk -v test_name="$test_name" -v start_pattern="$start_pattern" '
         $0 ~ start_pattern { capture=1 }
         capture && $0 ~ ("^test .*" test_name) { exit }

@@ -20,6 +20,21 @@ impl AgentEngine {
         loop {
             let _ = event_tx.send(EngineEvent::Thinking);
 
+            // BUDGET-001：硬预算在每步开始前检查，达到上限即暂停本轮。
+            self.turn_step_count = self.turn_step_count.saturating_add(1);
+            if let Some(reason) = self.hard_budget_exhausted_reason() {
+                let _ = event_tx.send(EngineEvent::BudgetExceeded {
+                    cost: self.cost_tracker.estimated_cost(),
+                    limit: self.cost_tracker.remaining_budget().unwrap_or(0.0),
+                });
+                let _ = event_tx.send(EngineEvent::Error(format!(
+                    "本轮运行预算已用尽：{}。请回复用户说明进展，等待用户决定是否续批。",
+                    reason
+                )));
+                let _ = event_tx.send(EngineEvent::Done);
+                return Ok(());
+            }
+
             self.apply_microcompact();
             let request = self.build_chat_request();
             self.record_prompt_cache_request_state(&request);
@@ -119,7 +134,8 @@ impl AgentEngine {
 
                 let parallel_results = if !parallel.is_empty() {
                     info!("Executing {} tools in parallel", parallel.len());
-                    self.execute_tools_parallel(&parallel, &event_tx).await
+                    self.execute_tools_parallel(&parallel, &event_tx, None)
+                        .await
                 } else {
                     vec![]
                 };

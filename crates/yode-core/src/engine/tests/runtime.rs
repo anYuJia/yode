@@ -1237,3 +1237,36 @@ fn test_reset_turn_runtime_preserves_read_history_for_edit_guards() {
     assert_eq!(engine.recent_file_reads, vec!["/tmp/already-read.rs"]);
     assert!(engine.files_modified.is_empty());
 }
+
+/// BUDGET-001：硬预算的纯决策逻辑。
+#[test]
+fn hard_budget_checks_each_dimension() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine.reset_turn_runtime_state();
+
+    // 默认：40 次工具调用上限
+    assert!(engine.hard_budget_exhausted_reason().is_none());
+    engine.tool_call_count = 40;
+    assert!(engine
+        .hard_budget_exhausted_reason()
+        .is_some_and(|reason| reason.contains("工具调用次数")));
+    engine.tool_call_count = 39;
+    assert!(engine.hard_budget_exhausted_reason().is_none());
+
+    // 步数上限
+    engine.set_turn_budget(0, 3, 0);
+    engine.turn_step_count = 3;
+    assert!(engine
+        .hard_budget_exhausted_reason()
+        .is_some_and(|reason| reason.contains("循环步数")));
+    engine.turn_step_count = 2;
+    assert!(engine.hard_budget_exhausted_reason().is_none());
+
+    // 墙钟上限：把起点拨到过去
+    engine.set_turn_budget(0, 0, 1);
+    engine.turn_budget_started_at =
+        Some(std::time::Instant::now() - std::time::Duration::from_secs(2));
+    assert!(engine
+        .hard_budget_exhausted_reason()
+        .is_some_and(|reason| reason.contains("运行时间")));
+}

@@ -65,6 +65,7 @@ impl AgentEngine {
         tool: &Arc<dyn yode_tools::tool::Tool>,
         mut prepared: PreparedToolExecution,
         event_tx: &mpsc::UnboundedSender<EngineEvent>,
+        cancel_token: Option<&CancellationToken>,
     ) -> ToolExecutionOutcome {
         self.cost_tracker.record_tool_call();
         debug!(
@@ -97,7 +98,9 @@ impl AgentEngine {
             }
         });
 
-        let ctx = self.build_tool_context(Some(progress_tx)).await;
+        let ctx = self
+            .build_tool_context(Some(progress_tx), cancel_token.cloned())
+            .await;
         let schema = tool.parameters_schema();
         if let Err(message) = validation::validate_and_coerce(&schema, &mut prepared.params) {
             return Self::immediate_tool_outcome(

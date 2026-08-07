@@ -236,14 +236,16 @@ pub(crate) async fn execute_background_shell(
         let stdout_file = stdout_file.into_std().await;
         let stderr_file = stderr_file.into_std().await;
 
-        let mut child = match Command::new(&executable)
-            .args(&args)
+        let mut cmd = Command::new(&executable);
+        cmd.args(&args)
             .stdin(Stdio::piped())
             .stdout(Stdio::from(stdout_file))
             .stderr(Stdio::from(stderr_file))
-            .current_dir(&working_dir)
-            .spawn()
-        {
+            .current_dir(&working_dir);
+        // 独立进程组：取消时连同全部后代进程一起终止并回收。
+        crate::process_env::spawn_in_new_process_group(&mut cmd);
+        let child = cmd.spawn();
+        let mut child = match child {
             Ok(child) => child,
             Err(err) => {
                 runtime_tasks.lock().await.mark_failed(
@@ -314,7 +316,7 @@ pub(crate) async fn execute_background_shell(
             }
             changed = cancel_rx.changed() => {
                 if changed.is_ok() && *cancel_rx.borrow() {
-                    match child.kill().await {
+                    match crate::process_env::kill_process_group(&mut child).await {
                         Ok(()) => {
                             notify_output_monitor_done(&done_tx, &task_id);
                             runtime_tasks.lock().await.mark_cancelled(&task_id);

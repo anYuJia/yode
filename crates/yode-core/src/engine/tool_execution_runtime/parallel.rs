@@ -16,7 +16,10 @@ impl AgentEngine {
         for tc in tool_calls {
             let can_parallel = if let Some(tool) = self.tools.get(&tc.name) {
                 let caps = tool.capabilities();
+                // 并行批量是自动执行路径，capability 注解必须参与决策：
+                // 要求确认的工具（web_fetch/web_search 等）不得并行静默执行。
                 caps.read_only
+                    && !caps.requires_confirmation
                     && matches!(self.permissions.check(&tc.name), PermissionAction::Allow)
             } else {
                 false
@@ -37,6 +40,7 @@ impl AgentEngine {
         &mut self,
         tool_calls: &[ToolCall],
         event_tx: &mpsc::UnboundedSender<EngineEvent>,
+        cancel_token: Option<&CancellationToken>,
     ) -> Vec<ToolExecutionOutcome> {
         use futures::future::join_all;
 
@@ -151,7 +155,9 @@ impl AgentEngine {
                 }
             });
 
-            let ctx = self.build_tool_context(Some(p_tx)).await;
+            let ctx = self
+                .build_tool_context(Some(p_tx), cancel_token.cloned())
+                .await;
 
             let tool_name = tc.name.clone();
             let tc_clone = tc.clone();

@@ -255,19 +255,18 @@ crates/
 ├── yode-core     # engine, context, permissions, hooks, session/runtime state
 ├── yode-llm      # provider abstraction
 ├── yode-tools    # built-in tools and runtime tool surface
-├── yode-tui      # terminal UI and operator commands
 ├── yode-mcp      # MCP integration
-└── yode-agent    # agent/runtime helpers
+├── yode-agent    # agent/runtime helpers
+└── yode-runtime  # shared runtime bootstrap
 ```
 
 ## Latest Release
 
-`0.0.19` focuses on terminal command polish, diagnostics readability, and release packaging refinements:
+`1.0.0` is the release-readiness milestone, focusing on:
 
-- `/diagnostics` rows now stay width-aware across narrow and wide terminals
-- `/context` runtime details truncate long compact, memory, prompt-cache, and task summaries cleanly
-- README and release packaging include the refreshed Yode icon asset
-- parity and release validation docs remain linked for final tag checks
+- Security: out-of-repo workspace/plugin trust stores, non-bypassable managed permissions, minimal child-process environments, truncated streams never execute tool calls
+- Reliability: per-turn hard budgets, atomic file writes, SQLite WAL + transactional migrations, explicit database corruption reporting
+- Desktop: single backend permission source of truth, per-session run registry, workspace trust flow
 
 Release: [v0.0.19](https://github.com/anYuJia/yode/releases/tag/v0.0.19)
 

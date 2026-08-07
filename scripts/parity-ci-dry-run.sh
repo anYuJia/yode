@@ -51,7 +51,7 @@ bash -n \
   scripts/parity-fixture-freshness.sh
 
 if (( skip_cargo == 0 )); then
-  cargo test -p yode-tui --quiet
+  cargo test -p yode-core --quiet
 fi
 
 echo "Parity CI dry-run ok"

@@ -116,7 +116,7 @@ impl DesktopRuntime {
             .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
             .clone();
         let (tool_registry, mcp_resource_provider) =
-            setup_desktop_tooling(&config, &self.workspace_path).await;
+            setup_desktop_tooling(&config, &self.workspace_path, self.workspace_trusted()).await;
         *self
             .tool_registry
             .lock()
@@ -185,6 +185,7 @@ fn mcp_test_status_from_discovery_results(
 pub(super) async fn setup_desktop_tooling(
     config: &Config,
     workdir: &Path,
+    workspace_trusted: bool,
 ) -> (Arc<ToolRegistry>, Option<Arc<dyn McpResourceProvider>>) {
     let tool_registry = ToolRegistry::new();
     yode_tools::builtin::register_builtin_tools(&tool_registry);
@@ -224,7 +225,12 @@ pub(super) async fn setup_desktop_tooling(
         }
     }
 
-    let skill_paths = yode_core::skills::SkillRegistry::default_paths_async(workdir).await;
+    // 未信任的工作区不允许加载插件贡献（Skills/MCP/Hooks/Commands）。
+    let skill_paths = if workspace_trusted {
+        yode_core::skills::SkillRegistry::default_paths_async(workdir).await
+    } else {
+        vec![workdir.join(".yode").join("skills")]
+    };
     let skill_registry = yode_core::skills::SkillRegistry::discover_async(&skill_paths).await;
     use yode_tools::builtin::skill::{SkillContextMode, SkillEntry, SkillStore};
     let mut store = SkillStore::new();

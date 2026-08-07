@@ -45,6 +45,7 @@ pub(super) fn validate_hooks_settings(settings: &HooksSettings) -> Result<()> {
 
 pub(super) async fn build_desktop_hook_manager(
     workspace_path: &Path,
+    workspace_trusted: bool,
 ) -> Result<Option<HookManager>> {
     let settings = read_desktop_settings_async().await?;
     let hooks_settings = hooks_settings_from_desktop_settings(&settings)?;
@@ -53,9 +54,12 @@ pub(super) async fn build_desktop_hook_manager(
     }
 
     let mut manager = HookManager::new(workspace_path.to_path_buf());
-    let plugin_hooks = discover_plugin_hooks_async(workspace_path).await;
-    for hook in plugin_hooks.hooks {
-        manager.register(hook);
+    // 未信任的工作区不得加载仓库内插件贡献的 Hooks。
+    if workspace_trusted {
+        let plugin_hooks = discover_plugin_hooks_async(workspace_path).await;
+        for hook in plugin_hooks.hooks {
+            manager.register(hook);
+        }
     }
     for hook in hooks_settings.hooks {
         if hook.disabled {
