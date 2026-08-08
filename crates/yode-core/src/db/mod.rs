@@ -4,12 +4,15 @@ mod sessions;
 #[cfg(test)]
 mod tests;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
+
+use crate::session::Session;
+use crate::session_lock::SessionLock;
 
 pub use records::{SessionArtifacts, SessionListEntry, StoredMessage};
 
@@ -17,6 +20,15 @@ pub use records::{SessionArtifacts, SessionListEntry, StoredMessage};
 /// Uses an internal Mutex to make it Send+Sync safe.
 pub struct Database {
     pub(super) conn: Mutex<Connection>,
+    /// 数据库文件的规范化绝对路径：跨进程会话锁、诊断等按此路径推导。
+    db_path: PathBuf,
+}
+
+/// 单个 SQLite 只读事务内读取的会话与全部消息快照（导出等一致性读取专用）。
+#[derive(Debug, Clone)]
+pub struct SessionSnapshot {
+    pub session: Session,
+    pub messages: Vec<StoredMessage>,
 }
 
 impl Database {
@@ -44,9 +56,95 @@ impl Database {
             .with_context(|| "Failed to set synchronous mode")?;
         let db = Self {
             conn: Mutex::new(conn),
+            db_path: crate::session_lock::normalize_db_path(path),
         };
         db.init_tables()?;
         Ok(db)
+    }
+
+    /// 数据库文件的规范化绝对路径。
+    pub fn db_path(&self) -> &Path {
+        &self.db_path
+    }
+
+    /// 获取该数据库路径下指定 session 的跨进程生命周期锁（RAII）。
+    /// 同一 session 已被其他进程持有时返回简体中文错误，绝不阻塞。
+    pub fn session_lock(&self, session_id: &str) -> Result<SessionLock> {
+        SessionLock::acquire(&self.db_path, session_id)
+    }
+
+    /// 在单个 SQLite 只读事务内同时读取 session 元数据与全部 messages，
+    /// 保证导出/恢复读取到的是操作前或操作后的完整一致快照。
+    /// session 不存在时返回 `None`。
+    pub fn load_session_snapshot(&self, session_id: &str) -> Result<Option<SessionSnapshot>> {
+        let conn = self.lock_connection()?;
+        conn.execute_batch("BEGIN;")
+            .with_context(|| "无法开启导出快照事务")?;
+        let snapshot = self.read_session_snapshot(&conn, session_id);
+        match snapshot {
+            Ok(value) => {
+                conn.execute_batch("COMMIT;")
+                    .with_context(|| "导出快照事务提交失败")?;
+                Ok(value)
+            }
+            Err(err) => {
+                let _ = conn.execute_batch("ROLLBACK;");
+                Err(err)
+            }
+        }
+    }
+
+    fn read_session_snapshot(
+        &self,
+        conn: &Connection,
+        session_id: &str,
+    ) -> Result<Option<SessionSnapshot>> {
+        let mut stmt = conn.prepare(
+            "SELECT id, name, project_root, provider, model, created_at, updated_at FROM sessions WHERE id = ?1",
+        )?;
+        let mut rows = stmt.query(rusqlite::params![session_id])?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+        let session = Session {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            project_root: row.get(2)?,
+            provider: row.get(3)?,
+            model: row.get(4)?,
+            created_at: parse_rfc3339_strict(row.get::<_, String>(5)?)?,
+            updated_at: parse_rfc3339_strict(row.get::<_, String>(6)?)?,
+        };
+
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json, metadata_json, sort_order, created_at FROM messages WHERE session_id = ?1 ORDER BY sort_order ASC, id ASC",
+        )?;
+        let messages = stmt
+            .query_map(rusqlite::params![session_id], |row| {
+                Ok(StoredMessage {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    role: row.get(2)?,
+                    content: row.get(3)?,
+                    reasoning: row.get(4)?,
+                    tool_calls_json: row.get(5)?,
+                    tool_call_id: row.get(6)?,
+                    images_json: row.get(7)?,
+                    metadata_json: row.get(8)?,
+                    sort_order: row.get(9)?,
+                    created_at: parse_rfc3339_strict(row.get::<_, String>(10).unwrap_or_default())
+                        .map_err(|err| rusqlite_corruption(10, err))?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(Some(SessionSnapshot { session, messages }))
+    }
+
+    pub(super) fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>> {
+        self.conn
+            .lock()
+            .map_err(|_| anyhow::anyhow!("database connection lock poisoned"))
     }
 
     fn init_tables(&self) -> Result<()> {
@@ -110,12 +208,6 @@ impl Database {
         )?;
         migrate_message_sort_order(&conn)?;
         Ok(())
-    }
-
-    pub(super) fn lock_connection(&self) -> Result<MutexGuard<'_, Connection>> {
-        self.conn
-            .lock()
-            .map_err(|_| anyhow::anyhow!("database connection lock poisoned"))
     }
 }
 

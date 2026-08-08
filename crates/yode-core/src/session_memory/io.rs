@@ -1,8 +1,8 @@
 use super::*;
 use crate::session_artifact::{
-    atomic_write_async, atomic_write_sync, json_artifact_session_id, markdown_artifact_session_id,
-    markdown_front_matter_session_id, session_artifact_token, verify_memory_ownership,
-    ArtifactOwnership,
+    atomic_write_async, atomic_write_sync, json_artifact_session_id, legacy_session_short_id,
+    markdown_artifact_session_id, markdown_entry_session_ids, markdown_front_matter_session_id,
+    session_artifact_token, verify_memory_ownership, ArtifactOwnership,
 };
 use tracing::{info, warn};
 
@@ -68,19 +68,85 @@ fn migrate_legacy_memory_file(
         }
     };
 
-    match verify_memory_ownership(&content, session_id) {
-        ArtifactOwnership::Exact | ArtifactOwnership::LegacyPrefix => {}
-        ArtifactOwnership::Unverifiable => {
-            warn!(
-                "旧共享{}文件 {} 无法验证归属当前 session {}，跳过迁移（不读取、不删除）",
-                label,
-                legacy.display(),
-                session_id
-            );
-            return Ok(());
-        }
+    // 按 `\n\n## ` 分割旧共享文件的条目块（与 truncate_memory_file 的分割方式一致），
+    // 逐条目验证归属：仅迁移可验证归属当前 session 的条目；
+    // 无法验证的条目留在旧文件原样保留（不读取、不删除）。
+    let owned_entries = legacy_owned_entry_blocks(&content, session_id);
+    if owned_entries.is_empty() {
+        warn!(
+            "旧共享{}文件 {} 无可验证归属当前 session {} 的条目，跳过迁移（不读取、不删除）",
+            label,
+            legacy.display(),
+            session_id
+        );
+        return Ok(());
     }
+    let all_owned = legacy_entry_block_count(&content) == owned_entries.len();
+    migrate_legacy_memory_entries(session_id, legacy, target, label, &owned_entries)?;
+    if all_owned {
+        fs::remove_file(legacy).with_context(|| {
+            format!(
+                "旧共享{}迁移完成但删除失败 {}（不影响本次读取）",
+                label,
+                legacy.display()
+            )
+        })?;
+        info!(
+            "已迁移旧共享{}文件 {} 到会话专属文件 {}",
+            label,
+            legacy.display(),
+            target.display()
+        );
+    } else {
+        info!(
+            "已部分迁移旧共享{}文件 {} 中归属当前会话的条目到 {}（其余条目保留在旧文件）",
+            label,
+            legacy.display(),
+            target.display()
+        );
+    }
+    Ok(())
+}
 
+/// 提取旧共享 memory 内容中归属目标 session 的条目块（保持原有顺序）。
+fn legacy_owned_entry_blocks(content: &str, session_id: &str) -> Vec<String> {
+    let short = legacy_session_short_id(session_id);
+    legacy_entry_blocks(content)
+        .into_iter()
+        .filter(|block| {
+            let ids = markdown_entry_session_ids(block);
+            !ids.is_empty()
+                && ids
+                    .iter()
+                    .all(|id| id == session_id || (id.len() <= 8 && id == &short))
+        })
+        .collect()
+}
+
+/// 统计旧共享 memory 内容中的条目块数量。
+fn legacy_entry_block_count(content: &str) -> usize {
+    legacy_entry_blocks(content).len()
+}
+
+/// 按 `\n\n## ` 分割旧共享 memory 内容中的条目块。
+fn legacy_entry_blocks(content: &str) -> Vec<String> {
+    let Some(first_entry_start) = content.find("\n\n## ") else {
+        return Vec::new();
+    };
+    let entries = &content[first_entry_start + 2..];
+    entries
+        .split("\n\n## ")
+        .map(|entry| format!("## {}", entry))
+        .collect()
+}
+
+fn migrate_legacy_memory_entries(
+    session_id: &str,
+    legacy: &Path,
+    target: &Path,
+    label: &str,
+    owned_entries: &[String],
+) -> Result<()> {
     if target.exists() {
         info!(
             "已存在会话专属{}文件 {}，跳过旧共享文件迁移 {}",
@@ -101,13 +167,8 @@ fn migrate_legacy_memory_file(
     migrated.push_str("\n\n- Session: ");
     migrated.push_str(session_id);
     migrated.push_str("\n\n");
-
-    let body = content
-        .strip_prefix(SESSION_MEMORY_HEADER)
-        .or_else(|| content.strip_prefix(LIVE_SESSION_MEMORY_HEADER))
-        .unwrap_or(&content)
-        .trim();
-    migrated.push_str(body);
+    migrated.push_str(&owned_entries.join("\n\n"));
+    migrated.push('\n');
 
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent)
@@ -115,19 +176,6 @@ fn migrate_legacy_memory_file(
     }
     atomic_write_sync(target, &migrated)
         .with_context(|| format!("迁移旧共享{}失败，无法写入 {}", label, target.display()))?;
-    fs::remove_file(legacy).with_context(|| {
-        format!(
-            "旧共享{}迁移完成但删除失败 {}（不影响本次读取）",
-            label,
-            legacy.display()
-        )
-    })?;
-    info!(
-        "已迁移旧共享{}文件 {} 到会话专属文件 {}",
-        label,
-        legacy.display(),
-        target.display()
-    );
     Ok(())
 }
 
@@ -679,6 +727,8 @@ pub fn cleanup_session_artifacts(project_root: &Path, session_id: &str) -> Resul
         ("tools", "工具工件"),
         ("context-collapse", "上下文压缩工件"),
         ("plans", "计划工件"),
+        ("hooks", "hook 工件"),
+        ("remote", "远端协作工件"),
     ];
 
     for (subdir, label) in dirs {
@@ -846,16 +896,52 @@ mod legacy_migration_tests {
     fn does_not_migrate_mixed_session_legacy_memory() {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path();
+        let session_a = "12345678-aaaa-bbbb";
         let legacy = root.join(".yode/memory/session.md");
         std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
-        let mut body = legacy_compaction_memory_body("12345678-aaaa-bbbb");
+        let mut body = legacy_compaction_memory_body(session_a);
         body.push_str("\n\n## 2026-01-02 13:00:00 session 87654321-dddd\n\n### Goals\n\n- other\n");
         std::fs::write(&legacy, body).unwrap();
 
-        migrate_legacy_session_memory(root, "12345678-aaaa-bbbb").unwrap();
+        migrate_legacy_session_memory(root, session_a).unwrap();
 
         assert!(legacy.exists(), "混合会话旧文件不得删除");
-        assert!(!session_memory_path(root, "12345678-aaaa-bbbb").exists());
+        let migrated = session_memory_path(root, session_a);
+        assert!(migrated.exists(), "归属当前会话的条目应被部分迁移");
+        let content = std::fs::read_to_string(&migrated).unwrap();
+        assert!(content.contains("12345678-aaaa-bbbb"));
+        assert!(content.contains("- goal"));
+        assert!(!content.contains("- other"), "其他会话的条目不得混入");
+        let excerpt = best_compaction_memory_excerpt(root, session_a, 2000)
+            .map(|(_, e)| e)
+            .unwrap();
+        assert!(excerpt.contains("- goal"));
+        assert!(!excerpt.contains("- other"));
+        let legacy_content = std::fs::read_to_string(&legacy).unwrap();
+        assert!(
+            legacy_content.contains("session 87654321-dddd"),
+            "其他会话条目保留在旧文件"
+        );
+    }
+
+    #[test]
+    fn partial_legacy_migration_is_idempotent() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let session_a = "12345678-aaaa-bbbb";
+        let legacy = root.join(".yode/memory/session.md");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        let mut body = legacy_compaction_memory_body(session_a);
+        body.push_str("\n\n## 2026-01-02 13:00:00 session 87654321-dddd\n\n### Goals\n\n- other\n");
+        std::fs::write(&legacy, body).unwrap();
+
+        migrate_legacy_session_memory(root, session_a).unwrap();
+        let migrated = session_memory_path(root, session_a);
+        let before = std::fs::read_to_string(&migrated).unwrap();
+        migrate_legacy_session_memory(root, session_a).unwrap();
+        let after = std::fs::read_to_string(&migrated).unwrap();
+        assert_eq!(before, after, "重复迁移不得重复写入条目");
+        assert!(legacy.exists());
     }
 
     #[test]
@@ -937,6 +1023,55 @@ mod legacy_migration_tests {
         let err = cleanup_session_artifacts(root, a).expect_err("内容归属不一致应拒绝删除");
         assert!(path.exists(), "归属不一致的工件不得被删除");
         assert!(err.to_string().contains("不一致"));
+    }
+
+    #[test]
+    fn cleanup_covers_hooks_and_remote_artifacts() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let a = "session-aaaa-1111";
+        let b = "session-bbbb-2222";
+        let hooks_dir = root.join(".yode/hooks");
+        std::fs::create_dir_all(&hooks_dir).unwrap();
+        let hook_a = hooks_dir.join(format!(
+            "{}-20260101-120000-hook-deferred-state.json",
+            session_artifact_token(a)
+        ));
+        std::fs::write(
+            &hook_a,
+            format!(r#"{{"session_id": "{a}", "kind": "hook_deferred_tool_call"}}"#),
+        )
+        .unwrap();
+        let hook_legacy = hooks_dir.join("20260101-120000-session-hook-deferred.md");
+        std::fs::write(&hook_legacy, "# Hook Deferred Tool Call").unwrap();
+
+        let remote_dir = root.join(".yode/remote");
+        std::fs::create_dir_all(&remote_dir).unwrap();
+        let remote_a = remote_dir.join(format!(
+            "{}-20260101-120000-remote-transport-state.json",
+            session_artifact_token(a)
+        ));
+        std::fs::write(
+            &remote_a,
+            format!(r#"{{"session_id": "{a}", "connection_status": "connected"}}"#),
+        )
+        .unwrap();
+        let remote_b = remote_dir.join(format!(
+            "{}-20260101-120000-remote-control-session.json",
+            session_artifact_token(b)
+        ));
+        std::fs::write(
+            &remote_b,
+            format!(r#"{{"session_id": "{b}", "status": "queued"}}"#),
+        )
+        .unwrap();
+
+        cleanup_session_artifacts(root, a).unwrap();
+
+        assert!(!hook_a.exists(), "会话 A 的 hook 工件应被清理");
+        assert!(hook_legacy.exists(), "旧版 hook 工件不得被误删");
+        assert!(!remote_a.exists(), "会话 A 的 remote 工件应被清理");
+        assert!(remote_b.exists(), "会话 B 的 remote 工件不得被误删");
     }
 
     #[test]

@@ -468,3 +468,166 @@ fn corrupt_timestamp_is_reported_as_corruption() {
         "corruption must surface: {error}"
     );
 }
+
+fn insert_test_session(db: &Database, session_id: &str) {
+    db.create_session(&Session {
+        id: session_id.to_string(),
+        name: None,
+        project_root: None,
+        provider: "mock".to_string(),
+        model: "mock-model".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    })
+    .unwrap();
+}
+
+#[test]
+fn session_snapshot_reads_session_and_messages_in_one_transaction() {
+    let temp = tempdir().unwrap();
+    let db = Database::open(&temp.path().join("snapshot.db")).unwrap();
+    insert_test_session(&db, "snapshot-session");
+    db.save_message("snapshot-session", "user", Some("问题"), None, None, None)
+        .unwrap();
+    db.save_message(
+        "snapshot-session",
+        "assistant",
+        Some("回答"),
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    db.save_message_with_metadata(
+        "snapshot-session",
+        "tool",
+        Some("结果"),
+        None,
+        None,
+        Some("tool-1"),
+        Some(&json!({"ok": true})),
+    )
+    .unwrap();
+
+    let snapshot = db
+        .load_session_snapshot("snapshot-session")
+        .unwrap()
+        .expect("snapshot must exist");
+    assert_eq!(snapshot.session.id, "snapshot-session");
+    assert_eq!(snapshot.messages.len(), 3);
+    assert_eq!(snapshot.messages[0].content.as_deref(), Some("问题"));
+    assert_eq!(snapshot.messages[1].content.as_deref(), Some("回答"));
+    assert_eq!(snapshot.messages[2].content.as_deref(), Some("结果"));
+    assert_eq!(snapshot.messages[2].tool_call_id.as_deref(), Some("tool-1"));
+
+    assert!(db
+        .load_session_snapshot("missing-session")
+        .unwrap()
+        .is_none());
+}
+
+#[test]
+fn snapshot_is_consistent_before_and_after_delete() {
+    let temp = tempdir().unwrap();
+    let db = Database::open(&temp.path().join("snapshot-delete.db")).unwrap();
+    insert_test_session(&db, "del-session");
+    db.save_message("del-session", "user", Some("before"), None, None, None)
+        .unwrap();
+
+    // 操作前快照：完整包含会话与消息
+    let before = db
+        .load_session_snapshot("del-session")
+        .unwrap()
+        .expect("before snapshot");
+    assert_eq!(before.messages.len(), 1);
+
+    // 删除会话后快照：不存在（操作后一致状态）
+    db.delete_session("del-session").unwrap();
+    assert!(db.load_session_snapshot("del-session").unwrap().is_none());
+    assert!(before.messages[0].content.as_deref() == Some("before"));
+}
+
+#[test]
+fn second_database_handle_is_rejected_for_same_session_and_data_stays_intact() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("lock.db");
+    let db_a = Database::open(&path).unwrap();
+    let db_b = Database::open(&path).unwrap();
+    insert_test_session(&db_a, "lock-session");
+    db_a.save_message("lock-session", "user", Some("保留的消息"), None, None, None)
+        .unwrap();
+
+    // 模拟进程 A（turn/压缩）持有跨进程锁
+    let _lock_a = db_a.session_lock("lock-session").unwrap();
+
+    // 进程 B 的同一 session 生命周期操作必须被拒绝
+    let err = db_b
+        .session_lock("lock-session")
+        .expect_err("第二持有者必须被拒绝");
+    assert!(err.to_string().contains("该会话正在其他进程中运行"));
+    assert_eq!(db_b.load_messages("lock-session").unwrap().len(), 1);
+
+    // 锁释放后进程 B 可以正常进入并修改
+    drop(_lock_a);
+    let _lock_b = db_b.session_lock("lock-session").unwrap();
+    db_b.save_message(
+        "lock-session",
+        "user",
+        Some("进程 B 新增"),
+        None,
+        None,
+        None,
+    )
+    .unwrap();
+    let messages = db_a.load_messages("lock-session").unwrap();
+    assert_eq!(messages.len(), 2);
+    assert!(messages
+        .iter()
+        .any(|m| m.content.as_deref() == Some("保留的消息")));
+    assert!(messages
+        .iter()
+        .any(|m| m.content.as_deref() == Some("进程 B 新增")));
+}
+
+#[test]
+fn clear_like_rewrite_cannot_overwrite_newer_messages_while_turn_lock_held() {
+    let temp = tempdir().unwrap();
+    let path = temp.path().join("turn-lock.db");
+    let db_turn = Database::open(&path).unwrap();
+    let db_other = Database::open(&path).unwrap();
+    insert_test_session(&db_turn, "turn-session");
+    db_turn
+        .save_message("turn-session", "user", Some("旧消息"), None, None, None)
+        .unwrap();
+
+    // 进程 A 的 turn 持锁
+    let _turn_lock = db_turn.session_lock("turn-session").unwrap();
+
+    // 进程 B 的 clear/compact/delete 入口（统一经 session_lock）必须被拒绝，
+    // 旧消息不会被覆盖，也不会有并发快照重写发生
+    let clear_err = db_other
+        .session_lock("turn-session")
+        .expect_err("clear 与 turn 并发必须被拒绝");
+    assert!(clear_err.to_string().contains("该会话正在其他进程中运行"));
+    let messages = db_turn.load_messages("turn-session").unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].content.as_deref(), Some("旧消息"));
+
+    // turn 期间写入的新消息在锁释放后依然完整存在
+    db_turn
+        .save_message(
+            "turn-session",
+            "user",
+            Some("turn 期间的新消息"),
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+    drop(_turn_lock);
+    let messages = db_other.load_messages("turn-session").unwrap();
+    assert_eq!(messages.len(), 2);
+    assert!(messages
+        .iter()
+        .any(|m| m.content.as_deref() == Some("turn 期间的新消息")));
+}

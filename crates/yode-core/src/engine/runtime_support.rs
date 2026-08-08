@@ -58,8 +58,34 @@ impl AgentEngine {
             project_root.join("PLAN.md"),
         ]
         .into_iter()
-        .find(|path| path.is_file())
+        .find(|path| {
+            path.is_file() && self.plan_file_belongs_to_session(path, &self.context.session_id)
+        })
         .map(|path| path.display().to_string())
+    }
+
+    /// 计划文件归属校验：文件内容携带 `- Session:` 标记时，仅当标记与当前会话一致才使用；
+    /// 无标记的文件视为用户手写计划文件（共享设计），不做拒绝。
+    fn plan_file_belongs_to_session(&self, path: &std::path::Path, session_id: &str) -> bool {
+        match std::fs::read_to_string(path)
+            .ok()
+            .and_then(|content| crate::session_artifact::markdown_artifact_session_id(&content))
+        {
+            Some(owner) => {
+                if owner == session_id {
+                    true
+                } else {
+                    tracing::warn!(
+                        "拒绝使用计划文件 {}：内容归属 session {} 与当前 {} 不一致",
+                        path.display(),
+                        owner,
+                        session_id
+                    );
+                    false
+                }
+            }
+            None => true,
+        }
     }
 
     pub fn runtime_state(&self) -> EngineRuntimeState {

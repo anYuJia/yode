@@ -105,10 +105,6 @@ impl DesktopRuntime {
         let user_config_path = default_user_config_path(&workspace_path);
         let workspace_trusted =
             yode_core::workspace_trust::WorkspaceTrustStore::load().is_trusted(&workspace_path);
-        let db_path = dirs::home_dir()
-            .unwrap_or_else(|| workspace_path.clone())
-            .join(".yode")
-            .join("sessions.db");
 
         let config = match load_desktop_config(&user_config_path).await {
             Ok(config) => config,
@@ -119,6 +115,9 @@ impl DesktopRuntime {
                 )
             })?,
         };
+        // 会话数据库路径必须遵守配置中的 `[session].db_path`，
+        // 与 CLI（同样调用 Config::session_db_path）指向同一数据库文件。
+        let db_path = desktop_session_db_path(&config);
 
         let provider_registry = Mutex::new(bootstrap_providers(&config));
         let (tool_registry, mcp_resource_provider) =
@@ -389,6 +388,12 @@ fn default_user_config_path(workspace_path: &std::path::Path) -> PathBuf {
         .unwrap_or_else(|| workspace_path.to_path_buf())
         .join(".yode")
         .join("config.toml")
+}
+
+/// 桌面端会话数据库路径：必须与 CLI 一致，遵守配置中的 `[session].db_path`，
+/// 不得硬编码默认路径（否则自定义 db_path 时桌面与 CLI 各用各的库）。
+fn desktop_session_db_path(config: &Config) -> PathBuf {
+    config.session_db_path()
 }
 
 async fn resolve_desktop_workspace_path() -> PathBuf {

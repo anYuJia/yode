@@ -1077,3 +1077,116 @@ async fn turn_slot_stays_occupied_until_task_join_completes() {
     assert!(!active.lock().unwrap().contains_key("session-join"));
     assert!(tokens.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn desktop_export_creates_unique_files_for_consecutive_exports() {
+    let (runtime, dir) = test_runtime("desktop-export-unique");
+    let session = runtime
+        .sessions_create(CreateSessionRequest {
+            title: Some("export me".to_string()),
+            project_root: None,
+            provider: None,
+            model: None,
+        })
+        .unwrap();
+    runtime
+        .db
+        .save_message(&session.id, "user", Some("导出的消息"), None, None, None)
+        .unwrap();
+
+    let first = runtime
+        .sessions_export_markdown(session.id.clone())
+        .await
+        .unwrap();
+    let second = runtime
+        .sessions_export_markdown(session.id.clone())
+        .await
+        .unwrap();
+
+    assert_ne!(first.path, second.path, "同一秒连续导出不得互相覆盖");
+    let content_a = std::fs::read_to_string(&first.path).unwrap();
+    let content_b = std::fs::read_to_string(&second.path).unwrap();
+    assert!(content_a.contains("导出的消息"));
+    assert!(content_b.contains("导出的消息"));
+    assert_eq!(first.message_count, 1);
+    assert_eq!(second.message_count, 1);
+    assert!(std::fs::metadata(&first.path).unwrap().is_file());
+    assert!(std::fs::metadata(&second.path).unwrap().is_file());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn desktop_export_and_clear_rejected_while_other_process_holds_session_lock() {
+    let (runtime, dir) = test_runtime("desktop-lock-other-process");
+    let session = runtime
+        .sessions_create(CreateSessionRequest {
+            title: Some("locked".to_string()),
+            project_root: None,
+            provider: None,
+            model: None,
+        })
+        .unwrap();
+    runtime
+        .db
+        .save_message(&session.id, "user", Some("保留消息"), None, None, None)
+        .unwrap();
+    let export_dir = dir.join(".yode").join("exports");
+    let existing =
+        yode_core::session_lock::write_unique_export_file(&export_dir, "existing", "旧导出")
+            .unwrap();
+
+    // 另一进程（CLI/其他桌面）持有该 session 的跨进程锁
+    let _other_lock =
+        yode_core::session_lock::acquire_session_lock(&runtime.db_path, &session.id).unwrap();
+
+    let err = runtime
+        .sessions_export_markdown(session.id.clone())
+        .await
+        .expect_err("其他进程持锁时导出必须被拒绝");
+    assert!(err.to_string().contains("该会话正在其他进程中运行"));
+
+    let err = runtime
+        .sessions_clear_messages(session.id.clone())
+        .expect_err("其他进程持锁时清空必须被拒绝");
+    assert!(err.to_string().contains("该会话正在其他进程中运行"));
+
+    // 数据与旧导出文件保持完整
+    let messages = runtime.sessions_messages(session.id.clone()).unwrap();
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].content.as_deref(), Some("保留消息"));
+    assert_eq!(
+        std::fs::read_to_string(&existing).unwrap(),
+        "旧导出",
+        "锁失败时旧导出文件必须保持完整"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn desktop_uses_config_session_db_path_like_cli() {
+    let dir = unique_temp_dir("desktop-config-db-path");
+    std::fs::create_dir_all(&dir).unwrap();
+    let custom_db = dir.join("custom").join("sessions.db");
+    let user_config = dir.join("config.toml");
+    std::fs::write(
+        &user_config,
+        format!("[session]\ndb_path = \"{}\"\n", custom_db.display()),
+    )
+    .unwrap();
+
+    let config = super::configuration_runtime::load_desktop_config(&user_config)
+        .await
+        .unwrap();
+    let desktop_path = super::desktop_session_db_path(&config);
+    let cli_path = config.session_db_path();
+
+    assert_eq!(
+        desktop_path, cli_path,
+        "桌面端与 CLI 必须使用同一个数据库文件"
+    );
+    assert_eq!(
+        desktop_path, custom_db,
+        "必须遵守配置中的 [session].db_path"
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}

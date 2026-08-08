@@ -88,8 +88,10 @@ pub(super) fn render_session_markdown(session: &Session, messages: &[StoredMessa
     output
 }
 
-pub(super) fn short_session_id(session_id: &str) -> String {
-    session_id.chars().take(8).collect::<String>()
+/// 导出文件名使用的会话 token：路径安全时使用完整 session id，
+/// 避免前 8 位相同的会话在同一秒导出时互相覆盖。
+pub(super) fn export_session_token(session_id: &str) -> String {
+    yode_core::session_artifact::session_artifact_token(session_id)
 }
 
 pub(super) fn build_local_compaction_summary(

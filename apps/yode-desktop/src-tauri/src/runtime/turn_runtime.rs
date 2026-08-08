@@ -125,6 +125,12 @@ impl DesktopRuntime {
             (session, Some(slot))
         };
 
+        // 跨进程会话锁：CLI 与多个桌面进程共用同一实现。
+        // 同 session 其他进程正在运行时（turn/压缩/清理/删除/导出），
+        // 这里直接返回简体中文错误；锁随整个 turn（含后台事件循环）持有，
+        // Drop 或进程崩溃时由操作系统自动释放。
+        let session_lock_guard = self.db.session_lock(&session.id)?;
+
         self.set_active_session(session.id.clone())?;
         self.db.touch_session(&session.id)?;
         let accepted_session = self.map_session(session.clone(), Some(session.id.as_str()));
@@ -240,6 +246,8 @@ impl DesktopRuntime {
         );
 
         std::thread::spawn(move || {
+            // 跨进程会话锁在 turn 完整生命周期（含后台事件循环）内保持持有
+            let _session_lock_guard = session_lock_guard;
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,
                 Err(err) => {
@@ -486,9 +494,9 @@ pub(super) fn update_run_state(
 
 /// 所有会话生命周期操作共享的占位类型。
 ///
-/// 读取会话、导出和列举等只读操作不领取槽位；会修改会话历史或删除会话的操作
-/// 则必须在开始前领取。这样检查与占用在同一把锁内完成，避免 check-then-act
-/// 竞态，同时不同会话仍可并行。
+/// 读取会话和列举等只读操作不领取槽位；会修改会话历史、删除会话或导出
+/// 的操作则必须在开始前领取。这样检查与占用在同一把锁内完成，避免
+/// check-then-act 竞态，同时不同会话仍可并行。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum SessionOperation {
     Turn,
@@ -496,6 +504,7 @@ pub(super) enum SessionOperation {
     Delete,
     CompactLocal,
     CompactEngine,
+    Export,
 }
 
 impl SessionOperation {
@@ -506,6 +515,7 @@ impl SessionOperation {
             Self::Delete => "删除会话",
             Self::CompactLocal => "本地压缩",
             Self::CompactEngine => "引擎压缩",
+            Self::Export => "导出会话",
         }
     }
 }

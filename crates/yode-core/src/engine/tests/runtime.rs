@@ -1309,6 +1309,53 @@ fn test_restore_prefers_latest_transcript_of_current_session_only() {
 }
 
 #[test]
+fn test_plan_file_with_foreign_session_marker_is_ignored() {
+    let engine = make_engine(vec![], vec![]);
+    let project_root = engine.context().working_dir_compat();
+    let session_token =
+        crate::session_artifact::session_artifact_token(&engine.context().session_id);
+    let plan_dir = project_root.join(".yode").join("plans");
+    std::fs::create_dir_all(&plan_dir).unwrap();
+    std::fs::write(
+        plan_dir.join(format!("{session_token}-plan.md")),
+        "# Active Plan\n\n- Session: other-session-9999\n- Keep this plan.",
+    )
+    .unwrap();
+
+    let plan_state = engine.runtime_state().plan;
+    assert!(
+        plan_state
+            .active_plan_file_path
+            .as_deref()
+            .unwrap_or_default()
+            .is_empty(),
+        "携带其他会话标记的计划文件不得被使用"
+    );
+}
+
+#[test]
+fn test_plan_file_with_own_session_marker_is_used() {
+    let engine = make_engine(vec![], vec![]);
+    let project_root = engine.context().working_dir_compat();
+    let session_id = engine.context().session_id.clone();
+    let session_token = crate::session_artifact::session_artifact_token(&session_id);
+    let plan_dir = project_root.join(".yode").join("plans");
+    std::fs::create_dir_all(&plan_dir).unwrap();
+    let plan_path = plan_dir.join(format!("{session_token}-plan.md"));
+    std::fs::write(
+        &plan_path,
+        format!("# Active Plan\n\n- Session: {session_id}\n- Keep this plan."),
+    )
+    .unwrap();
+
+    let plan_state = engine.runtime_state().plan;
+    assert_eq!(
+        plan_state.active_plan_file_path.as_deref(),
+        Some(plan_path.display().to_string().as_str())
+    );
+}
+
+#[test]
 fn test_reset_turn_runtime_clears_stream_watchdog_stage() {
     let mut engine = make_engine(vec![], vec![]);
     engine.last_stream_watchdog_stage = Some("receive_loop:stall_timeout".to_string());
