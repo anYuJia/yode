@@ -84,7 +84,9 @@ impl AgentEngine {
         }
         self.clear_cache_edit_tracking();
         self.post_compact_restore_blocks.clear();
-        if let Err(err) = clear_live_session_memory(&self.context.working_dir_compat()) {
+        if let Err(err) =
+            clear_live_session_memory(&self.context.working_dir_compat(), &self.context.session_id)
+        {
             warn!(
                 "Failed to clear live session memory during conversation reset: {}",
                 err

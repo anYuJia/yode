@@ -193,9 +193,12 @@ impl AgentEngine {
         );
         metadata.insert(
             "live_session_memory_path".to_string(),
-            json!(live_session_memory_path(&self.context.working_dir_compat())
-                .display()
-                .to_string()),
+            json!(live_session_memory_path(
+                &self.context.working_dir_compat(),
+                &self.context.session_id
+            )
+            .display()
+            .to_string()),
         );
         metadata.insert(
             "tracked_failed_tool_results".to_string(),

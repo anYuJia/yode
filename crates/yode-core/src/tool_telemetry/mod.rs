@@ -115,8 +115,10 @@ async fn write_prompt_cache_diff_artifact_async(
             dir.display()
         )
     })?;
-    let short_session = session_id.chars().take(8).collect::<String>();
-    let path = dir.join(format!("{}-prompt-cache-diff.md", short_session));
+    let path = dir.join(format!(
+        "{}-prompt-cache-diff.md",
+        crate::session_artifact::session_artifact_token(session_id)
+    ));
 
     let body = format!(
         "# Prompt Cache Diff\n\n- Session: {}\n- Transition: {}\n- Reason: {}\n- Timestamp: {}\n\n## Hashes\n\n- Previous system/restore/tool/message: {} / {} / {} / {}\n- Current system/restore/tool/message: {} / {} / {} / {}\n\n## Previous System\n\n```text\n{}\n```\n\n## Current System\n\n```text\n{}\n```\n\n## Previous Restore\n\n```text\n{}\n```\n\n## Current Restore\n\n```text\n{}\n```\n\n## Previous Tools\n\n```text\n{}\n```\n\n## Current Tools\n\n```text\n{}\n```\n\n## Previous Messages\n\n```text\n{}\n```\n\n## Current Messages\n\n```text\n{}\n```\n",
@@ -142,12 +144,14 @@ async fn write_prompt_cache_diff_artifact_async(
         truncate_cache_text(current_message_text.unwrap_or("none"), 4_000),
     );
 
-    tokio::fs::write(&path, body).await.with_context(|| {
-        format!(
-            "failed to write prompt-cache diff artifact {}",
-            path.display()
-        )
-    })?;
+    crate::session_artifact::atomic_write_async(&path, &body)
+        .await
+        .with_context(|| {
+            format!(
+                "failed to write prompt-cache diff artifact {}",
+                path.display()
+            )
+        })?;
     Ok((
         path.display().to_string(),
         format!(

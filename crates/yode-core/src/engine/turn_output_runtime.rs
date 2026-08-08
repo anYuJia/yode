@@ -90,8 +90,10 @@ impl AgentEngine {
             );
             return;
         }
-        let short_session = self.context.session_id.chars().take(8).collect::<String>();
-        let path = dir.join(format!("{}-latest-turn.json", short_session));
+        let path = dir.join(format!(
+            "{}-latest-turn.json",
+            crate::session_artifact::session_artifact_token(&self.context.session_id)
+        ));
         let payload = serde_json::json!({
             "session_id": self.context.session_id,
             "query_source": format!("{:?}", self.current_query_source),
@@ -109,7 +111,7 @@ impl AgentEngine {
                 return;
             }
         };
-        match tokio::fs::write(&path, body).await {
+        match crate::session_artifact::atomic_write_async(&path, &body).await {
             Ok(()) => {
                 self.last_turn_artifact_path = Some(path.display().to_string());
             }

@@ -41,12 +41,19 @@ impl AgentEngine {
 
     fn active_plan_file_path(&self) -> Option<String> {
         let project_root = self.context.working_dir_compat();
-        let short_session = self.context.session_id.chars().take(8).collect::<String>();
+        let session_token =
+            crate::session_artifact::session_artifact_token(&self.context.session_id);
+        let legacy_short =
+            crate::session_artifact::legacy_session_short_id(&self.context.session_id);
         [
             project_root
                 .join(".yode")
                 .join("plans")
-                .join(format!("{}-plan.md", short_session)),
+                .join(format!("{}-plan.md", session_token)),
+            project_root
+                .join(".yode")
+                .join("plans")
+                .join(format!("{}-plan.md", legacy_short)),
             project_root.join(".yode").join("plan.md"),
             project_root.join("PLAN.md"),
         ]
@@ -149,9 +156,12 @@ impl AgentEngine {
             live_session_memory_updating: self
                 .session_memory_update_in_progress
                 .load(Ordering::SeqCst),
-            live_session_memory_path: live_session_memory_path(&self.context.working_dir_compat())
-                .display()
-                .to_string(),
+            live_session_memory_path: live_session_memory_path(
+                &self.context.working_dir_compat(),
+                &self.context.session_id,
+            )
+            .display()
+            .to_string(),
             session_tool_calls_total: self.session_tool_calls_total,
             last_compaction_mode: self.last_compaction_mode.clone(),
             last_compaction_at: self.last_compaction_at.clone(),

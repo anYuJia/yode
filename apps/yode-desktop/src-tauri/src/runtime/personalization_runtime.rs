@@ -19,11 +19,9 @@ impl DesktopRuntime {
     pub async fn personalization_reset_memories(&self) -> Result<DesktopActionResult> {
         let mut removed = 0usize;
         for root in self.memory_roots()? {
-            for path in [
-                yode_core::session_memory::session_memory_path(&root),
-                yode_core::session_memory::live_session_memory_path(&root),
-                root.join("MEMORY.md"),
-            ] {
+            // 会话记忆已按 session 隔离到 .yode/memory/ 目录下，整体目录清理即可覆盖；
+            // 旧共享 session.md / session.live.md 无法验证归属，不在此处单独删除。
+            for path in [root.join("MEMORY.md")] {
                 if tokio::fs::try_exists(&path).await? {
                     tokio::fs::remove_file(&path).await.with_context(|| {
                         format!("Failed to remove memory file: {}", path.display())

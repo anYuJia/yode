@@ -116,7 +116,7 @@ fn loads_project_memory_from_supported_locations() {
     )
     .unwrap();
 
-    let loaded = load_memory_context(&project).unwrap();
+    let loaded = load_memory_context(&project, "session-aaaa-1111").unwrap();
     assert!(loaded.contains("## How To Use Memory"));
     assert!(loaded.contains("ignore or not use memory"));
     assert!(loaded.contains("root memory"));
@@ -131,6 +131,49 @@ fn loads_project_memory_from_supported_locations() {
 }
 
 #[test]
+fn loads_only_current_session_memory_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
+    fs::create_dir_all(project.join(".yode").join("memory")).unwrap();
+
+    fs::write(
+        project
+            .join(".yode")
+            .join("memory")
+            .join("session-session-aaaa-1111.live.md"),
+        "# Session Snapshot\n\n## 2026-01-01 12:00:00 session session-aaaa-1111\n\n- A goals",
+    )
+    .unwrap();
+    fs::write(
+        project
+            .join(".yode")
+            .join("memory")
+            .join("session-session-bbbb-2222.md"),
+        "# Session Memory\n\n- B goals",
+    )
+    .unwrap();
+    fs::write(
+        project.join(".yode").join("memory").join("session.md"),
+        "legacy shared memory",
+    )
+    .unwrap();
+
+    let loaded_a = load_memory_context(&project, "session-aaaa-1111").unwrap();
+    assert!(loaded_a.contains("A goals"));
+    assert!(!loaded_a.contains("B goals"), "其他会话记忆不得注入上下文");
+    assert!(
+        !loaded_a.contains("legacy shared memory"),
+        "旧共享记忆不得注入上下文"
+    );
+
+    let loaded_b = load_memory_context(&project, "session-bbbb-2222").unwrap();
+    assert!(loaded_b.contains("B goals"));
+    assert!(!loaded_b.contains("A goals"));
+}
+
+#[test]
 fn skips_hidden_memory_when_workspace_has_no_visible_project_files() {
     let temp = tempfile::tempdir().unwrap();
     let project = temp.path().join("empty-project");
@@ -141,9 +184,11 @@ fn skips_hidden_memory_when_workspace_has_no_visible_project_files() {
     )
     .unwrap();
 
-    assert!(load_memory_context(&project).is_none());
+    assert!(load_memory_context(&project, "session-aaaa-1111").is_none());
 
     fs::write(project.join("package.json"), "{}").unwrap();
-    let loaded = load_memory_context(&project).unwrap();
-    assert!(loaded.contains("stale tauri project memory"));
+    assert!(
+        load_memory_context(&project, "session-aaaa-1111").is_none(),
+        "旧共享 session.md 无法验证归属，不得加载"
+    );
 }

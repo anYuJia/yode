@@ -13,7 +13,7 @@ struct MemoryFrontmatter {
     scope: Option<String>,
 }
 
-pub fn load_memory_context(project_root: &Path) -> Option<String> {
+pub fn load_memory_context(project_root: &Path, session_id: &str) -> Option<String> {
     let mut sections = Vec::new();
     let has_visible_project_content = has_visible_project_content(project_root);
 
@@ -31,7 +31,7 @@ pub fn load_memory_context(project_root: &Path) -> Option<String> {
             project_root.join(".claude").join("memory"),
             project_root.join(".claude").join("memories"),
         ] {
-            sections.extend(load_memory_dir(project_root, &dir));
+            sections.extend(load_memory_dir(project_root, &dir, session_id));
         }
     } else {
         info!(
@@ -39,7 +39,11 @@ pub fn load_memory_context(project_root: &Path) -> Option<String> {
             project_root.display()
         );
     }
-    sections.extend(load_memory_dir(project_root, &project_root.join("memory")));
+    sections.extend(load_memory_dir(
+        project_root,
+        &project_root.join("memory"),
+        session_id,
+    ));
 
     if sections.is_empty() {
         return None;
@@ -113,7 +117,11 @@ fn has_visible_project_content(project_root: &Path) -> bool {
     false
 }
 
-fn load_memory_dir(project_root: &Path, memory_dir: &Path) -> Vec<(String, String)> {
+fn load_memory_dir(
+    project_root: &Path,
+    memory_dir: &Path,
+    session_id: &str,
+) -> Vec<(String, String)> {
     if !memory_dir.exists() {
         return Vec::new();
     }
@@ -139,6 +147,10 @@ fn load_memory_dir(project_root: &Path, memory_dir: &Path) -> Vec<(String, Strin
             continue;
         }
 
+        if !memory_file_belongs_to_current_session(path, session_id) {
+            continue;
+        }
+
         if let Some(content) = read_text_file(path) {
             let name = display_path(path, project_root, dirs::home_dir().as_deref());
             entries.push((name, render_memory_body(content, path)));
@@ -148,6 +160,26 @@ fn load_memory_dir(project_root: &Path, memory_dir: &Path) -> Vec<(String, Strin
 
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     entries
+}
+
+/// 会话专属记忆文件仅允许加载当前会话自己的；
+/// 旧版共享 `session.md` / `session.live.md` 无法验证归属，一律不注入上下文。
+fn memory_file_belongs_to_current_session(path: &Path, session_id: &str) -> bool {
+    let Some(file_name) = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+    else {
+        return false;
+    };
+    if file_name == "session.md" || file_name == "session.live.md" {
+        return false;
+    }
+    if file_name.starts_with("session-") && file_name.ends_with(".md") {
+        let token = crate::session_artifact::session_artifact_token(session_id);
+        return file_name == format!("session-{token}.md")
+            || file_name == format!("session-{token}.live.md");
+    }
+    true
 }
 
 fn render_memory_body(content: String, path: &Path) -> String {

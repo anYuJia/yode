@@ -88,11 +88,7 @@ pub fn render_live_session_memory_prompt(
 pub(in crate::session_memory) fn render_live_snapshot(snapshot: &LiveSessionSnapshot) -> String {
     let generated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let mut lines = vec![
-        format!(
-            "## {} session {}",
-            generated_at,
-            snapshot.session_id.chars().take(8).collect::<String>()
-        ),
+        format!("## {} session {}", generated_at, snapshot.session_id),
         String::new(),
         format!(
             "- Total tool calls this session: {}",

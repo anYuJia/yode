@@ -289,7 +289,33 @@ impl DesktopRuntime {
             &session_id,
             SessionOperation::Delete,
         )?;
+        let project_root = self
+            .db
+            .get_session(&session_id)?
+            .and_then(|session| session.project_root)
+            .filter(|root| !root.trim().is_empty())
+            .map(PathBuf::from)
+            .filter(|path| path.is_dir())
+            .unwrap_or_else(|| self.workspace_path.clone());
         self.db.delete_session(&session_id)?;
+        // 会话删除成功后清理磁盘工件：仅清理已验证属于该会话的新工件，
+        // 绝不误删其他会话工件或旧共享文件；失败记录可诊断错误但不回滚删除。
+        match yode_core::session_memory::cleanup_session_artifacts(&project_root, &session_id) {
+            Ok(report) => {
+                tracing::info!(
+                    "会话 {} 删除完成，已清理 {} 个磁盘工件",
+                    session_id,
+                    report.removed_files
+                );
+            }
+            Err(err) => {
+                tracing::error!(
+                    "会话 {} 已从数据库删除，但磁盘工件清理失败: {}",
+                    session_id,
+                    err
+                );
+            }
+        }
         Ok(())
     }
 

@@ -114,10 +114,7 @@ fn render_skill_invocation_scope(invocation: &SkillInvocation) -> String {
         return format!(" [subagent={}]", description);
     }
     if let Some(session_id) = invocation.session_id.as_deref() {
-        return format!(
-            " [session={}]",
-            session_id.chars().take(8).collect::<String>()
-        );
+        return format!(" [session={}]", session_id);
     }
     String::new()
 }
@@ -533,8 +530,10 @@ pub(super) async fn write_post_compact_restore_artifact_async(
             dir.display()
         )
     })?;
-    let short_session = session_id.chars().take(8).collect::<String>();
-    let path = dir.join(format!("{}-post-compact-restore.md", short_session));
+    let path = dir.join(format!(
+        "{}-post-compact-restore.md",
+        crate::session_artifact::session_artifact_token(session_id)
+    ));
     let body = render_post_compact_restore_artifact_body(
         session_id,
         mode,
@@ -543,7 +542,7 @@ pub(super) async fn write_post_compact_restore_artifact_async(
         restore_budget,
     );
 
-    tokio::fs::write(&path, body)
+    crate::session_artifact::atomic_write_async(&path, &body)
         .await
         .with_context(|| format!("failed to write restore artifact {}", path.display()))?;
     Ok(Some(path))
@@ -604,8 +603,10 @@ pub(super) async fn write_post_compact_restore_state_artifact_async(
             dir.display()
         )
     })?;
-    let short_session = session_id.chars().take(8).collect::<String>();
-    let path = dir.join(format!("{}-post-compact-restore-state.json", short_session));
+    let path = dir.join(format!(
+        "{}-post-compact-restore-state.json",
+        crate::session_artifact::session_artifact_token(session_id)
+    ));
     let payload = render_post_compact_restore_state_artifact_payload(
         session_id,
         mode,
@@ -616,7 +617,7 @@ pub(super) async fn write_post_compact_restore_state_artifact_async(
 
     let body = serde_json::to_string_pretty(&payload)
         .context("failed to serialize post-compact restore state artifact")?;
-    tokio::fs::write(&path, body)
+    crate::session_artifact::atomic_write_async(&path, &body)
         .await
         .with_context(|| format!("failed to write restore state artifact {}", path.display()))?;
     Ok(Some(path))
@@ -670,11 +671,13 @@ pub(super) async fn write_post_compact_restore_diff_artifact_async(
             dir.display()
         )
     })?;
-    let short_session = session_id.chars().take(8).collect::<String>();
-    let path = dir.join(format!("{}-post-compact-restore-diff.md", short_session));
+    let path = dir.join(format!(
+        "{}-post-compact-restore-diff.md",
+        crate::session_artifact::session_artifact_token(session_id)
+    ));
     let body = render_post_compact_restore_diff_artifact_body(session_id, previous, current);
 
-    tokio::fs::write(&path, body)
+    crate::session_artifact::atomic_write_async(&path, &body)
         .await
         .with_context(|| format!("failed to write restore diff artifact {}", path.display()))?;
     Ok(Some(path))
@@ -741,9 +744,43 @@ pub(super) fn load_post_compact_restore_state_artifact(
     session_id: &str,
 ) -> Option<Vec<(RestoreBlockKind, String)>> {
     let path = post_compact_restore_state_artifact_path(project_root, session_id);
-    let content = match std::fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == ErrorKind::NotFound => return None,
+    let legacy_path = legacy_post_compact_restore_state_artifact_path(project_root, session_id);
+    let (path, content) = match std::fs::read_to_string(&path) {
+        Ok(content) => (path, content),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            let legacy = match std::fs::read_to_string(&legacy_path) {
+                Ok(content) => content,
+                Err(error) if error.kind() == ErrorKind::NotFound => return None,
+                Err(error) => {
+                    warn!(
+                        path = %legacy_path.display(),
+                        "Failed to read legacy post-compact restore state artifact: {}",
+                        error
+                    );
+                    return None;
+                }
+            };
+            match parse_post_compact_restore_state_content(&legacy, session_id) {
+                Ok(Some(blocks)) => {
+                    crate::session_artifact::rename_verified_legacy_artifact(
+                        &legacy_path,
+                        &path,
+                        session_id,
+                    );
+                    return Some(blocks);
+                }
+                Ok(None) => return None,
+                Err(error) => {
+                    warn!(
+                        path = %legacy_path.display(),
+                        "拒绝恢复会话 {} 的旧版 post-compact restore 状态工件：{}",
+                        session_id,
+                        error
+                    );
+                    return None;
+                }
+            }
+        }
         Err(error) => {
             warn!(
                 path = %path.display(),
@@ -753,12 +790,13 @@ pub(super) fn load_post_compact_restore_state_artifact(
             return None;
         }
     };
-    match parse_post_compact_restore_state_content(&content) {
+    match parse_post_compact_restore_state_content(&content, session_id) {
         Ok(blocks) => blocks,
         Err(error) => {
             warn!(
                 path = %path.display(),
-                "Failed to parse post-compact restore state artifact: {}",
+                "拒绝恢复会话 {} 的 post-compact restore 状态工件：{}",
+                session_id,
                 error
             );
             None
@@ -771,9 +809,43 @@ pub(super) async fn load_post_compact_restore_state_artifact_async(
     session_id: &str,
 ) -> Option<Vec<(RestoreBlockKind, String)>> {
     let path = post_compact_restore_state_artifact_path(project_root, session_id);
-    let content = match tokio::fs::read_to_string(&path).await {
-        Ok(content) => content,
-        Err(error) if error.kind() == ErrorKind::NotFound => return None,
+    let legacy_path = legacy_post_compact_restore_state_artifact_path(project_root, session_id);
+    let (path, content) = match tokio::fs::read_to_string(&path).await {
+        Ok(content) => (path, content),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            let legacy = match tokio::fs::read_to_string(&legacy_path).await {
+                Ok(content) => content,
+                Err(error) if error.kind() == ErrorKind::NotFound => return None,
+                Err(error) => {
+                    warn!(
+                        path = %legacy_path.display(),
+                        "Failed to read legacy post-compact restore state artifact: {}",
+                        error
+                    );
+                    return None;
+                }
+            };
+            match parse_post_compact_restore_state_content(&legacy, session_id) {
+                Ok(Some(blocks)) => {
+                    crate::session_artifact::rename_verified_legacy_artifact(
+                        &legacy_path,
+                        &path,
+                        session_id,
+                    );
+                    return Some(blocks);
+                }
+                Ok(None) => return None,
+                Err(error) => {
+                    warn!(
+                        path = %legacy_path.display(),
+                        "拒绝恢复会话 {} 的旧版 post-compact restore 状态工件：{}",
+                        session_id,
+                        error
+                    );
+                    return None;
+                }
+            }
+        }
         Err(error) => {
             warn!(
                 path = %path.display(),
@@ -783,12 +855,13 @@ pub(super) async fn load_post_compact_restore_state_artifact_async(
             return None;
         }
     };
-    match parse_post_compact_restore_state_content(&content) {
+    match parse_post_compact_restore_state_content(&content, session_id) {
         Ok(blocks) => blocks,
         Err(error) => {
             warn!(
                 path = %path.display(),
-                "Failed to parse post-compact restore state artifact: {}",
+                "拒绝恢复会话 {} 的 post-compact restore 状态工件：{}",
+                session_id,
                 error
             );
             None
@@ -800,18 +873,34 @@ pub(super) fn post_compact_restore_state_artifact_path(
     project_root: &Path,
     session_id: &str,
 ) -> PathBuf {
-    let short_session = session_id.chars().take(8).collect::<String>();
-    project_root
-        .join(".yode")
-        .join("status")
-        .join(format!("{}-post-compact-restore-state.json", short_session))
+    project_root.join(".yode").join("status").join(format!(
+        "{}-post-compact-restore-state.json",
+        crate::session_artifact::session_artifact_token(session_id)
+    ))
+}
+
+/// 旧版短 ID 工件路径（仅兼容查找，不用于新写入）。
+fn legacy_post_compact_restore_state_artifact_path(
+    project_root: &Path,
+    session_id: &str,
+) -> PathBuf {
+    project_root.join(".yode").join("status").join(format!(
+        "{}-post-compact-restore-state.json",
+        crate::session_artifact::legacy_session_short_id(session_id)
+    ))
 }
 
 fn parse_post_compact_restore_state_content(
     content: &str,
+    session_id: &str,
 ) -> Result<Option<Vec<(RestoreBlockKind, String)>>, String> {
     let value = serde_json::from_str::<serde_json::Value>(content)
         .map_err(|error| format!("invalid JSON: {error}"))?;
+    match value.get("session_id").and_then(|value| value.as_str()) {
+        Some(owner) if owner == session_id => {}
+        Some(owner) => return Err(format!("内容归属 session {} 与目标不一致", owner)),
+        None => return Err("缺少 session_id 字段，无法验证归属".to_string()),
+    }
     parse_post_compact_restore_state(value)
 }
 

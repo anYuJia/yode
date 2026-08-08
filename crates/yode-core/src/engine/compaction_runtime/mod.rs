@@ -1249,7 +1249,8 @@ impl AgentEngine {
 
     fn try_session_memory_compaction(&mut self) -> Option<CompressionReport> {
         let project_root = self.context.working_dir_compat();
-        let (path, excerpt) = best_compaction_memory_excerpt(&project_root, 900)?;
+        let session_id = self.context.session_id.clone();
+        let (path, excerpt) = best_compaction_memory_excerpt(&project_root, &session_id, 900)?;
         let summary = build_session_memory_compaction_summary(&project_root, &path, &excerpt);
         let report =
             self.context_manager
@@ -1469,7 +1470,8 @@ mod tests {
     fn missing_restore_state_artifact_is_ignored() {
         let dir = tempfile::tempdir().unwrap();
 
-        let restored = load_post_compact_restore_state_artifact(dir.path(), "session-12345678");
+        let restored =
+            load_post_compact_restore_state_artifact(dir.path(), "session-12345678-abcd");
 
         assert!(restored.is_none());
     }
@@ -1477,23 +1479,160 @@ mod tests {
     #[test]
     fn invalid_restore_state_artifact_is_ignored_without_panicking() {
         let dir = tempfile::tempdir().unwrap();
-        let path = post_compact_restore_state_artifact_path(dir.path(), "session-12345678");
+        let path = post_compact_restore_state_artifact_path(dir.path(), "session-12345678-abcd");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, "{not-json").unwrap();
 
-        let restored = load_post_compact_restore_state_artifact(dir.path(), "session-12345678");
+        let restored =
+            load_post_compact_restore_state_artifact(dir.path(), "session-12345678-abcd");
 
         assert!(restored.is_none());
     }
 
     #[test]
-    fn malformed_restore_state_blocks_are_ignored_without_panicking() {
+    fn restore_state_artifact_without_session_id_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let path = post_compact_restore_state_artifact_path(dir.path(), "session-12345678");
+        let path = post_compact_restore_state_artifact_path(dir.path(), "session-12345678-abcd");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             path,
             r#"{
+  "blocks": []
+}"#,
+        )
+        .unwrap();
+
+        assert!(
+            load_post_compact_restore_state_artifact(dir.path(), "session-12345678-abcd").is_none()
+        );
+    }
+
+    #[test]
+    fn restore_state_artifact_of_another_session_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = post_compact_restore_state_artifact_path(dir.path(), "session-12345678-abcd");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            r#"{
+  "session_id": "session-other-session",
+  "blocks": []
+}"#,
+        )
+        .unwrap();
+
+        assert!(
+            load_post_compact_restore_state_artifact(dir.path(), "session-12345678-abcd").is_none()
+        );
+    }
+
+    #[test]
+    fn legacy_short_id_restore_state_artifact_migrates_only_on_session_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let session = "session-12345678-abcd";
+        let short = crate::session_artifact::legacy_session_short_id(session);
+        let legacy = dir
+            .path()
+            .join(".yode/status")
+            .join(format!("{short}-post-compact-restore-state.json"));
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        let new_path = post_compact_restore_state_artifact_path(dir.path(), session);
+
+        std::fs::write(
+            &legacy,
+            format!(
+                r#"{{
+  "session_id": "{session}",
+  "blocks": [
+    {{
+      "kind": "runtime",
+      "content": "[Post-compact restore: runtime]\n- Legacy work.",
+      "fingerprint": "abc"
+    }}
+  ]
+}}"#
+            ),
+        )
+        .unwrap();
+        let restored = load_post_compact_restore_state_artifact(dir.path(), session).unwrap();
+        assert!(restored[0].1.contains("Legacy work."));
+        assert!(new_path.exists(), "验证归属后应迁移到新命名");
+        assert!(!legacy.exists(), "迁移成功后旧文件应删除");
+
+        std::fs::remove_file(&new_path).unwrap();
+        std::fs::write(
+            &legacy,
+            r#"{
+  "session_id": "session-other-session",
+  "blocks": []
+}"#,
+        )
+        .unwrap();
+        assert!(load_post_compact_restore_state_artifact(dir.path(), session).is_none());
+        assert!(legacy.exists(), "无法验证归属的旧文件不得删除");
+    }
+
+    #[test]
+    fn sessions_sharing_eight_char_prefix_do_not_collide() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_a = "session-12345678-aaaa";
+        let session_b = "session-12345678-bbbb";
+
+        let path_a = post_compact_restore_state_artifact_path(dir.path(), session_a);
+        let path_b = post_compact_restore_state_artifact_path(dir.path(), session_b);
+        assert_ne!(path_a, path_b, "前 8 位相同的会话不得共用工件路径");
+
+        std::fs::create_dir_all(path_a.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path_a,
+            format!(
+                r#"{{
+  "session_id": "{session_a}",
+  "blocks": [
+    {{
+      "kind": "runtime",
+      "content": "[Post-compact restore: runtime]\n- A work.",
+      "fingerprint": "abc"
+    }}
+  ]
+}}"#
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            &path_b,
+            format!(
+                r#"{{
+  "session_id": "{session_b}",
+  "blocks": [
+    {{
+      "kind": "runtime",
+      "content": "[Post-compact restore: runtime]\n- B work.",
+      "fingerprint": "abc"
+    }}
+  ]
+}}"#
+            ),
+        )
+        .unwrap();
+
+        let restored_a = load_post_compact_restore_state_artifact(dir.path(), session_a).unwrap();
+        let restored_b = load_post_compact_restore_state_artifact(dir.path(), session_b).unwrap();
+        assert!(restored_a[0].1.contains("A work."));
+        assert!(!restored_a[0].1.contains("B work."));
+        assert!(restored_b[0].1.contains("B work."));
+        assert!(!restored_b[0].1.contains("A work."));
+    }
+
+    #[test]
+    fn malformed_restore_state_blocks_are_ignored_without_panicking() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = post_compact_restore_state_artifact_path(dir.path(), "session-12345678-abcd");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            r#"{
+  "session_id": "session-12345678-abcd",
   "blocks": [
     {
       "kind": "runtime",
@@ -1504,7 +1643,8 @@ mod tests {
         )
         .unwrap();
 
-        let restored = load_post_compact_restore_state_artifact(dir.path(), "session-12345678");
+        let restored =
+            load_post_compact_restore_state_artifact(dir.path(), "session-12345678-abcd");
 
         assert!(restored.is_none());
     }
@@ -1512,11 +1652,12 @@ mod tests {
     #[tokio::test]
     async fn async_restore_state_loader_preserves_valid_blocks() {
         let dir = tempfile::tempdir().unwrap();
-        let path = post_compact_restore_state_artifact_path(dir.path(), "session-12345678");
+        let path = post_compact_restore_state_artifact_path(dir.path(), "session-12345678-abcd");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             path,
             r#"{
+  "session_id": "session-12345678-abcd",
   "blocks": [
     {
       "kind": "runtime",
@@ -1529,7 +1670,7 @@ mod tests {
         .unwrap();
 
         let restored =
-            load_post_compact_restore_state_artifact_async(dir.path(), "session-12345678")
+            load_post_compact_restore_state_artifact_async(dir.path(), "session-12345678-abcd")
                 .await
                 .unwrap();
 

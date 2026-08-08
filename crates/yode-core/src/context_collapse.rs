@@ -143,13 +143,16 @@ pub fn write_context_collapse_artifact(
     let dir = project_root.join(".yode").join("context-collapse");
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create context collapse dir: {}", dir.display()))?;
-    let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!(
         "{}-collapse-{}.json",
-        short_session,
+        crate::session_artifact::session_artifact_token(session_id),
         chrono::Local::now().format("%Y%m%d-%H%M%S")
     ));
-    std::fs::write(&path, serde_json::to_string_pretty(operation)?).with_context(|| {
+    crate::session_artifact::atomic_write_sync(
+        &path,
+        &render_collapse_payload(session_id, operation),
+    )
+    .with_context(|| {
         format!(
             "Failed to write context collapse artifact: {}",
             path.display()
@@ -167,21 +170,34 @@ pub async fn write_context_collapse_artifact_async(
     tokio::fs::create_dir_all(&dir)
         .await
         .with_context(|| format!("Failed to create context collapse dir: {}", dir.display()))?;
-    let short_session = session_id.chars().take(8).collect::<String>();
     let path = dir.join(format!(
         "{}-collapse-{}.json",
-        short_session,
+        crate::session_artifact::session_artifact_token(session_id),
         chrono::Local::now().format("%Y%m%d-%H%M%S")
     ));
-    tokio::fs::write(&path, serde_json::to_string_pretty(operation)?)
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to write context collapse artifact: {}",
-                path.display()
-            )
-        })?;
+    crate::session_artifact::atomic_write_async(
+        &path,
+        &render_collapse_payload(session_id, operation),
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "Failed to write context collapse artifact: {}",
+            path.display()
+        )
+    })?;
     Ok(path)
+}
+
+/// 工件内容必须携带完整 session id，便于归属验证。
+fn render_collapse_payload(session_id: &str, operation: &ContextCollapseOperation) -> String {
+    match serde_json::to_value(operation) {
+        Ok(mut value) => {
+            value["session_id"] = serde_json::Value::String(session_id.to_string());
+            serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
+        }
+        Err(_) => "{}".to_string(),
+    }
 }
 
 fn summarize_tool_output(content: &str) -> String {
@@ -271,10 +287,14 @@ mod tests {
             Message::user("recent 9"),
         ];
         let operation = collapse_tool_heavy_spans(&mut messages).unwrap();
-        let path =
-            write_context_collapse_artifact(temp.path(), "session-abcdef", &operation).unwrap();
+        let path = write_context_collapse_artifact(temp.path(), "session-abcdef-1234", &operation)
+            .unwrap();
         let content = std::fs::read_to_string(path).unwrap();
         assert!(content.contains("\"source_ranges\""));
         assert!(content.contains("\"replacements\""));
+        assert!(
+            content.contains("\"session_id\": \"session-abcdef-1234\""),
+            "工件内容必须携带完整 session id"
+        );
     }
 }
