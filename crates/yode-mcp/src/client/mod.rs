@@ -169,10 +169,7 @@ impl ClientHandler for YodeMcpClientHandler {
             }
         };
         record_mcp_elicitation_declined(&self.server_name, kind, message, url);
-        std::future::ready(Ok(CreateElicitationResult {
-            action: ElicitationAction::Decline,
-            content: None,
-        }))
+        std::future::ready(Ok(CreateElicitationResult::new(ElicitationAction::Decline)))
     }
 
     fn get_info(&self) -> ClientInfo {

@@ -7,9 +7,10 @@ use super::{
     settings_system::{apply_menu_bar_setting, open_with_destination, stop_sleep_guard},
     DesktopRuntime,
 };
-use crate::desktop_settings_store::{read_desktop_settings_async, write_desktop_settings_async};
+use crate::desktop_settings_store::{read_desktop_settings_async, update_desktop_settings_async};
 use crate::protocol::{
-    DesktopSettingSetRequest, DesktopSettingValue, GeneralSettings, OpenTargetRequest,
+    DesktopSettingSetRequest, DesktopSettingValue, DesktopSettingsStatus, GeneralSettings,
+    OpenTargetRequest,
 };
 
 impl DesktopRuntime {
@@ -75,13 +76,27 @@ impl DesktopRuntime {
         })
     }
 
+    /// 桌面设置文件加载状态：损坏文件在此如实报告，绝不静默回退默认值。
+    pub fn desktop_settings_status(&self) -> Result<DesktopSettingsStatus> {
+        crate::desktop_settings_store::desktop_settings_status()
+    }
+
+    /// 用户显式恢复损坏的桌面设置文件：备份原文件后生成新配置。
+    pub fn desktop_settings_restore(&self) -> Result<DesktopSettingsStatus> {
+        crate::desktop_settings_store::restore_desktop_settings()
+    }
+
     pub async fn desktop_setting_set(
         &self,
         request: DesktopSettingSetRequest,
     ) -> Result<DesktopSettingValue> {
-        let mut settings = read_desktop_settings_async().await?;
-        settings.insert(request.key.clone(), request.value.clone());
-        write_desktop_settings_async(&settings).await?;
+        let key = request.key.clone();
+        let value = request.value.clone();
+        update_desktop_settings_async(move |settings| {
+            settings.insert(key, value);
+            Ok(())
+        })
+        .await?;
         Ok(DesktopSettingValue {
             key: request.key,
             value: Some(request.value),

@@ -236,6 +236,49 @@ export function isTauriRuntime() {
   return "__TAURI_INTERNALS__" in window;
 }
 
+export type DesktopSettingsStatus = {
+  loaded: boolean;
+  path: string;
+  error?: string | null;
+  backupPath?: string | null;
+};
+
+export function isDesktopSettingsStatus(value: unknown): value is DesktopSettingsStatus {
+  const record = recordFromUnknown(value);
+  return Boolean(record && typeof record.loaded === "boolean" && typeof record.path === "string");
+}
+
+/**
+ * 查询桌面设置文件加载状态。损坏 JSON、根节点非对象或不可读文件都会如实报告
+ * `loaded: false` 与中文错误说明，绝不静默回退默认值。
+ */
+export async function loadDesktopSettingsStatus(): Promise<DesktopSettingsStatus> {
+  if (isTauriRuntime()) {
+    try {
+      const status = await invoke<unknown>("desktop_settings_status_get");
+      if (isDesktopSettingsStatus(status)) return status;
+    } catch (err) {
+      console.error(err);
+    }
+  }
+  return { loaded: true, path: "" };
+}
+
+/**
+ * 用户显式恢复损坏的设置文件：后端先备份原文件再生成新配置。
+ * 仅当用户主动触发时调用。
+ */
+export async function restoreDesktopSettings(): Promise<DesktopSettingsStatus | null> {
+  if (!isTauriRuntime()) return null;
+  try {
+    const status = await invoke<unknown>("desktop_settings_restore");
+    return isDesktopSettingsStatus(status) ? status : null;
+  } catch (err) {
+    console.error(err);
+    return null;
+  }
+}
+
 export async function loadDesktopSetting<T>(key: string, fallback: T): Promise<T> {
   if (isTauriRuntime()) {
     try {
@@ -281,6 +324,7 @@ export function loadGeneralSettings(): GeneralSettings {
 }
 
 export function loadGeneralSettingsPayload(): GeneralSettingsPayload {
+  const followUpBehavior = localStorage.getItem("yode-follow-up-behavior");
   return {
     workMode: localStorage.getItem("yode-work-mode") || "coding",
     defaultFilePermission: localStorage.getItem("yode-def-perm") !== "false",
@@ -294,7 +338,8 @@ export function loadGeneralSettingsPayload(): GeneralSettingsPayload {
     codeReviewPolicy: localStorage.getItem("yode-code-review-policy") || "inline",
     suggestedPrompts: localStorage.getItem("yode-suggested-prompts") !== "false",
     contextUsage: localStorage.getItem("yode-context-usage") === "true",
-    followUpBehavior: localStorage.getItem("yode-follow-up-behavior") || "queue",
+    // 当前运行时不支持向进行中的 turn 注入消息；旧版 "steer" 设置必须诚实回退。
+    followUpBehavior: followUpBehavior === "steer" ? "queue" : (followUpBehavior || "queue"),
     requireOptEnter: localStorage.getItem("yode-require-opt-enter") === "true",
     completionNotification: localStorage.getItem("yode-completion-notif") || "Only when unfocused",
     permissionNotification: localStorage.getItem("yode-perm-notif") !== "false",

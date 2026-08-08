@@ -1,7 +1,9 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { marked } from "marked";
 import type { Token, Tokens } from "marked";
-import { preprocessMarkdown } from "./MarkdownContent";
+import { MarkdownContent, preprocessMarkdown, renderInlineMarkdown } from "./MarkdownContent";
 import { hasCodeBlockContent } from "./codeBlockContent";
 
 function isCodeToken(token: Token): token is Tokens.Code {
@@ -126,5 +128,89 @@ describe("preprocessMarkdown", () => {
     expect(hasCodeBlockContent("\n  \n")).toBe(false);
     expect(hasCodeBlockContent("\u200B\n")).toBe(false);
     expect(hasCodeBlockContent("const value = 1;")).toBe(true);
+  });
+});
+
+describe("MarkdownContent URL policy", () => {
+  function renderMarkdown(text: string) {
+    return renderToStaticMarkup(createElement(MarkdownContent, { text }));
+  }
+
+  it("renders only approved external links with safe new-window attributes", () => {
+    const markup = renderMarkdown("[网站](HTTPS://example.com/docs) [邮件](mailto:hello@example.com)");
+
+    expect(markup).toContain('href="https://example.com/docs"');
+    expect(markup).toContain('href="mailto:hello@example.com"');
+    expect(markup).toContain('target="_blank"');
+    expect(markup).toContain('rel="noopener noreferrer"');
+  });
+
+  it("renders safe page anchors in the current page", () => {
+    const markup = renderMarkdown("[目录](#section-one)");
+
+    expect(markup).toContain('href="#section-one"');
+    expect(markup).not.toContain('target="_blank"');
+  });
+
+  it("renders unsafe links as their formatted visible content without anchors", () => {
+    const markup = renderMarkdown([
+      "[**脚本**](javascript:alert(1))",
+      "[数据](data:text/html,unsafe)",
+      "[文件](file:///etc/passwd)",
+      "[应用](tauri://localhost/settings)",
+      "[混合大小写](JaVaScRiPt:alert(1))",
+      "[控制字符](\u007FJaVaScRiPt:alert(1))",
+      "[相对路径](./settings)",
+      "[协议相对](//example.com)",
+    ].join(" "));
+
+    expect(markup).toContain("<strong>脚本</strong>");
+    expect(markup).toContain("数据");
+    expect(markup).toContain("文件");
+    expect(markup).toContain("应用");
+    expect(markup).toContain("混合大小写");
+    expect(markup).toContain("控制字符");
+    expect(markup).toContain("相对路径");
+    expect(markup).toContain("协议相对");
+    expect(markup).not.toContain("<a");
+    expect(markup).not.toContain("javascript:");
+    expect(markup).not.toContain("data:text/html");
+    expect(markup).not.toContain("file://");
+    expect(markup).not.toContain("tauri://");
+  });
+
+  it("does not render unsafe markdown image sources", () => {
+    const markup = renderMarkdown([
+      "![数据图片](data:image/svg+xml,unsafe)",
+      "![本地图片](file:///tmp/image.png)",
+      "![应用图片](tauri://localhost/image.png)",
+      "![远程图片](https://example.com/image.png)",
+    ].join(" "));
+
+    expect(markup).toContain("数据图片");
+    expect(markup).toContain("本地图片");
+    expect(markup).toContain("应用图片");
+    expect(markup).toContain('<img src="https://example.com/image.png"');
+    expect(markup).not.toContain('src="data:');
+    expect(markup).not.toContain('src="file:');
+    expect(markup).not.toContain('src="tauri:');
+  });
+
+  it("applies the same policy to inline markdown for mixed-case and control-character URLs", () => {
+    const markup = renderToStaticMarkup(renderInlineMarkdown([
+      "[脚本](JaVaScRiPt:alert(1))",
+      "[数据](DaTa:text/html,unsafe)",
+      "[文件](FiLe:///etc/passwd)",
+      "[应用](TaUrI://localhost/settings)",
+      "[控制字符](\u007FFiLe:///tmp/secret)",
+    ].join(" ")));
+
+    expect(markup).toContain("脚本");
+    expect(markup).toContain("数据");
+    expect(markup).toContain("文件");
+    expect(markup).toContain("应用");
+    expect(markup).toContain("控制字符");
+    expect(markup).not.toContain("<a");
+    expect(markup).not.toContain("href=");
   });
 });

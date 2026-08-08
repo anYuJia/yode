@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -63,7 +63,11 @@ impl DesktopRuntime {
             // （同一把锁内完成检查+插入，两个并发请求不可能同时通过）。
             // 槽位一直保持到 turn 事件循环 quiesce 之后才释放，
             // 取消请求期间新 turn 一律被拒绝，杜绝旧工具与新 turn 并发。
-            let slot = SessionTurnSlot::acquire(&self.active_sessions, session_id)?;
+            let slot = SessionOperationSlot::acquire(
+                &self.active_sessions,
+                session_id,
+                SessionOperation::Turn,
+            )?;
             let mut s = self
                 .db
                 .get_session(session_id)?
@@ -113,7 +117,11 @@ impl DesktopRuntime {
             self.db.create_session(&session)?;
             // 新会话首轮同样占用 in-flight 占位：首轮取消后、旧引擎 quiesce 期间，
             // 新 turn 必须被拒绝（uuid 天然唯一，acquire 必成功）
-            let slot = SessionTurnSlot::acquire(&self.active_sessions, &session.id)?;
+            let slot = SessionOperationSlot::acquire(
+                &self.active_sessions,
+                &session.id,
+                SessionOperation::Turn,
+            )?;
             (session, Some(slot))
         };
 
@@ -476,31 +484,63 @@ pub(super) fn update_run_state(
     }
 }
 
-/// 每会话 in-flight 占位：原子检查+占用（同一把锁内完成检查与插入，
-/// 两个并发请求不可能同时通过）。
-/// Drop 时若未 disarm 会自动释放（失败路径兜底）；
-/// 成功路径调用 disarm() 后由 turn 事件循环在 quiesce 后释放。
+/// 所有会话生命周期操作共享的占位类型。
+///
+/// 读取会话、导出和列举等只读操作不领取槽位；会修改会话历史或删除会话的操作
+/// 则必须在开始前领取。这样检查与占用在同一把锁内完成，避免 check-then-act
+/// 竞态，同时不同会话仍可并行。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SessionOperation {
+    Turn,
+    ClearMessages,
+    Delete,
+    CompactLocal,
+    CompactEngine,
+}
+
+impl SessionOperation {
+    fn description(self) -> &'static str {
+        match self {
+            Self::Turn => "运行任务",
+            Self::ClearMessages => "清空消息",
+            Self::Delete => "删除会话",
+            Self::CompactLocal => "本地压缩",
+            Self::CompactEngine => "引擎压缩",
+        }
+    }
+}
+
+pub(super) type SessionOperationMap =
+    std::sync::Arc<std::sync::Mutex<HashMap<String, SessionOperation>>>;
+
+/// 每会话生命周期操作占位：原子检查+占用。
+/// Drop 时若未 disarm 会自动释放（失败路径兜底）；成功的 turn 调用
+/// disarm() 后，由 turn 事件循环 quiesce 时统一释放。
 #[derive(Debug)]
-pub(super) struct SessionTurnSlot {
-    active: std::sync::Arc<std::sync::Mutex<HashSet<String>>>,
+pub(super) struct SessionOperationSlot {
+    active: SessionOperationMap,
     session_id: String,
+    operation: SessionOperation,
     armed: bool,
 }
 
-impl SessionTurnSlot {
+impl SessionOperationSlot {
     pub(super) fn acquire(
-        active: &std::sync::Arc<std::sync::Mutex<HashSet<String>>>,
+        active: &SessionOperationMap,
         session_id: &str,
+        operation: SessionOperation,
     ) -> anyhow::Result<Self> {
-        let mut set = active
+        let mut operations = active
             .lock()
             .map_err(|_| anyhow::anyhow!("active session lock poisoned"))?;
-        if !set.insert(session_id.to_string()) {
-            anyhow::bail!("该会话已有进行中的任务，请等待完成或取消后再发送。");
+        if let Some(current) = operations.get(session_id) {
+            anyhow::bail!("该会话正在{}，请等待完成后重试。", current.description());
         }
+        operations.insert(session_id.to_string(), operation);
         Ok(Self {
             active: active.clone(),
             session_id: session_id.to_string(),
+            operation,
             armed: true,
         })
     }
@@ -510,11 +550,13 @@ impl SessionTurnSlot {
     }
 }
 
-impl Drop for SessionTurnSlot {
+impl Drop for SessionOperationSlot {
     fn drop(&mut self) {
         if self.armed {
-            if let Ok(mut set) = self.active.lock() {
-                set.remove(&self.session_id);
+            if let Ok(mut operations) = self.active.lock() {
+                if operations.get(&self.session_id) == Some(&self.operation) {
+                    operations.remove(&self.session_id);
+                }
             }
         }
     }
@@ -524,13 +566,15 @@ impl Drop for SessionTurnSlot {
 /// 由 turn 事件循环收尾、以及后台线程启动失败路径共用，
 /// 保证任何路径都不会让会话被永久判定为运行中。
 pub(super) fn release_turn_occupancy(
-    active_sessions: &std::sync::Arc<std::sync::Mutex<HashSet<String>>>,
+    active_sessions: &SessionOperationMap,
     cancel_tokens: &super::turn_loop::CancelTokenMap,
     session_id: &str,
     turn_id: &str,
 ) {
-    if let Ok(mut active) = active_sessions.lock() {
-        active.remove(session_id);
+    if let Ok(mut operations) = active_sessions.lock() {
+        if operations.get(session_id) == Some(&SessionOperation::Turn) {
+            operations.remove(session_id);
+        }
     }
     if let Ok(mut tokens) = cancel_tokens.lock() {
         tokens.remove(&(session_id.to_string(), turn_id.to_string()));

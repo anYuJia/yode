@@ -102,7 +102,7 @@ interface ChatWorkspaceProps {
   currentModel: string;
   onModelChange: (model: string) => void;
   pendingUserQuestion: PendingUserQuestion | null;
-  onAskUserResolve: (answer: string) => void;
+  onAskUserResolve: (answer: string) => Promise<boolean>;
   showSuggestedPrompts: boolean;
   showBottomPanel: boolean;
   showContextUsage: boolean;

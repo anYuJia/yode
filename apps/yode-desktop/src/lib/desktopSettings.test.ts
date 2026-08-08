@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { invoke } from "@tauri-apps/api/core";
+
 import {
   DEFAULT_BROWSER_SETTINGS,
   DEFAULT_COMPUTER_USE_SETTINGS,
@@ -8,8 +10,10 @@ import {
   DEFAULT_HOOKS_SETTINGS,
   DEFAULT_MCP_SERVERS,
   DEFAULT_PERSONALIZATION_SETTINGS,
+  isDesktopSettingsStatus,
   loadBrowserSettings,
   loadComputerUseSettings,
+  loadDesktopSettingsStatus,
   loadGitSettings,
   loadHooksSettings,
   loadMcpServers,
@@ -18,6 +22,7 @@ import {
   loadGeneralSettingsPayload,
   loadPersonalizationSettings,
   loadWorktreesSettings,
+  restoreDesktopSettings,
   saveBrowserSettings,
   saveComputerUseSettings,
   saveConfigurationSettings,
@@ -28,6 +33,10 @@ import {
   savePersonalizationSettings,
   saveWorktreesSetting
 } from "./desktopSettings";
+
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn()
+}));
 
 describe("desktop settings helpers", () => {
   afterEach(() => {
@@ -94,6 +103,12 @@ describe("desktop settings helpers", () => {
       permissionNotification: false,
       questionNotification: false
     });
+  });
+
+  it("falls back from the removed steer behavior to queue", () => {
+    stubLocalStorage((key) => (key === "yode-follow-up-behavior" ? "steer" : null));
+
+    expect(loadGeneralSettings().followUpBehavior).toBe("queue");
   });
 
   it("loads configuration settings defaults from local storage", () => {
@@ -637,6 +652,81 @@ describe("desktop settings helpers", () => {
         disabled: false
       }
     ]);
+  });
+});
+
+describe("desktop settings file status", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    vi.mocked(invoke).mockReset();
+  });
+
+  it("reports a corrupted settings file as not loaded with the backend error", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      loaded: false,
+      path: "/home/user/.yode/desktop-settings.json",
+      error: "设置文件不是有效 JSON，尚未加载"
+    });
+    vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
+
+    const status = await loadDesktopSettingsStatus();
+
+    expect(status).toEqual({
+      loaded: false,
+      path: "/home/user/.yode/desktop-settings.json",
+      error: "设置文件不是有效 JSON，尚未加载"
+    });
+    expect(invoke).toHaveBeenCalledWith("desktop_settings_status_get");
+  });
+
+  it("falls back to a healthy state when the status query itself fails", async () => {
+    vi.mocked(invoke).mockRejectedValue(new Error("ipc unavailable"));
+    vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
+
+    const status = await loadDesktopSettingsStatus();
+
+    expect(status).toEqual({ loaded: true, path: "" });
+  });
+
+  it("returns a healthy state without invoking the backend outside Tauri", async () => {
+    vi.stubGlobal("window", {});
+
+    const status = await loadDesktopSettingsStatus();
+
+    expect(status).toEqual({ loaded: true, path: "" });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("restores corrupted settings through the explicit backend restore command", async () => {
+    vi.mocked(invoke).mockResolvedValue({
+      loaded: true,
+      path: "/home/user/.yode/desktop-settings.json",
+      error: null,
+      backupPath: "/home/user/.yode/desktop-settings.json.bak-20260808"
+    });
+    vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
+
+    const status = await restoreDesktopSettings();
+
+    expect(invoke).toHaveBeenCalledWith("desktop_settings_restore");
+    expect(status?.loaded).toBe(true);
+    expect(status?.backupPath).toContain(".bak-");
+  });
+
+  it("returns null when the restore command fails", async () => {
+    vi.mocked(invoke).mockRejectedValue(new Error("无法备份"));
+    vi.stubGlobal("window", { __TAURI_INTERNALS__: {} });
+
+    expect(await restoreDesktopSettings()).toBeNull();
+  });
+
+  it("validates status shapes before trusting the backend response", () => {
+    expect(isDesktopSettingsStatus({ loaded: true, path: "/x" })).toBe(true);
+    expect(isDesktopSettingsStatus({ loaded: false, path: "/x", error: "boom" })).toBe(true);
+    expect(isDesktopSettingsStatus({ loaded: "yes", path: "/x" })).toBe(false);
+    expect(isDesktopSettingsStatus(null)).toBe(false);
+    expect(isDesktopSettingsStatus({ path: "/x" })).toBe(false);
   });
 });
 

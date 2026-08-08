@@ -41,6 +41,8 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         configuration::workspace_reinstall,
         configuration::desktop_setting_get,
         configuration::desktop_setting_set,
+        configuration::desktop_settings_status_get,
+        configuration::desktop_settings_restore,
         configuration::personalization_state_get,
         configuration::personalization_reset_memories,
         mcp::mcp_servers_state,

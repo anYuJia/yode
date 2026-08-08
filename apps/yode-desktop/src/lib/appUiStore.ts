@@ -48,6 +48,46 @@ export type QueuedComposerMessage = {
   images: ImageAttachment[];
 };
 
+/** 会话专属的易失 UI 状态。未绑定会话的新对话使用独立的草稿槽。 */
+export type SessionUiState = {
+  composerImages: ImageAttachment[];
+  currentTurnId: string | null;
+  draft: string;
+  isProcessing: boolean;
+  messageQueue: QueuedComposerMessage[];
+  pendingUserQuestion: PendingUserQuestion | null;
+  timelineItems: TimelineItem[];
+  usageSnapshot: UsageSnapshot | null;
+};
+
+const DRAFT_SESSION_KEY = "__draft__";
+
+function sessionUiStateKey(sessionId: string | null) {
+  return sessionId ?? DRAFT_SESSION_KEY;
+}
+
+/** 仅当用户仍处于发起请求的草稿槽时，才允许回包切换到新建会话。 */
+export function canActivateCreatedSession(
+  activeSessionId: string | null,
+  requestSequence: number | null,
+  currentRequestSequence: number
+) {
+  return activeSessionId === null && requestSequence !== null && requestSequence === currentRequestSequence;
+}
+
+function emptySessionUiState(): SessionUiState {
+  return {
+    composerImages: [],
+    currentTurnId: null,
+    draft: "",
+    isProcessing: false,
+    messageQueue: [],
+    pendingUserQuestion: null,
+    timelineItems: [],
+    usageSnapshot: null
+  };
+}
+
 type AppUiState = {
   activeSessionId: string | null;
   appLang: string;
@@ -66,6 +106,7 @@ type AppUiState = {
   projectOrder: string[];
   projectRoots: string[];
   selectedProjectRoot: string | null | undefined;
+  sessionUiStates: Record<string, SessionUiState>;
   sessionItems: SessionSummary[];
   settingsSidebarWidth: number;
   sidebarOpen: boolean;
@@ -76,20 +117,22 @@ type AppUiState = {
   usageSnapshot: UsageSnapshot | null;
   viewMode: ViewMode;
   clearTurnState: () => void;
+  getSessionUiState: (sessionId: string | null) => SessionUiState;
+  promoteDraftToSession: (sessionId: string) => void;
   reloadProjectStorage: () => void;
   refreshGeneralSettings: (options?: { apply?: boolean }) => void;
   setActiveSessionId: (sessionId: string | null) => void;
   setAppLang: (lang: string) => void;
   setBootstrap: (bootstrap: StateUpdater<Bootstrap>) => void;
-  setComposerImages: (images: StateUpdater<ImageAttachment[]>) => void;
-  setCurrentTurnId: (turnId: StateUpdater<string | null>) => void;
-  setDraft: (draft: string) => void;
+  setComposerImages: (images: StateUpdater<ImageAttachment[]>, sessionId?: string | null) => void;
+  setCurrentTurnId: (turnId: StateUpdater<string | null>, sessionId?: string | null) => void;
+  setDraft: (draft: string, sessionId?: string | null) => void;
   setDraggingPane: (pane: PaneKind | null) => void;
   setInspectorOpen: (open: boolean) => void;
   setInspectorWidth: (width: number) => void;
-  setIsProcessing: (isProcessing: boolean) => void;
-  setMessageQueue: (queue: StateUpdater<QueuedComposerMessage[]>) => void;
-  setPendingUserQuestion: (question: StateUpdater<PendingUserQuestion | null>) => void;
+  setIsProcessing: (isProcessing: boolean, sessionId?: string | null) => void;
+  setMessageQueue: (queue: StateUpdater<QueuedComposerMessage[]>, sessionId?: string | null) => void;
+  setPendingUserQuestion: (question: StateUpdater<PendingUserQuestion | null>, sessionId?: string | null) => void;
   setPermissionMode: (mode: string) => void;
   setProjectOrder: (order: StateUpdater<string[]>) => void;
   setProjectRoots: (roots: StateUpdater<string[]>) => void;
@@ -100,8 +143,12 @@ type AppUiState = {
   setSidebarWidth: (width: number) => void;
   setTerminalHeight: (height: number) => void;
   setTerminalOpenForConversation: (conversationKey: string, open: boolean) => void;
-  setTimelineItems: (items: StateUpdater<TimelineItem[]>) => void;
-  setUsageSnapshot: (snapshot: StateUpdater<UsageSnapshot | null>) => void;
+  setTimelineItems: (items: StateUpdater<TimelineItem[]>, sessionId?: string | null) => void;
+  setUsageSnapshot: (snapshot: StateUpdater<UsageSnapshot | null>, sessionId?: string | null) => void;
+  updateSessionUiState: (
+    sessionId: string | null | undefined,
+    updater: (current: SessionUiState) => SessionUiState
+  ) => void;
   setViewMode: (mode: ViewMode) => void;
 };
 
@@ -125,6 +172,10 @@ function resolveUpdater<T>(updater: StateUpdater<T>, current: T): T {
     : updater;
 }
 
+function stateForSession(state: AppUiState, sessionId: string | null): SessionUiState {
+  return state.sessionUiStates[sessionUiStateKey(sessionId)] ?? emptySessionUiState();
+}
+
 export const useAppUiStore = create<AppUiState>((set, get) => ({
   activeSessionId: null,
   appLang: loadAppLanguage(),
@@ -143,6 +194,7 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   projectOrder: loadStoredProjectOrder(),
   projectRoots: loadStoredProjectRoots(),
   selectedProjectRoot: loadStoredSelectedProjectRoot(),
+  sessionUiStates: {},
   sessionItems: [],
   settingsSidebarWidth: loadInitialPaneSize("settingsSidebar", SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY),
   sidebarOpen: true,
@@ -152,11 +204,24 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   timelineItems: [],
   usageSnapshot: null,
   viewMode: storedViewMode(),
-  clearTurnState: () => set({
+  clearTurnState: () => get().updateSessionUiState(undefined, (current) => ({
+    ...current,
     currentTurnId: null,
     isProcessing: false,
     messageQueue: [],
-    pendingUserQuestion: null,
+    pendingUserQuestion: null
+  })),
+  getSessionUiState: (sessionId) => stateForSession(get(), sessionId),
+  promoteDraftToSession: (sessionId) => set((state) => {
+    const draftSessionState = stateForSession(state, null);
+    return {
+      sessionUiStates: {
+        ...state.sessionUiStates,
+        [sessionUiStateKey(null)]: emptySessionUiState(),
+        [sessionUiStateKey(sessionId)]: draftSessionState
+      },
+      ...(state.activeSessionId === null ? emptySessionUiState() : {})
+    };
   }),
   reloadProjectStorage: () => set({
     projectOrder: loadStoredProjectOrder(),
@@ -169,7 +234,17 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
       void applyGeneralSettings();
     }
   },
-  setActiveSessionId: (activeSessionId) => set({ activeSessionId }),
+  setActiveSessionId: (activeSessionId) => set((state) => {
+    const key = sessionUiStateKey(activeSessionId);
+    const sessionUiState = stateForSession(state, activeSessionId);
+    return {
+      activeSessionId,
+      ...sessionUiState,
+      sessionUiStates: state.sessionUiStates[key]
+        ? state.sessionUiStates
+        : { ...state.sessionUiStates, [key]: sessionUiState }
+    };
+  }),
   setAppLang: (appLang) => {
     set({ appLang: normalizeAppLanguage(appLang) });
   },
@@ -177,13 +252,20 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     const bootstrap = resolveUpdater(updater, get().bootstrap);
     set({ bootstrap });
   },
-  setComposerImages: (updater) => {
-    const composerImages = resolveUpdater(updater, get().composerImages);
-    set({ composerImages });
+  setComposerImages: (updater, sessionId) => {
+    get().updateSessionUiState(sessionId, (current) => ({
+      ...current,
+      composerImages: resolveUpdater(updater, current.composerImages)
+    }));
   },
-  setCurrentTurnId: (currentTurnId) =>
-    set({ currentTurnId: resolveUpdater(currentTurnId, get().currentTurnId) }),
-  setDraft: (draft) => set({ draft }),
+  setCurrentTurnId: (updater, sessionId) => {
+    get().updateSessionUiState(sessionId, (current) => ({
+      ...current,
+      currentTurnId: resolveUpdater(updater, current.currentTurnId)
+    }));
+  },
+  setDraft: (draft, sessionId) =>
+    get().updateSessionUiState(sessionId, (current) => ({ ...current, draft })),
   setDraggingPane: (draggingPane) => set({ draggingPane }),
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   setInspectorWidth: (inspectorWidth) => {
@@ -194,13 +276,21 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     }
     set({ inspectorWidth });
   },
-  setIsProcessing: (isProcessing) => set({ isProcessing }),
-  setMessageQueue: (updater) => {
-    const messageQueue = resolveUpdater(updater, get().messageQueue);
-    set({ messageQueue });
+  setIsProcessing: (isProcessing, sessionId) => {
+    get().updateSessionUiState(sessionId, (current) => ({ ...current, isProcessing }));
   },
-  setPendingUserQuestion: (pendingUserQuestion) =>
-    set({ pendingUserQuestion: resolveUpdater(pendingUserQuestion, get().pendingUserQuestion) }),
+  setMessageQueue: (updater, sessionId) => {
+    get().updateSessionUiState(sessionId, (current) => ({
+      ...current,
+      messageQueue: resolveUpdater(updater, current.messageQueue)
+    }));
+  },
+  setPendingUserQuestion: (updater, sessionId) => {
+    get().updateSessionUiState(sessionId, (current) => ({
+      ...current,
+      pendingUserQuestion: resolveUpdater(updater, current.pendingUserQuestion)
+    }));
+  },
   setPermissionMode: (permissionMode) => set({ permissionMode }),
   setProjectOrder: (updater) => {
     const projectOrder = resolveUpdater(updater, get().projectOrder);
@@ -249,14 +339,30 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
       [conversationKey]: open
     }
   })),
-  setTimelineItems: (updater) => {
-    const timelineItems = resolveUpdater(updater, get().timelineItems);
-    set({ timelineItems });
+  setTimelineItems: (updater, sessionId) => {
+    get().updateSessionUiState(sessionId, (current) => ({
+      ...current,
+      timelineItems: resolveUpdater(updater, current.timelineItems)
+    }));
   },
-  setUsageSnapshot: (updater) => {
-    const usageSnapshot = resolveUpdater(updater, get().usageSnapshot);
-    set({ usageSnapshot });
+  setUsageSnapshot: (updater, sessionId) => {
+    get().updateSessionUiState(sessionId, (current) => ({
+      ...current,
+      usageSnapshot: resolveUpdater(updater, current.usageSnapshot)
+    }));
   },
+  updateSessionUiState: (sessionId, updater) => set((state) => {
+    const targetSessionId = sessionId === undefined ? state.activeSessionId : sessionId;
+    const key = sessionUiStateKey(targetSessionId);
+    const sessionUiState = updater(stateForSession(state, targetSessionId));
+    return {
+      sessionUiStates: {
+        ...state.sessionUiStates,
+        [key]: sessionUiState
+      },
+      ...(state.activeSessionId === targetSessionId ? sessionUiState : {})
+    };
+  }),
   setViewMode: (viewMode) => {
     localStorage.setItem("yode-view-mode", viewMode);
     set({ viewMode });

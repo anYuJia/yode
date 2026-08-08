@@ -311,6 +311,17 @@ pub struct DesktopSettingValue {
     pub value: Option<Value>,
 }
 
+/// 桌面设置文件加载状态。`loaded: false` 表示文件无效 JSON、根节点不是对象
+/// 或不可读；此时设置页必须明确提示“设置文件未加载”，并提供重试/恢复操作。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopSettingsStatus {
+    pub loaded: bool,
+    pub path: String,
+    pub error: Option<String>,
+    pub backup_path: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopActionResult {

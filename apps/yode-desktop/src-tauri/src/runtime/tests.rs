@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -15,7 +15,7 @@ use super::terminal_helpers::{
     apply_terminal_color_env, clamp_pty_size, parse_terminal_run_stdout, terminal_shell_command,
 };
 use super::{find_workspace_root, DesktopRuntime};
-use crate::protocol::CreateSessionRequest;
+use crate::protocol::{CreateSessionRequest, DesktopMcpServer, DesktopProvider};
 
 fn test_config() -> Config {
     toml::from_str(include_str!("../../../../../config/default.toml")).unwrap()
@@ -31,6 +31,7 @@ fn test_runtime(name: &str) -> (DesktopRuntime, PathBuf) {
         db: Database::open(&db_path).unwrap(),
         db_path,
         workspace_path: dir.clone(),
+        user_config_path: dir.join(".yode").join("config.toml"),
         workspace_trusted: std::sync::atomic::AtomicBool::new(false),
         provider_registry: Mutex::new(Arc::new(ProviderRegistry::new())),
         tool_registry: Mutex::new(Arc::new(ToolRegistry::new())),
@@ -40,7 +41,7 @@ fn test_runtime(name: &str) -> (DesktopRuntime, PathBuf) {
         confirm_txs: Arc::new(Mutex::new(HashMap::new())),
         ask_user_txs: Arc::new(Mutex::new(HashMap::new())),
         cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
-        active_sessions: Arc::new(Mutex::new(HashSet::new())),
+        active_sessions: Arc::new(Mutex::new(HashMap::new())),
         run_registry: Arc::new(Mutex::new(HashMap::new())),
         pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
         session_permission_rules: Arc::new(Mutex::new(HashMap::new())),
@@ -401,20 +402,37 @@ fn desktop_permission_mode_parses_all_five_modes() {
 #[test]
 fn provider_api_key_never_reaches_webview() {
     let (runtime, dir) = test_runtime("provider-key");
-    {
-        let mut config = runtime.config.lock().unwrap();
-        config.llm.providers.insert(
-            "openai".to_string(),
-            yode_core::config::ProviderConfig {
-                format: "openai".to_string(),
-                base_url: None,
-                api_key: Some("sk-real-secret-42".to_string()),
-                models: vec!["gpt-4o".to_string()],
-                enabled: Some(true),
-                gradient: None,
-            },
-        );
-    }
+    let real_config_path = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".yode")
+        .join("config.toml");
+    let real_config_metadata = config_file_metadata(&real_config_path);
+    // 模拟正常启动场景：磁盘上已存在带密钥的提供者与 MCP 服务器
+    // （通过统一事务入口写入，与生产路径一致）。
+    runtime
+        .update_user_config(|config| {
+            config.llm.providers.insert(
+                "openai".to_string(),
+                yode_core::config::ProviderConfig {
+                    format: "openai".to_string(),
+                    base_url: None,
+                    api_key: Some("sk-real-secret-42".to_string()),
+                    models: vec!["gpt-4o".to_string()],
+                    enabled: Some(true),
+                    gradient: None,
+                },
+            );
+            config.mcp.servers.insert(
+                "preserve-mcp".to_string(),
+                yode_core::config::McpServerConfig {
+                    command: "npx".to_string(),
+                    args: vec!["-y".to_string(), "example-mcp".to_string()],
+                    ..Default::default()
+                },
+            );
+            Ok(())
+        })
+        .unwrap();
 
     let providers = runtime.config_get_providers().unwrap();
     let openai = providers
@@ -430,6 +448,29 @@ fn provider_api_key_never_reaches_webview() {
     saved.api_key = "".to_string();
     saved.models = vec!["gpt-4o".to_string(), "gpt-4.1".to_string()];
     runtime.config_save_providers(vec![saved]).unwrap();
+    assert!(runtime.user_config_path().is_file());
+    assert_ne!(runtime.user_config_path(), real_config_path);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        assert_eq!(
+            std::fs::metadata(runtime.user_config_path())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+        assert_eq!(
+            std::fs::metadata(runtime.user_config_path().parent().unwrap())
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+    }
     let stored = runtime.config.lock().unwrap();
     assert_eq!(
         stored
@@ -454,57 +495,300 @@ fn provider_api_key_never_reaches_webview() {
             .and_then(|p| p.api_key.as_deref()),
         Some("sk-new-key")
     );
+    assert_eq!(
+        stored
+            .mcp
+            .servers
+            .get("preserve-mcp")
+            .map(|server| server.command.as_str()),
+        Some("npx")
+    );
     drop(stored);
+    let persisted = Config::load_with_overrides(Some(&runtime.user_config_path()), None).unwrap();
+    assert_eq!(
+        persisted
+            .llm
+            .providers
+            .get("openai")
+            .and_then(|p| p.api_key.as_deref()),
+        Some("sk-new-key")
+    );
+    assert_eq!(
+        persisted
+            .mcp
+            .servers
+            .get("preserve-mcp")
+            .map(|server| server.command.as_str()),
+        Some("npx")
+    );
+    assert_eq!(
+        config_file_metadata(&real_config_path),
+        real_config_metadata
+    );
+    let _ = dir;
+}
+
+fn config_file_metadata(path: &std::path::Path) -> Option<(u64, std::time::SystemTime)> {
+    let metadata = std::fs::metadata(path).ok()?;
+    Some((metadata.len(), metadata.modified().ok()?))
+}
+
+#[test]
+fn concurrent_updates_from_independent_runtimes_preserve_both_config_domains() {
+    use std::sync::Barrier;
+
+    // 两个完全独立的运行时（模拟两个应用实例）共享同一个用户配置文件
+    let shared_dir = unique_temp_dir("concurrent-config");
+    std::fs::create_dir_all(shared_dir.join(".yode")).unwrap();
+    let shared_config_path = shared_dir.join(".yode").join("config.toml");
+    let (mut runtime_a, _dir_a) = test_runtime("concurrent-config-a");
+    let (mut runtime_b, _dir_b) = test_runtime("concurrent-config-b");
+    runtime_a.user_config_path = shared_config_path.clone();
+    runtime_b.user_config_path = shared_config_path.clone();
+
+    let barrier = Arc::new(Barrier::new(2));
+    let barrier_a = Arc::clone(&barrier);
+    let barrier_b = Arc::clone(&barrier);
+    let thread_a = std::thread::spawn(move || {
+        barrier_a.wait();
+        // 域 A：默认 LLM
+        runtime_a
+            .config_set_default_llm("anthropic".to_string(), "claude-sonnet-4-5".to_string())
+            .unwrap();
+    });
+    let thread_b = std::thread::spawn(move || {
+        barrier_b.wait();
+        // 域 B：权限默认模式（异步 RPC 在独立线程上执行）
+        tauri::async_runtime::block_on(runtime_b.permission_mode_set(
+            "plan".to_string(),
+            false,
+            None,
+        ))
+        .unwrap();
+    });
+    thread_a.join().unwrap();
+    thread_b.join().unwrap();
+
+    // 最终磁盘配置必须同时保留两项改动，且 TOML 可解析
+    let persisted = Config::load_with_overrides(Some(&shared_config_path), None)
+        .expect("并发事务后用户配置必须可解析");
+    assert_eq!(persisted.llm.default_provider, "anthropic");
+    assert_eq!(persisted.llm.default_model, "claude-sonnet-4-5");
+    assert_eq!(persisted.permissions.default_mode.as_deref(), Some("plan"));
+    // 未被任一事务触碰的字段仍是默认值（说明不是某一方的过期快照）
+    assert_eq!(persisted.ui.theme, "dark");
+    let _ = std::fs::remove_dir_all(&shared_dir);
+}
+
+#[test]
+fn same_runtime_concurrent_updates_keep_memory_and_disk_consistent() {
+    use std::sync::Barrier;
+
+    // 同一运行时两个并发 RPC 修改不同配置域：进程内事务互斥保证
+    // “锁内修改 -> 刷新内存”串行化，最终内存与磁盘都必须同时包含两项改动。
+    let runtime = std::sync::Arc::new(test_runtime("same-runtime-concurrent").0);
+    let barrier = Arc::new(Barrier::new(2));
+    let barrier_a = Arc::clone(&barrier);
+    let barrier_b = Arc::clone(&barrier);
+    let runtime_a = Arc::clone(&runtime);
+    let runtime_b = Arc::clone(&runtime);
+    let thread_a = std::thread::spawn(move || {
+        barrier_a.wait();
+        runtime_a
+            .config_set_default_llm("anthropic".to_string(), "claude-sonnet-4-5".to_string())
+            .unwrap();
+    });
+    let thread_b = std::thread::spawn(move || {
+        barrier_b.wait();
+        tauri::async_runtime::block_on(runtime_b.permission_mode_set(
+            "plan".to_string(),
+            false,
+            None,
+        ))
+        .unwrap();
+    });
+    thread_a.join().unwrap();
+    thread_b.join().unwrap();
+
+    // 内存快照 = 最后一次写入后的磁盘状态，两项改动并存（不得倒退）
+    let memory = runtime.config.lock().unwrap();
+    assert_eq!(memory.llm.default_provider, "anthropic");
+    assert_eq!(memory.llm.default_model, "claude-sonnet-4-5");
+    assert_eq!(memory.permissions.default_mode.as_deref(), Some("plan"));
+    drop(memory);
+    let persisted = Config::load_with_overrides(Some(&runtime.user_config_path()), None).unwrap();
+    assert_eq!(persisted.llm.default_provider, "anthropic");
+    assert_eq!(persisted.permissions.default_mode.as_deref(), Some("plan"));
+}
+
+#[test]
+fn config_saves_preserve_unknown_top_level_and_nested_fields() {
+    let runtime = std::sync::Arc::new(test_runtime("unknown-fields-e2e").0);
+    std::fs::create_dir_all(runtime.user_config_path().parent().unwrap()).unwrap();
+    std::fs::write(
+        runtime.user_config_path(),
+        r#"
+future_top_level = "keep"
+
+[experimental]
+flag = true
+
+[llm]
+default_provider = "openai"
+default_model = "gpt-4o"
+[llm.providers.openai]
+format = "openai"
+api_key = "sk-top-secret"
+legacy_retries = 3
+[llm.providers.ollama]
+format = "openai"
+base_url = "http://localhost:11434/v1"
+ollama_kwargs = { top_p = 0.9 }
+
+[mcp.servers.docs]
+command = "npx"
+args = ["-y", "docs"]
+future_mcp_field = 42
+[mcp.servers.docs.auth]
+bearer_token_env = "DOCS_TOKEN"
+"#,
+    )
+    .unwrap();
+
+    // 1) 默认模型（窄修改 llm 域）
+    runtime
+        .config_set_default_llm("ollama".to_string(), "llama3".to_string())
+        .unwrap();
+    // 2) 权限模式（窄修改 permissions 域）——异步 RPC 在独立线程上执行
+    let runtime_b = Arc::clone(&runtime);
+    std::thread::spawn(move || {
+        tauri::async_runtime::block_on(runtime_b.permission_mode_set(
+            "plan".to_string(),
+            false,
+            None,
+        ))
+        .unwrap();
+    })
+    .join()
+    .unwrap();
+    // 3) MCP 表单保存：与 mcp_servers_save 完全相同的文件锁事务（合并保留
+    //    auth 与未知字段）。工具重载（需真实 MCP 连接）不在本测试范围。
+    runtime
+        .update_user_config(|config| {
+            let existing = config.mcp.servers.clone();
+            config.mcp.servers = super::mcp_config::desktop_mcp_servers_to_config(
+                &[DesktopMcpServer {
+                    name: "docs".to_string(),
+                    transport: "stdio".to_string(),
+                    command: Some("npx".to_string()),
+                    args: vec!["-y".to_string(), "docs".to_string()],
+                    url: None,
+                    env: std::collections::HashMap::new(),
+                    disabled: false,
+                }],
+                &existing,
+            )?;
+            Ok(())
+        })
+        .unwrap();
+    // 4) provider 表单保存（表单不携带密钥：留空保持原密钥）
+    runtime
+        .config_save_providers(vec![
+            DesktopProvider {
+                id: "openai".to_string(),
+                name: "OpenAI".to_string(),
+                format: "openai".to_string(),
+                enabled: true,
+                api_key: String::new(),
+                has_api_key: true,
+                base_url: String::new(),
+                models: vec![],
+                gradient: None,
+            },
+            DesktopProvider {
+                id: "ollama".to_string(),
+                name: "Ollama".to_string(),
+                format: "openai".to_string(),
+                enabled: true,
+                api_key: String::new(),
+                has_api_key: false,
+                base_url: String::new(),
+                models: vec![],
+                gradient: None,
+            },
+        ])
+        .unwrap();
+
+    // 无损：未知顶层、未知嵌套字段、密钥与 MCP auth 全部保留
+    let raw = std::fs::read_to_string(runtime.user_config_path()).unwrap();
+    assert!(raw.contains("future_top_level = \"keep\""));
+    assert!(raw.contains("[experimental]"));
+    assert!(raw.contains("flag = true"));
+    assert!(raw.contains("legacy_retries = 3"));
+    assert!(raw.contains("ollama_kwargs = { top_p = 0.9 }"));
+    assert!(raw.contains("future_mcp_field = 42"));
+    assert!(raw.contains("bearer_token_env = \"DOCS_TOKEN\""));
+    assert!(raw.contains("api_key = \"sk-top-secret\""));
+    assert!(raw.contains("default_provider = \"ollama\""));
+    assert!(raw.contains("default_mode = \"plan\""));
+    // TOML 可解析且语义完整
+    let persisted = Config::load_with_overrides(Some(&runtime.user_config_path()), None).unwrap();
+    assert_eq!(persisted.llm.default_provider, "ollama");
+    assert_eq!(persisted.llm.default_model, "llama3");
+    assert_eq!(persisted.permissions.default_mode.as_deref(), Some("plan"));
+    assert_eq!(
+        persisted
+            .llm
+            .providers
+            .get("openai")
+            .and_then(|p| p.api_key.as_deref()),
+        Some("sk-top-secret")
+    );
+    assert_eq!(
+        persisted
+            .mcp
+            .servers
+            .get("docs")
+            .and_then(|server| server.auth.as_ref())
+            .and_then(|auth| auth.bearer_token_env.as_deref()),
+        Some("DOCS_TOKEN")
+    );
+}
+
+#[test]
+fn failed_config_transaction_leaves_memory_and_disk_unchanged() {
+    let (runtime, dir) = test_runtime("failed-config-transaction");
+    // 先建立合法的磁盘配置（值必须不同于默认，确保确实写盘）
+    runtime
+        .update_user_config(|config| {
+            config.llm.default_model = "gpt-4.1".to_string();
+            Ok(())
+        })
+        .unwrap();
+    let before = runtime.config.lock().unwrap().llm.default_model.clone();
+    let disk_before = std::fs::read(runtime.user_config_path()).unwrap();
+
+    // 事务闭包报错：不得写盘、不得刷新内存
+    let error = runtime
+        .update_user_config(|_config| -> anyhow::Result<()> { anyhow::bail!("模拟保存失败") })
+        .unwrap_err();
+    assert!(error.to_string().contains("模拟保存失败"));
+    assert_eq!(runtime.config.lock().unwrap().llm.default_model, before);
+    assert_eq!(
+        std::fs::read(runtime.user_config_path()).unwrap(),
+        disk_before
+    );
     let _ = dir;
 }
 
 #[test]
-fn session_rejects_concurrent_turn_while_one_is_in_flight() {
-    let (runtime, dir) = test_runtime("concurrent-turn");
-    assert!(!runtime
-        .active_sessions
-        .lock()
-        .unwrap()
-        .contains("session-x"));
+fn session_operation_slot_is_atomic_under_concurrency() {
+    use super::turn_runtime::{SessionOperation, SessionOperationSlot};
 
-    // 模拟一个进行中的 turn：in-flight 占位已登记
-    {
-        let mut active = runtime.active_sessions.lock().unwrap();
-        active.insert("session-x".to_string());
-    }
-    assert!(runtime
-        .active_sessions
-        .lock()
-        .unwrap()
-        .contains("session-x"));
-
-    // 其他会话不受影响
-    assert!(!runtime
-        .active_sessions
-        .lock()
-        .unwrap()
-        .contains("session-y"));
-
-    // 占位释放后可再次占用
-    {
-        let mut active = runtime.active_sessions.lock().unwrap();
-        active.remove("session-x");
-    }
-    assert!(!runtime
-        .active_sessions
-        .lock()
-        .unwrap()
-        .contains("session-x"));
-    let _ = dir;
-}
-
-#[test]
-fn session_turn_slot_is_atomic_under_concurrency() {
-    // 真实并发调用：主线程持有一个占位，多个线程同时 acquire 同一会话，
-    // 在占位释放前所有并发请求都必须被拒绝
-    use super::turn_runtime::SessionTurnSlot;
-    let active = std::sync::Arc::new(std::sync::Mutex::new(HashSet::new()));
-    let holder = SessionTurnSlot::acquire(&active, "session-contended").unwrap();
+    let active = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+    let holder =
+        SessionOperationSlot::acquire(&active, "session-contended", SessionOperation::Turn)
+            .unwrap();
 
     let threads = 16;
     let success = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -513,7 +797,13 @@ fn session_turn_slot_is_atomic_under_concurrency() {
         let active = active.clone();
         let success = success.clone();
         handles.push(std::thread::spawn(move || {
-            if SessionTurnSlot::acquire(&active, "session-contended").is_ok() {
+            if SessionOperationSlot::acquire(
+                &active,
+                "session-contended",
+                SessionOperation::ClearMessages,
+            )
+            .is_ok()
+            {
                 success.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             }
         }));
@@ -521,72 +811,165 @@ fn session_turn_slot_is_atomic_under_concurrency() {
     for handle in handles {
         handle.join().unwrap();
     }
-    // 占位持有期间，16 个并发请求全部被拒（原子性：检查+占用不可分割）
+
     assert_eq!(success.load(std::sync::atomic::Ordering::SeqCst), 0);
-
-    // 释放后新的 acquire 成功
     drop(holder);
-    let next = SessionTurnSlot::acquire(&active, "session-contended").unwrap();
-    assert!(active.lock().unwrap().contains("session-contended"));
-    drop(next);
+    assert!(SessionOperationSlot::acquire(
+        &active,
+        "session-contended",
+        SessionOperation::ClearMessages,
+    )
+    .is_ok());
 }
 
 #[test]
-fn session_turn_slot_releases_on_drop_and_disarm() {
-    use super::turn_runtime::SessionTurnSlot;
-    let active = std::sync::Arc::new(std::sync::Mutex::new(HashSet::new()));
+fn session_operation_slot_makes_turn_and_mutation_mutually_exclusive() {
+    use super::turn_runtime::{SessionOperation, SessionOperationSlot};
 
-    // Drop 自动释放（模拟 turn_send_message 中途失败提前返回）
-    {
-        let slot = SessionTurnSlot::acquire(&active, "session-drop").unwrap();
-        assert!(active.lock().unwrap().contains("session-drop"));
-        drop(slot);
-    }
-    assert!(!active.lock().unwrap().contains("session-drop"));
+    let active = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+    let operations = [
+        (SessionOperation::Turn, "运行任务"),
+        (SessionOperation::ClearMessages, "清空消息"),
+        (SessionOperation::Delete, "删除会话"),
+        (SessionOperation::CompactLocal, "本地压缩"),
+        (SessionOperation::CompactEngine, "引擎压缩"),
+    ];
 
-    // disarm 后 Drop 不释放（释放由 turn 事件循环负责）
-    {
-        let mut slot = SessionTurnSlot::acquire(&active, "session-disarm").unwrap();
-        slot.disarm();
-        drop(slot);
+    for (held_operation, held_label) in operations {
+        let holder = SessionOperationSlot::acquire(&active, "session-x", held_operation).unwrap();
+        for (candidate_operation, _) in operations {
+            if candidate_operation == held_operation {
+                continue;
+            }
+            let error = SessionOperationSlot::acquire(&active, "session-x", candidate_operation)
+                .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                format!("该会话正在{held_label}，请等待完成后重试。")
+            );
+        }
+        drop(holder);
     }
-    assert!(active.lock().unwrap().contains("session-disarm"));
 }
 
 #[test]
-fn new_session_first_turn_occupies_slot_then_rejects_second_turn() {
-    // 真实路径模拟：新建会话（uuid 天然唯一）首轮 acquire 必成功；
-    // 首轮运行期间（占位未释放）同一会话的第二个 turn 必须被拒绝
-    use super::turn_runtime::SessionTurnSlot;
-    let active = std::sync::Arc::new(std::sync::Mutex::new(HashSet::new()));
-    let new_session_id = "session-new-1".to_string();
+fn session_operation_slot_allows_different_sessions_to_proceed() {
+    use super::turn_runtime::{SessionOperation, SessionOperationSlot};
 
-    // 首轮新建会话：acquire 成功
-    let first = SessionTurnSlot::acquire(&active, &new_session_id).unwrap();
-    // 首轮运行中，同一会话第二个 turn：拒绝
-    let second = SessionTurnSlot::acquire(&active, &new_session_id);
-    assert!(second.is_err());
-    assert_eq!(
-        second.unwrap_err().to_string(),
-        "该会话已有进行中的任务，请等待完成或取消后再发送。"
-    );
+    let active = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+    let first =
+        SessionOperationSlot::acquire(&active, "session-a", SessionOperation::Turn).unwrap();
+    let second =
+        SessionOperationSlot::acquire(&active, "session-b", SessionOperation::CompactLocal)
+            .unwrap();
 
-    // 首轮结束后（disarm + 事件循环释放）才允许新 turn
+    assert_eq!(active.lock().unwrap().len(), 2);
     drop(first);
-    let third = SessionTurnSlot::acquire(&active, &new_session_id);
-    assert!(third.is_ok());
+    drop(second);
+}
+
+#[test]
+fn failed_operations_and_drop_release_the_session_slot_for_retry() {
+    use super::turn_runtime::{SessionOperation, SessionOperationSlot};
+
+    let (runtime, dir) = test_runtime("operation-slot-retry");
+    let missing = "missing-session".to_string();
+    assert!(runtime.sessions_clear_messages(missing.clone()).is_err());
+    assert!(!runtime
+        .active_sessions
+        .lock()
+        .unwrap()
+        .contains_key(&missing));
+
+    let first = SessionOperationSlot::acquire(
+        &runtime.active_sessions,
+        "session-drop",
+        SessionOperation::Delete,
+    )
+    .unwrap();
+    drop(first);
+    assert!(SessionOperationSlot::acquire(
+        &runtime.active_sessions,
+        "session-drop",
+        SessionOperation::Turn,
+    )
+    .is_ok());
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[tokio::test]
+async fn destructive_session_operations_reject_while_turn_runs_without_mutating_history() {
+    use super::turn_runtime::{SessionOperation, SessionOperationSlot};
+
+    let (runtime, dir) = test_runtime("operation-slot-preserves-history");
+    let session = runtime
+        .sessions_create(CreateSessionRequest {
+            title: Some("protected history".to_string()),
+            project_root: None,
+            provider: None,
+            model: None,
+        })
+        .unwrap();
+    for index in 0..24 {
+        runtime
+            .db
+            .save_message(
+                &session.id,
+                if index % 2 == 0 { "user" } else { "assistant" },
+                Some(&format!("protected message {index}")),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+    }
+    let before = runtime.sessions_messages(session.id.clone()).unwrap();
+    let _turn = SessionOperationSlot::acquire(
+        &runtime.active_sessions,
+        &session.id,
+        SessionOperation::Turn,
+    )
+    .unwrap();
+
+    for error in [
+        runtime
+            .sessions_clear_messages(session.id.clone())
+            .unwrap_err(),
+        runtime
+            .sessions_compact_local(session.id.clone())
+            .unwrap_err(),
+        runtime.sessions_delete(session.id.clone()).unwrap_err(),
+        runtime
+            .sessions_compact_engine(session.id.clone())
+            .await
+            .unwrap_err(),
+    ] {
+        assert_eq!(error.to_string(), "该会话正在运行任务，请等待完成后重试。");
+    }
+
+    let after = runtime.sessions_messages(session.id.clone()).unwrap();
+    assert_eq!(after.len(), before.len());
+    assert_eq!(after[0].content, before[0].content);
+    assert!(runtime.db.get_session(&session.id).unwrap().is_some());
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]
 fn release_turn_occupancy_cleans_slot_and_token_on_background_start_failure() {
-    // 后台线程 Runtime::new / Database::open 失败路径调用同一清理函数：
-    // 必须同时释放 in-flight 占位与 cancel token，会话不会永久判定为运行中
-    use super::turn_runtime::release_turn_occupancy;
-    let active = std::sync::Arc::new(std::sync::Mutex::new(HashSet::new()));
+    use super::turn_runtime::{release_turn_occupancy, SessionOperation, SessionOperationSlot};
+
+    let active = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
     let tokens: super::turn_loop::CancelTokenMap =
         std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+    let mut turn_slot =
+        SessionOperationSlot::acquire(&active, "session-bg", SessionOperation::Turn).unwrap();
+    turn_slot.disarm();
+    drop(turn_slot);
+    assert_eq!(
+        active.lock().unwrap().get("session-bg"),
+        Some(&SessionOperation::Turn)
+    );
     {
-        active.lock().unwrap().insert("session-bg".to_string());
         tokens.lock().unwrap().insert(
             ("session-bg".to_string(), "turn-bg".to_string()),
             tokio_util::sync::CancellationToken::new(),
@@ -595,10 +978,72 @@ fn release_turn_occupancy_cleans_slot_and_token_on_background_start_failure() {
 
     release_turn_occupancy(&active, &tokens, "session-bg", "turn-bg");
 
-    assert!(!active.lock().unwrap().contains("session-bg"));
+    assert!(!active.lock().unwrap().contains_key("session-bg"));
     assert!(tokens.lock().unwrap().is_empty());
+    let later_operation =
+        SessionOperationSlot::acquire(&active, "session-bg", SessionOperation::Delete).unwrap();
 
-    // 幂等：重复清理无副作用
+    // 旧 turn 的迟到收尾不能误删后来领取的破坏性操作槽位。
     release_turn_occupancy(&active, &tokens, "session-bg", "turn-bg");
+    assert_eq!(
+        active.lock().unwrap().get("session-bg"),
+        Some(&SessionOperation::Delete)
+    );
+    drop(later_operation);
+
+    release_turn_occupancy(&active, &tokens, "session-bg", "turn-bg");
+    assert!(tokens.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn turn_slot_stays_occupied_until_task_join_completes() {
+    use super::turn_loop::join_turn_then_release_occupancy;
+    use super::turn_runtime::{SessionOperation, SessionOperationSlot};
+
+    let active = std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+    let tokens: super::turn_loop::CancelTokenMap =
+        std::sync::Arc::new(std::sync::Mutex::new(HashMap::new()));
+    let mut turn_slot =
+        SessionOperationSlot::acquire(&active, "session-join", SessionOperation::Turn).unwrap();
+    turn_slot.disarm();
+    drop(turn_slot);
+    tokens.lock().unwrap().insert(
+        ("session-join".to_string(), "turn-join".to_string()),
+        tokio_util::sync::CancellationToken::new(),
+    );
+
+    let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+    let (finish_tx, finish_rx) = tokio::sync::oneshot::channel();
+    let handle = tokio::spawn(async move {
+        let _ = started_tx.send(());
+        let _ = finish_rx.await;
+    });
+    let active_for_cleanup = active.clone();
+    let tokens_for_cleanup = tokens.clone();
+    let cleanup = tokio::spawn(async move {
+        join_turn_then_release_occupancy(
+            handle,
+            &active_for_cleanup,
+            &tokens_for_cleanup,
+            "session-join",
+            "turn-join",
+        )
+        .await
+    });
+
+    started_rx.await.unwrap();
+    tokio::task::yield_now().await;
+    assert_eq!(
+        active.lock().unwrap().get("session-join"),
+        Some(&SessionOperation::Turn)
+    );
+    assert!(tokens
+        .lock()
+        .unwrap()
+        .contains_key(&("session-join".to_string(), "turn-join".to_string())));
+
+    finish_tx.send(()).unwrap();
+    assert!(cleanup.await.unwrap());
+    assert!(!active.lock().unwrap().contains_key("session-join"));
     assert!(tokens.lock().unwrap().is_empty());
 }

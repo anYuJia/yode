@@ -8,7 +8,6 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
 use super::{
-    configuration_runtime::save_config_to_path_async,
     mcp_config::{
         core_mcp_server_to_runtime, desktop_mcp_server_to_config, desktop_mcp_servers_from_config,
         desktop_mcp_servers_to_config, mcp_statuses_from_servers, validate_desktop_mcp_servers,
@@ -37,17 +36,14 @@ impl DesktopRuntime {
         servers: Vec<DesktopMcpServer>,
     ) -> Result<DesktopMcpState> {
         validate_desktop_mcp_servers(&servers)?;
-        let config_to_save = {
-            let mut config = self
-                .config
-                .lock()
-                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
-            // 基于既有配置合并保存，保留 auth 等前端表单不承载的字段
+        // 在文件锁内基于磁盘最新配置合并保存：保留 auth 等前端表单不承载的字段，
+        // 且不会因并发保存 provider/权限等其他配置域而互相覆盖。
+        self.update_user_config(move |config| {
             let existing = config.mcp.servers.clone();
             config.mcp.servers = desktop_mcp_servers_to_config(&servers, &existing)?;
-            config.clone()
-        };
-        save_config_to_path_async(&config_to_save, &self.user_config_path()).await?;
+            Ok(())
+        })?;
+        // 写入成功后才重载 MCP tooling；失败时 tool_registry 保持原状。
         self.reload_desktop_tooling().await?;
         self.mcp_servers_state()
     }

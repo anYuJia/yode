@@ -1,7 +1,8 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
 use serde_json::json;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use yode_core::config::Config;
 
@@ -86,17 +87,29 @@ impl DesktopRuntime {
             tokio::fs::create_dir_all(parent).await?;
         }
         if !tokio::fs::try_exists(&path).await? {
-            let config = {
-                self.config
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
-                    .clone()
-            };
             if scope.to_lowercase().contains("project") {
                 // 项目配置只允许包含可共享字段，绝不写入 API key / token
+                let config = self
+                    .config
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
+                    .clone();
                 save_project_config_to_path_async(&config, &path).await?;
             } else {
-                save_config_to_path_async(&config, &path).await?;
+                // 事务创建：在文件锁内再次确认文件仍不存在，避免并发进程新建的
+                // 配置被本进程的过期完整快照覆盖。
+                let config = self
+                    .config
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
+                    .clone();
+                Config::update_config_file(&path, move |existing| {
+                    if let Some(raw) = existing {
+                        return Ok((false, raw.to_vec()));
+                    }
+                    let serialized = toml::to_string_pretty(&config)?;
+                    Ok((true, serialized.into_bytes()))
+                })?;
             }
         }
         open_with_destination("VS Code", &path)
@@ -140,30 +153,53 @@ impl DesktopRuntime {
     }
 }
 
-pub(super) async fn load_desktop_config(workspace_path: &Path) -> Result<Config> {
-    let user_config = dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".yode")
-        .join("config.toml");
-    let _project_config = workspace_path.join(".yode").join("config.toml");
+pub(super) async fn load_desktop_config(user_config_path: &Path) -> Result<Config> {
     // 未建立仓库外信任记录前，桌面端不执行任何仓库配置覆盖。尤其不能让
     // `.yode/config.toml` 改写 endpoint/API key、权限模式、MCP 或 Hooks。
-    Config::load_with_overrides_async(Some(&user_config), None).await
+    Config::load_with_overrides_async(Some(user_config_path), None).await
 }
 
-pub(super) async fn save_config_to_path_async(config: &Config, path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
+/// 同一进程内所有用户配置事务的串行化锁：把“文件锁内修改 -> 刷新内存快照”
+/// 作为一个原子临界区，两个并发 RPC 不会因交错读取令内存状态倒退；
+/// 跨进程安全性仍由核心层文件锁保证。
+static USER_CONFIG_UPDATE_LOCK: Mutex<()> = Mutex::new(());
+
+impl DesktopRuntime {
+    /// 统一用户配置事务入口（跨进程安全、进程内串行）。
+    ///
+    /// 在核心层文件锁保护下，以磁盘上最新的用户配置为基础应用“窄修改”并原子写回，
+    /// 因此两个应用实例并发更新不同配置域时不会基于过期完整快照互相覆盖；前端表单
+    /// 不承载的 API key 与 MCP auth 等字段以及未知顶层/嵌套字段也因无损文档事务而
+    /// 完整保留。
+    ///
+    /// 写回成功后才刷新内存配置快照（重新从磁盘加载，不触发任何迁移写回），且整个
+    /// “锁内修改 -> 刷新内存”处于进程内互斥临界区中：同一运行时并发更新不会令内存
+    /// 状态倒退。失败时内存与磁盘均保持原状。调用方如需更新 provider registry、
+    /// MCP tooling、权限模式等派生状态，必须在收到 `Ok` 之后再进行，不得在失败路径
+    /// 污染任何内存状态。
+    pub fn update_user_config<T, F>(&self, update: F) -> Result<T>
+    where
+        F: FnOnce(&mut Config) -> Result<T>,
+    {
+        let _guard = USER_CONFIG_UPDATE_LOCK
+            .lock()
+            .map_err(|_| anyhow::anyhow!("user config update lock poisoned"))?;
+        let path = self.user_config_path();
+        let result = Config::update_user_config_file(&path, update)?;
+        let fresh = Config::load_with_overrides(Some(&path), None)
+            .with_context(|| "用户配置写入成功后刷新内存快照失败")?;
+        let mut config = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        *config = fresh;
+        Ok(result)
     }
-    atomic_write_async(path, toml::to_string_pretty(config)?.as_bytes()).await
 }
 
 /// 写项目级共享配置：只写脱敏后的可共享字段（不含 API key 与疑似密钥环境变量）。
 /// 用户级配置仍然写入完整内容。
 pub(super) async fn save_project_config_to_path_async(config: &Config, path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        tokio::fs::create_dir_all(parent).await?;
-    }
     let mut root = toml::map::Map::new();
     root.insert("ui".to_string(), toml::Value::try_from(&config.ui)?);
     if !config.permissions.always_deny.is_empty() {
@@ -175,26 +211,7 @@ pub(super) async fn save_project_config_to_path_async(config: &Config, path: &Pa
         root.insert("permissions".to_string(), toml::Value::Table(permissions));
     }
     let serialized = toml::to_string_pretty(&toml::Value::Table(root))?;
-    atomic_write_async(path, serialized.as_bytes()).await
-}
-
-async fn atomic_write_async(path: &Path, bytes: &[u8]) -> Result<()> {
-    use tokio::io::AsyncWriteExt;
-
-    let file_name = path
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("config.toml");
-    let temporary = path.with_file_name(format!(".{file_name}.tmp-{}", std::process::id()));
-    let mut file = tokio::fs::File::create(&temporary).await?;
-    file.write_all(bytes).await?;
-    file.sync_all().await?;
-    drop(file);
-    if let Err(err) = tokio::fs::rename(&temporary, path).await {
-        let _ = tokio::fs::remove_file(&temporary).await;
-        return Err(err.into());
-    }
-    Ok(())
+    Config::write_config_file_async(path, serialized.as_bytes()).await
 }
 
 fn approval_policy_from_permission_mode(mode: yode_core::permission::PermissionMode) -> String {

@@ -15,7 +15,13 @@ function repairMarkdownBlockLine(line: string): string {
   return line
     .replace(/^\s{4,}(?=#{1,6}\s*[\p{L}\p{N}])/u, "")
     .replace(/^\s{4,}(?=(?:[-*+]|\d+\.)\s*[\p{L}\p{N}])/u, "")
-    .replace(/([^\n#])(?=#{1,6}\s?[\p{L}\p{N}])/gu, "$1\n\n")
+    .replace(/([^\n#])(?=#{1,6}\s?[\p{L}\p{N}])/gu, (matched, _precedingCharacter, offset, source) => {
+      const hashIndex = offset + matched.length;
+      const beforeHash = source.slice(0, hashIndex);
+      const linkDestinationStart = beforeHash.lastIndexOf("](");
+      const lastClosingParenthesis = beforeHash.lastIndexOf(")");
+      return linkDestinationStart > lastClosingParenthesis ? matched : `${matched}\n\n`;
+    })
     .replace(/(^|\n)(#{1,6})(?=\S)/g, "$1$2 ")
     .replace(/(^|\n)([-+])(?=\S)/g, "$1$2 ")
     .replace(/(^|\n)\*(?=[^\s*])/g, "$1* ")
@@ -239,6 +245,48 @@ export function preprocessMarkdown(text: string): string {
 const LEXER_CACHE_MAX = 48;
 const lexerCache = new Map<string, Token[]>();
 
+type MarkdownUrlKind = "link" | "image";
+
+const DISALLOWED_URL_CHARACTERS = /[\u0000-\u001F\u007F-\u009F\s]/u;
+const HTTP_URL_PATTERN = /^https?:\/\//i;
+const MAILTO_URL_PATTERN = /^mailto:/i;
+
+/**
+ * Markdown is model-provided content, so only preserve URL forms that have an
+ * explicit, safe navigation meaning. In particular, relative and protocol-
+ * relative URLs must not inherit an application or custom-protocol origin.
+ */
+export function safeMarkdownUrl(rawUrl: string, kind: MarkdownUrlKind): string | null {
+  if (!rawUrl || rawUrl.trim() !== rawUrl || DISALLOWED_URL_CHARACTERS.test(rawUrl)) {
+    return null;
+  }
+
+  if (kind === "link" && rawUrl.startsWith("#")) {
+    return rawUrl;
+  }
+
+  if (rawUrl.startsWith("//")) {
+    return null;
+  }
+
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+
+  if ((parsedUrl.protocol === "http:" || parsedUrl.protocol === "https:") && HTTP_URL_PATTERN.test(rawUrl)) {
+    return parsedUrl.href;
+  }
+
+  if (kind === "link" && parsedUrl.protocol === "mailto:" && MAILTO_URL_PATTERN.test(rawUrl) && rawUrl.length > "mailto:".length) {
+    return parsedUrl.href;
+  }
+
+  return null;
+}
+
 function lexerCached(processedText: string): Token[] {
   const cached = lexerCache.get(processedText);
   if (cached) return cached;
@@ -402,15 +450,28 @@ function RenderToken({ token, appLang }: { token: Token; appLang?: string }): Re
     }
     case "link": {
       const link = token as Tokens.Link;
+      const href = safeMarkdownUrl(link.href, "link");
+      if (!href) {
+        return <RenderTokens tokens={childTokens(link.tokens)} appLang={appLang} />;
+      }
+
+      if (href.startsWith("#")) {
+        return <a href={href}><RenderTokens tokens={childTokens(link.tokens)} appLang={appLang} /></a>;
+      }
+
       return (
-        <a href={link.href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>
+        <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>
           <RenderTokens tokens={childTokens(link.tokens)} appLang={appLang} />
         </a>
       );
     }
     case "image": {
       const image = token as Tokens.Image;
-      return <img src={image.href} alt={image.text} style={{ maxWidth: "100%", height: "auto" }} />;
+      const src = safeMarkdownUrl(image.href, "image");
+      if (!src) {
+        return <>{image.text}</>;
+      }
+      return <img src={src} alt={image.text} style={{ maxWidth: "100%", height: "auto" }} />;
     }
     case "text": {
       const text = token as Tokens.Text;

@@ -75,6 +75,24 @@ pub async fn desktop_setting_set(
 }
 
 #[tauri::command]
+pub fn desktop_settings_status_get(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::DesktopSettingsStatus, String> {
+    runtime
+        .desktop_settings_status()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn desktop_settings_restore(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+) -> Result<protocol::DesktopSettingsStatus, String> {
+    runtime
+        .desktop_settings_restore()
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub async fn personalization_state_get(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
 ) -> Result<protocol::PersonalizationState, String> {

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::process::Child;
 use std::sync::{Arc, Mutex};
 
@@ -11,7 +11,7 @@ use yode_tools::tool::UserQuery;
 
 use super::settings_system::stop_sleep_guard;
 use super::turn_events::emit_desktop_event;
-use super::turn_runtime::update_run_state;
+use super::turn_runtime::{release_turn_occupancy, update_run_state, SessionOperationMap};
 use super::PendingConfirmation;
 use crate::protocol::DesktopEvent;
 use crate::protocol::SessionRunState;
@@ -40,14 +40,14 @@ pub(super) async fn run_desktop_turn_event_loop(
     pending_confirmations: PendingConfirmationMap,
     sleep_guard: Arc<Mutex<Option<Child>>>,
     cancel_token: tokio_util::sync::CancellationToken,
-    active_sessions: Arc<Mutex<HashSet<String>>>,
+    active_sessions: SessionOperationMap,
     run_registry: Arc<Mutex<HashMap<String, SessionRunState>>>,
 ) {
     let mut cancelled = false;
     loop {
         tokio::select! {
             // 取消：等待引擎真正停止（channel 关闭即 quiesce），期间丢弃所有迟到事件，
-            // 随后释放 in-flight 占位并发出 cancelled 终态。
+            // turn task 完全退出后才会释放 in-flight 占位并发出 cancelled 终态。
             // 占位在 quiesce 之后释放：取消请求期间新 turn 一律被拒绝，
             // 前端收到 cancelled 时旧工具已停止，可安全发起新 turn。
             _ = cancel_token.cancelled() => {
@@ -74,24 +74,6 @@ pub(super) async fn run_desktop_turn_event_loop(
                 {
                     handle.abort();
                 }
-                if let Ok(mut tokens) = cancel_tokens.lock() {
-                    tokens.remove(&(session_id.clone(), turn_id.clone()));
-                }
-                if let Ok(mut active) = active_sessions.lock() {
-                    active.remove(&session_id);
-                }
-                emit_desktop_event(
-                    &app,
-                    DesktopEvent {
-                        session_id: session_id.clone(),
-                        turn_id: turn_id.clone(),
-                        seq,
-                        kind: "cancelled".to_string(),
-                        timestamp: Utc::now().to_rfc3339(),
-                        payload: json!({ "title": "已取消", "body": "本轮运行已停止。" }),
-                    },
-                );
-                update_run_state(&run_registry, &session_id, &turn_id, "cancelled", None);
                 break;
             }
             Some(query) = ask_user_query_rx.recv() => {
@@ -187,11 +169,16 @@ pub(super) async fn run_desktop_turn_event_loop(
             else => break,
         }
     }
-    let _ = cancelled;
-
-    if let Err(err) = handle.await {
-        tracing::error!("Desktop turn task join failed: {}", err);
-    }
+    // 即使 drain 超时并调用了 abort，也必须等待 task 的 JoinHandle 真正结束。
+    // 在此之前保留 turn 槽位，防止 clear/delete/compact 或新 turn 与旧任务并发。
+    let no_active_turns = join_turn_then_release_occupancy(
+        handle,
+        &active_sessions,
+        &cancel_tokens,
+        &session_id,
+        &turn_id,
+    )
+    .await;
 
     if let Ok(mut txs) = confirm_txs.lock() {
         txs.remove(&(session_id.clone(), turn_id.clone()));
@@ -199,19 +186,45 @@ pub(super) async fn run_desktop_turn_event_loop(
     if let Ok(mut txs) = ask_user_txs.lock() {
         txs.remove(&(session_id.clone(), turn_id.clone()));
     }
-    // 正常结束路径：释放 in-flight 占位（取消分支已提前释放，此处幂等）
-    if let Ok(mut active) = active_sessions.lock() {
-        active.remove(&session_id);
-    }
-    if let Ok(mut tokens) = cancel_tokens.lock() {
-        let _: Option<tokio_util::sync::CancellationToken> =
-            tokens.remove(&(session_id.clone(), turn_id.clone()));
-        if tokens.is_empty() {
-            drop(tokens);
-            stop_sleep_guard(&sleep_guard);
-        }
+    if no_active_turns {
+        stop_sleep_guard(&sleep_guard);
     }
     if let Ok(mut pending) = pending_confirmations.lock() {
         pending.remove(&(session_id.clone(), turn_id.clone()));
     }
+    if cancelled {
+        emit_desktop_event(
+            &app,
+            DesktopEvent {
+                session_id: session_id.clone(),
+                turn_id: turn_id.clone(),
+                seq,
+                kind: "cancelled".to_string(),
+                timestamp: Utc::now().to_rfc3339(),
+                payload: json!({ "title": "已取消", "body": "本轮运行已停止。" }),
+            },
+        );
+        update_run_state(&run_registry, &session_id, &turn_id, "cancelled", None);
+    }
+}
+
+/// 等待 turn task 完全退出后才释放对应的生命周期槽位。
+///
+/// 该函数在取消、错误和正常完成路径中共用，避免 `abort()` 仅提交取消请求时就
+/// 允许同一会话的破坏性操作进入。
+pub(super) async fn join_turn_then_release_occupancy(
+    handle: tokio::task::JoinHandle<()>,
+    active_sessions: &SessionOperationMap,
+    cancel_tokens: &CancelTokenMap,
+    session_id: &str,
+    turn_id: &str,
+) -> bool {
+    if let Err(err) = handle.await {
+        tracing::error!("Desktop turn task join failed: {}", err);
+    }
+    release_turn_occupancy(active_sessions, cancel_tokens, session_id, turn_id);
+    cancel_tokens
+        .lock()
+        .map(|tokens| tokens.is_empty())
+        .unwrap_or(false)
 }

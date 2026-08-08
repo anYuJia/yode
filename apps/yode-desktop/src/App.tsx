@@ -57,6 +57,7 @@ import {
   TimelineItem,
   TurnAccepted,
   ImageAttachment,
+  RunState,
   UsageSnapshot,
   ViewMode
 } from "./lib/desktopTypes";
@@ -78,7 +79,14 @@ import {
   executeLocalSlashCommand,
   formatUsageSnapshot
 } from "./lib/localSlashCommands";
-import { handleDesktopRuntimeEvent, discardPendingDeltas, resetTurnTracksForSession } from "./lib/desktopEventHandlers";
+import {
+  discardPendingDeltas,
+  handleDesktopRuntimeEvent,
+  isTerminalTurnEvent,
+  resetTurnTracksForSession
+} from "./lib/desktopEventHandlers";
+import { startCancellationWatchdog } from "./lib/cancellationWatchdog";
+import { CancellationWatchdogRegistry } from "./lib/cancellationWatchdogRegistry";
 import { GENERAL_SETTINGS_CHANGE_EVENT, toggleBottomPanelSetting } from "./lib/desktopSettings";
 import {
   PROJECT_ROOTS_CHANGED_EVENT,
@@ -112,7 +120,8 @@ import {
 import {
   KEYBOARD_SHORTCUTS_SETTINGS_TAB,
   saveActiveSettingsTab,
-  useAppUiStore
+  useAppUiStore,
+  canActivateCreatedSession
 } from "./lib/appUiStore";
 import { formatAskUserAnswerForDisplay } from "./lib/askUser";
 import {
@@ -197,6 +206,20 @@ function formatDurationZh(totalSeconds: number) {
   return `${minutes} 分 ${seconds} 秒`;
 }
 
+function upsertSessionKeepingActive(
+  items: SessionSummary[],
+  session: SessionSummary,
+  activeSessionId: string | null
+) {
+  if (activeSessionId === session.id) {
+    return upsertActiveSession(items, session);
+  }
+  const nextSession = { ...session, active: false };
+  return items.some((item) => item.id === session.id)
+    ? items.map((item) => (item.id === session.id ? nextSession : item))
+    : [...items, nextSession];
+}
+
 export function App() {
   const bootstrap = useAppUiStore((state) => state.bootstrap);
   const setBootstrap = useAppUiStore((state) => state.setBootstrap);
@@ -248,8 +271,14 @@ export function App() {
   const usageSnapshot = useAppUiStore((state) => state.usageSnapshot);
   const setUsageSnapshot = useAppUiStore((state) => state.setUsageSnapshot);
   const clearTurnState = useAppUiStore((state) => state.clearTurnState);
+  const getSessionUiState = useAppUiStore((state) => state.getSessionUiState);
+  const promoteDraftToSession = useAppUiStore((state) => state.promoteDraftToSession);
   const activeSessionIdRef = useRef<string | null>(null);
+  const draftRequestSequenceRef = useRef(0);
   const windowFocusedRef = useRef(true);
+  // 取消轮询登记簿：按 (sessionId, turnId) 幂等维护 watcher 与 pending 登记，
+  // 终态事件/新 turn/切会话/卸载时自动清理，杜绝旧 watchdog 解锁新任务。
+  const cancellationWatchdogRegistryRef = useRef(new CancellationWatchdogRegistry());
   const terminalConversationKey = activeSessionId ?? "__draft__";
   const terminalOpen = terminalOpenByConversation[terminalConversationKey] ?? false;
   const setTerminalOpenForCurrentConversation = (open: boolean) => {
@@ -260,6 +289,72 @@ export function App() {
   const dragStateRef = useRef<PaneDragState | null>(null);
   const dragCaptureRef = useRef<{ target: Element; pointerId: number } | null>(null);
 
+  const updateCancellationBoundary = useCallback(
+    (sessionId: string, turnId: string, title: string, body: string) => {
+      setTimelineItems((items) => {
+        const existing = items.some(
+          (item) => item.kind === "boundary" && item.id.includes(`cancel-${turnId}-`)
+        );
+        if (!existing) {
+          return [
+            ...items,
+            {
+              id: `cancel-${turnId}-${Date.now()}`,
+              kind: "boundary" as const,
+              title,
+              body,
+              createdAt: Date.now()
+            }
+          ];
+        }
+        return items.map((item) =>
+          item.kind === "boundary" && item.id.includes(`cancel-${turnId}-`)
+            ? { ...item, title, body }
+            : item
+        );
+      }, sessionId);
+    },
+    [setTimelineItems]
+  );
+
+  const createCancellationWatchdog = useCallback(
+    (sessionId: string, turnId: string, onConfirmedTerminal: () => void) =>
+      startCancellationWatchdog({
+        sessionId,
+        turnId,
+        // 会话 + turn 双重隔离：只有该会话的当前 turn 仍是被取消的 turn 才会继续
+        isStillCurrent: () => getSessionUiState(sessionId).currentTurnId === turnId,
+        fetchRuns: () => invoke<RunState[]>("runs_list"),
+        onReleased: () => {
+          // 轮询确认终态：先清理 registry 登记，再解锁 UI
+          onConfirmedTerminal();
+          let released = false;
+          setCurrentTurnId((turnIdNow) => {
+            if (turnIdNow !== turnId) return turnIdNow;
+            released = true;
+            return null;
+          }, sessionId);
+          if (!released) return; // turn 已切换：不得解锁新任务
+          discardPendingDeltas(sessionId);
+          setIsProcessing(false, sessionId);
+          setPendingUserQuestion(
+            (question) => (question?.turnId === turnId ? null : question),
+            sessionId
+          );
+          updateCancellationBoundary(sessionId, turnId, "已结束", "后端已确认本轮运行结束。");
+        },
+        onWaiting: () => {
+          updateCancellationBoundary(sessionId, turnId, "仍在停止", "仍在等待后端确认本轮运行已结束。");
+        },
+        onQueryError: () => {
+          updateCancellationBoundary(sessionId, turnId, "仍在停止", "暂时无法确认停止状态，仍在等待后端终态事件。");
+        },
+        schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
+        clear: (handle) => window.clearTimeout(handle)
+      }),
+    [getSessionUiState, setCurrentTurnId, setIsProcessing, setPendingUserQuestion, updateCancellationBoundary]
+  );
+
   useEffect(() => {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
@@ -268,6 +363,27 @@ export function App() {
   useEffect(() => {
     currentTurnIdRef.current = currentTurnId;
   }, [currentTurnId]);
+
+  // 切换会话：暂停被离开会话的取消轮询定时器（保留 pending 登记）；
+  // 切回时若该会话仍处于“已取消未终态”状态，则重新武装对账轮询
+  // （双重隔离由 watchdog 守卫，旧 watchdog 绝不解锁新任务）。
+  const previousActiveSessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const previous = previousActiveSessionIdRef.current;
+    previousActiveSessionIdRef.current = activeSessionId;
+    if (previous !== null && previous !== activeSessionId) {
+      cancellationWatchdogRegistryRef.current.suspendSession(previous);
+    }
+  }, [activeSessionId]);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const ui = getSessionUiState(activeSessionId);
+    if (!ui.isProcessing || !ui.currentTurnId) return;
+    cancellationWatchdogRegistryRef.current
+      .resume(activeSessionId, ui.currentTurnId, createCancellationWatchdog)
+      ?.start();
+  }, [activeSessionId, getSessionUiState, createCancellationWatchdog]);
 
   useEffect(() => {
     const handleFocus = () => {
@@ -523,9 +639,14 @@ export function App() {
             session_id: activeSessionId
           })
             .then((messages) => {
-              if (activeSessionIdRef.current === activeSessionId) {
-                setTimelineItems(messagesToTimelineItems(messages));
-              }
+              const sessionUiState = getSessionUiState(activeSessionId);
+              if (
+                activeSessionIdRef.current !== activeSessionId ||
+                sessionUiState.timelineItems.length > 0 ||
+                sessionUiState.isProcessing ||
+                sessionUiState.pendingUserQuestion
+              ) return;
+              setTimelineItems(messagesToTimelineItems(messages));
             })
             .catch(console.error);
         }
@@ -601,6 +722,7 @@ export function App() {
       handleDesktopRuntimeEvent({
         activeSessionId: activeSessionIdRef.current,
         currentTurnId: currentTurnIdRef.current,
+        getCurrentTurnId: (sessionId) => getSessionUiState(sessionId).currentTurnId,
         payload: event.payload,
         sendSystemNotification,
         setCurrentTurnId,
@@ -609,6 +731,12 @@ export function App() {
         setTimelineItems,
         setUsageSnapshot
       });
+      // 同一 turn 的后端终态事件到达：立即停止取消轮询并清理登记，
+      // 避免重复解锁或空转。
+      const terminal = isTerminalTurnEvent(event.payload);
+      if (terminal) {
+        cancellationWatchdogRegistryRef.current.stop(terminal.sessionId, terminal.turnId);
+      }
     })
       .then((dispose) => {
         if (!active) {
@@ -624,8 +752,10 @@ export function App() {
       if (disposeFn) {
         disposeFn();
       }
+      // 组件卸载：清理全部取消轮询定时器与登记
+      cancellationWatchdogRegistryRef.current.stopAll();
     };
-  }, [sendSystemNotification]);
+  }, [getSessionUiState, sendSystemNotification, createCancellationWatchdog]);
 
   const activeSession = useMemo(
     () =>
@@ -705,14 +835,10 @@ export function App() {
         model: recentSession.model!
       }));
     }
-    // 清理旧会话（而非新会话）的事件轨道与增量缓冲
-    const previousSessionId = activeSessionIdRef.current;
-    discardPendingDeltas();
-    if (previousSessionId) {
-      resetTurnTracksForSession(previousSessionId);
-    }
+    // 切到独立草稿槽；旧会话可能仍在后台运行，不能清空其事件轨道或运行态。
+    draftRequestSequenceRef.current += 1;
+    activeSessionIdRef.current = null;
     setActiveSessionId(null);
-    clearTurnState();
     setSessionItems((items) => items.map((item) => ({ ...item, active: false })));
     setTimelineItems([]);
     if (projectRoot !== undefined) {
@@ -731,42 +857,53 @@ export function App() {
     setSelectedProjectRoot(normalized);
   }
 
-  async function handleAskUserResolve(answer: string) {
-    if (!pendingUserQuestion) return;
+  async function handleAskUserResolve(answer: string): Promise<boolean> {
+    if (!pendingUserQuestion) return false;
     const displayText = formatAskUserAnswerForDisplay(answer);
-
-    setTimelineItems((items) => [
-      ...items,
-      {
-        id: `ask-answer-${Date.now()}`,
-        kind: "user",
-        title: "用户",
-        body: displayText,
-        createdAt: Date.now()
-      }
-    ]);
+    const question = pendingUserQuestion;
 
     try {
       await invoke("ask_user_respond", {
-        sessionId: pendingUserQuestion.sessionId,
-        session_id: pendingUserQuestion.sessionId,
-        turnId: pendingUserQuestion.turnId,
-        turn_id: pendingUserQuestion.turnId,
+        sessionId: question.sessionId,
+        session_id: question.sessionId,
+        turnId: question.turnId,
+        turn_id: question.turnId,
         answer: answer
       });
-      setPendingUserQuestion(null);
+      setTimelineItems(
+        (items) => [
+          ...items,
+          {
+            id: `ask-answer-${Date.now()}`,
+            kind: "user",
+            title: "用户",
+            body: displayText,
+            createdAt: Date.now()
+          }
+        ],
+        question.sessionId
+      );
+      setPendingUserQuestion(
+        (current) => (current?.turnId === question.turnId ? null : current),
+        question.sessionId
+      );
+      return true;
     } catch (err) {
       console.error(err);
-      setTimelineItems((items) => [
-        ...items,
-        {
-          id: `ask-answer-error-${Date.now()}`,
-          kind: "assistant",
-          title: "错误",
-          body: "发送问题回复失败，请重试。",
-          meta: "stream complete"
-        }
-      ]);
+      setTimelineItems(
+        (items) => [
+          ...items,
+          {
+            id: `ask-answer-error-${Date.now()}`,
+            kind: "assistant",
+            title: "错误",
+            body: "发送问题回复失败，请重试。",
+            meta: "stream complete"
+          }
+        ],
+        question.sessionId
+      );
+      return false;
     }
   }
 
@@ -815,39 +952,10 @@ export function App() {
     const imagesAtSend = composerImages;
 
     if (pendingUserQuestion) {
-      setDraft("");
-      setComposerImages([]);
-      setTimelineItems((items) => [
-        ...items,
-        {
-          id: `ask-answer-${Date.now()}`,
-          kind: "user",
-          title: "用户",
-          body: content,
-          createdAt: Date.now()
-        }
-      ]);
-      try {
-        await invoke("ask_user_respond", {
-          sessionId: pendingUserQuestion.sessionId,
-          session_id: pendingUserQuestion.sessionId,
-          turnId: pendingUserQuestion.turnId,
-          turn_id: pendingUserQuestion.turnId,
-          answer: content
-        });
-        setPendingUserQuestion(null);
-      } catch (err) {
-        console.error(err);
-        setTimelineItems((items) => [
-          ...items,
-          {
-            id: `ask-answer-error-${Date.now()}`,
-            kind: "assistant",
-            title: "错误",
-            body: "发送问题回复失败，请重试。",
-            meta: "stream complete"
-          }
-        ]);
+      const didResolve = await handleAskUserResolve(content);
+      if (didResolve) {
+        setDraft("");
+        setComposerImages([]);
       }
       return;
     }
@@ -861,24 +969,25 @@ export function App() {
     const isDetachedReview = generalSettings.codeReviewPolicy === "detached" && /^\/review\b/i.test(content);
     const sessionIdAtSend = isDetachedReview ? null : (activeSession?.id ?? null);
     const projectRootAtSend = selectedProjectRoot === undefined ? bootstrap.workspacePath : selectedProjectRoot;
-    setDraft("");
-    setComposerImages([]);
+    const sourceSessionIdAtSend = activeSessionIdRef.current;
+    if (isDetachedReview) {
+      // 独立审查不能借用当前会话的 UI 状态，否则发送失败或事件迟到时会污染原会话。
+      setDraft("", sourceSessionIdAtSend);
+      setComposerImages([], sourceSessionIdAtSend);
+      activeSessionIdRef.current = null;
+      setActiveSessionId(null);
+      setDraft("");
+      setComposerImages([]);
+    } else {
+      setDraft("", sourceSessionIdAtSend);
+      setComposerImages([], sourceSessionIdAtSend);
+    }
+    const stateSessionIdAtSend = activeSessionIdRef.current;
+    const draftRequestSequence = stateSessionIdAtSend === null
+      ? ++draftRequestSequenceRef.current
+      : null;
 
-    if (isProcessing) {
-      if (generalSettings.followUpBehavior === "steer") {
-        setTimelineItems((items) => [
-          ...items,
-          {
-            id: `local-steer-${Date.now()}`,
-            kind: "assistant",
-            title: "指引已记录",
-            body: content,
-            meta: "intermediate",
-            createdAt: Date.now()
-          }
-        ]);
-        return;
-      }
+    if (isProcessing && !isDetachedReview) {
       setMessageQueue((prev) => [...prev, { content, images: imagesAtSend }]);
       setTimelineItems((items) => [
         ...items,
@@ -894,21 +1003,24 @@ export function App() {
       return;
     }
 
-    setIsProcessing(true);
+    setIsProcessing(true, stateSessionIdAtSend);
     // 新 turn 开始前重置合帧状态：上一 turn 的残留增量/轨道指向
     // 不得影响新 turn（含 detached review 创建的全新会话）
-    discardPendingDeltas();
-    setTimelineItems((items) => [
-      ...items,
-      {
-        id: `local-${Date.now()}`,
-        kind: "user",
-        title: "用户",
-        body: content,
-        attachments: imagesAtSend,
-        createdAt: Date.now()
-      }
-    ]);
+    if (stateSessionIdAtSend) discardPendingDeltas(stateSessionIdAtSend);
+    setTimelineItems(
+      (items) => [
+        ...items,
+        {
+          id: `local-${Date.now()}`,
+          kind: "user",
+          title: "用户",
+          body: content,
+          attachments: imagesAtSend,
+          createdAt: Date.now()
+        }
+      ],
+      stateSessionIdAtSend
+    );
 
     try {
       const res = await invoke<TurnAccepted>("turn_send_message", {
@@ -931,47 +1043,67 @@ export function App() {
           model: currentModel
         }
       });
-      setCurrentTurnId(res.turnId);
-      activeSessionIdRef.current = res.sessionId;
-      setActiveSessionId(res.sessionId);
-      setSessionItems((items) => upsertActiveSession(items, res.session));
+      if (stateSessionIdAtSend === null) {
+        promoteDraftToSession(res.sessionId);
+        if (canActivateCreatedSession(
+          activeSessionIdRef.current,
+          draftRequestSequence,
+          draftRequestSequenceRef.current
+        )) {
+          activeSessionIdRef.current = res.sessionId;
+          setActiveSessionId(res.sessionId);
+        }
+      }
+      // 新 turn 接管该会话：旧的取消轮询（若仍存在）立即失效并清理
+      cancellationWatchdogRegistryRef.current.stopSession(res.sessionId);
+      setCurrentTurnId(res.turnId, res.sessionId);
+      setIsProcessing(true, res.sessionId);
+      setSessionItems((items) =>
+        upsertSessionKeepingActive(items, res.session, activeSessionIdRef.current)
+      );
     } catch (err) {
       console.error(err);
-      setIsProcessing(false);
-      setDraft(content);
-      setComposerImages(imagesAtSend);
-      setTimelineItems((items) => [
-        ...items,
-        {
-          id: `send-error-${Date.now()}`,
-          kind: "assistant",
-          title: "发送失败",
-          body: String(err || "发送失败，请重试。"),
-          meta: "stream complete"
-        }
-      ]);
+      setIsProcessing(false, stateSessionIdAtSend);
+      setDraft(content, stateSessionIdAtSend);
+      setComposerImages(imagesAtSend, stateSessionIdAtSend);
+      setTimelineItems(
+        (items) => [
+          ...items,
+          {
+            id: `send-error-${Date.now()}`,
+            kind: "assistant",
+            title: "发送失败",
+            body: String(err || "发送失败，请重试。"),
+            meta: "stream complete"
+          }
+        ],
+        stateSessionIdAtSend
+      );
     }
   }
 
   useEffect(() => {
     if (!isProcessing && messageQueue.length > 0 && activeSession?.id) {
+      const queuedSessionId = activeSession.id;
       const nextMessage = messageQueue[0];
       const nextContent = nextMessage.content;
       setMessageQueue((prev) => prev.slice(1));
-      setIsProcessing(true);
-      discardPendingDeltas();
+      setIsProcessing(true, queuedSessionId);
+      discardPendingDeltas(queuedSessionId);
       
-      setTimelineItems((items) =>
-        items.map((item) =>
-          item.kind === "user" && item.body === nextContent && item.title.includes("等待中")
-            ? { ...item, title: "用户" }
-            : item
-        )
+      setTimelineItems(
+        (items) =>
+          items.map((item) =>
+            item.kind === "user" && item.body === nextContent && item.title.includes("等待中")
+              ? { ...item, title: "用户" }
+              : item
+          ),
+        queuedSessionId
       );
 
       invoke<TurnAccepted>("turn_send_message", {
         request: {
-          sessionId: activeSession.id,
+          sessionId: queuedSessionId,
           content: nextContent,
           images: nextMessage.images.map(imageToRequestPayload),
           projectRoot: undefined,
@@ -981,94 +1113,92 @@ export function App() {
           model: undefined
         }
       }).then((res) => {
-        setCurrentTurnId(res.turnId);
-        activeSessionIdRef.current = res.sessionId;
-        setSessionItems((items) => upsertActiveSession(items, res.session));
+        // 新 turn 接管该会话：旧的取消轮询（若仍存在）立即失效并清理
+        cancellationWatchdogRegistryRef.current.stopSession(res.sessionId);
+        setCurrentTurnId(res.turnId, res.sessionId);
+        setIsProcessing(true, res.sessionId);
+        setSessionItems((items) =>
+          upsertSessionKeepingActive(items, res.session, activeSessionIdRef.current)
+        );
       }).catch((err) => {
         // 发送失败（如 in-flight 拒绝）：队列项在发送前已出队，不会无限重试
         console.error(err);
-        setIsProcessing(false);
-        setTimelineItems((items) => [
-          ...items,
-          {
-            id: `queue-send-error-${Date.now()}`,
-            kind: "assistant",
-            title: "发送失败",
-            body: String(err || "发送失败，请重试。"),
-            meta: "stream complete"
-          }
-        ]);
+        setIsProcessing(false, queuedSessionId);
+        setTimelineItems(
+          (items) => [
+            ...items,
+            {
+              id: `queue-send-error-${Date.now()}`,
+              kind: "assistant",
+              title: "发送失败",
+              body: String(err || "发送失败，请重试。"),
+              meta: "stream complete"
+            }
+          ],
+          queuedSessionId
+        );
       });
     }
   }, [isProcessing, messageQueue, activeSession?.id]);
 
   async function handleCancelMessage() {
     if (!(activeSession?.id && currentTurnId)) return;
+    const cancelledSessionId = activeSession.id;
     const cancelledTurnId = currentTurnId;
+    const isCancelledTurnStillCurrent = () =>
+      getSessionUiState(cancelledSessionId).currentTurnId === cancelledTurnId;
+    const startWatchdog = () => {
+      const registry = cancellationWatchdogRegistryRef.current;
+      registry.markPending(cancelledSessionId, cancelledTurnId);
+      registry.arm(cancelledSessionId, cancelledTurnId, createCancellationWatchdog).start();
+    };
+
     try {
       await invoke("turn_cancel", {
-        sessionId: activeSession.id,
+        sessionId: cancelledSessionId,
         turnId: cancelledTurnId
       });
     } catch (err) {
       console.error(err);
-      setIsProcessing(false);
+      if (!isCancelledTurnStillCurrent()) return;
+      updateCancellationBoundary(cancelledSessionId, cancelledTurnId, "取消请求未确认", "取消请求发送失败，仍在等待后端终态确认。");
+      startWatchdog();
       return;
     }
 
-    setTimelineItems((items) => [
-      ...items,
-      {
-        id: `cancel-${cancelledTurnId}-${Date.now()}`,
-        kind: "boundary",
-        title: "正在停止",
-        body: "正在停止本轮运行…",
-        createdAt: Date.now()
-      }
-    ]);
-
-    // 取消状态机：必须等后端确认停止（cancelled 事件）后才允许新 turn。
-    // 事件到达时由 desktopEventHandlers 复位 isProcessing 并清空 currentTurnId。
-    // 兜底：若 2.5s 内未收到 cancelled（如 turn 已自行结束、token 已被移除），
-    // 强制复位，避免 UI 卡在“停止中”。同时重置合帧状态，
-    // 保证后端并发保护拒绝新 turn 时前端不会因残留增量批污染时间线。
-    window.setTimeout(() => {
-      discardPendingDeltas();
-      setCurrentTurnId((turnId) => {
-        if (turnId === cancelledTurnId) {
-          setIsProcessing(false);
-          return null;
-        }
-        return turnId;
-      });
-    }, 2500);
+    if (!isCancelledTurnStillCurrent()) return;
+    updateCancellationBoundary(cancelledSessionId, cancelledTurnId, "正在停止", "正在停止本轮运行…");
+    startWatchdog();
   }
 
   async function handleSelectSession(sessionId: string) {
     const nextSession = sessionItems.find((item) => item.id === sessionId);
-    // 必须先清理旧会话的事件轨道与增量缓冲，再切换 activeSessionId，
-    // 否则清理的是新会话轨道，旧会话迟到事件仍可能被接受
-    const previousSessionId = activeSessionIdRef.current;
-    discardPendingDeltas();
-    if (previousSessionId && previousSessionId !== sessionId) {
-      resetTurnTracksForSession(previousSessionId);
-    }
+    const cachedSessionUiState = getSessionUiState(sessionId);
     activeSessionIdRef.current = sessionId;
     setActiveSessionId(sessionId);
     setSelectedProjectRoot(nextSession?.projectRoot ?? null);
-    clearTurnState();
 
-    if (!("__TAURI_INTERNALS__" in window)) {
-      setTimelineItems([]);
-      return;
-    }
+    // 已接收后台事件或已有本地历史时，内存快照就是最新真相；不能被历史查询覆盖。
+    if (
+      cachedSessionUiState.timelineItems.length > 0 ||
+      cachedSessionUiState.isProcessing ||
+      cachedSessionUiState.pendingUserQuestion
+    ) return;
+
+    if (!("__TAURI_INTERNALS__" in window)) return;
 
     try {
       const messages = await invoke<DesktopMessage[]>("sessions_messages", {
         sessionId,
         session_id: sessionId
       });
-      if (activeSessionIdRef.current !== sessionId) return;
+      const sessionUiState = getSessionUiState(sessionId);
+      if (
+        activeSessionIdRef.current !== sessionId ||
+        sessionUiState.timelineItems.length > 0 ||
+        sessionUiState.isProcessing ||
+        sessionUiState.pendingUserQuestion
+      ) return;
       setTimelineItems(messagesToTimelineItems(messages));
     } catch (err) {
       if (activeSessionIdRef.current !== sessionId) return;
@@ -1095,6 +1225,7 @@ export function App() {
 
     archiveSessionLocally(session);
     setSessionItems(prev => prev.filter(s => s.id !== sessionId));
+    cancellationWatchdogRegistryRef.current.stopSession(sessionId);
     if (activeSessionIdRef.current === sessionId) {
       const nextProjectRoot = session.projectRoot ?? null;
       discardPendingDeltas();

@@ -16,6 +16,7 @@ use super::{
         restore_messages_from_stored, session_workspace_path,
     },
     provider_runtime::normalized_provider_model,
+    turn_runtime::{SessionOperation, SessionOperationSlot},
     DesktopRuntime,
 };
 use crate::hook_settings::build_desktop_hook_manager;
@@ -97,6 +98,11 @@ impl DesktopRuntime {
     }
 
     pub fn sessions_clear_messages(&self, session_id: String) -> Result<()> {
+        let _slot = SessionOperationSlot::acquire(
+            &self.active_sessions,
+            &session_id,
+            SessionOperation::ClearMessages,
+        )?;
         if self.db.get_session(&session_id)?.is_none() {
             anyhow::bail!("session '{}' not found", session_id);
         }
@@ -156,6 +162,12 @@ impl DesktopRuntime {
     pub fn sessions_compact_local(&self, session_id: String) -> Result<SessionCompactResult> {
         const KEEP_LAST_MESSAGES: usize = 16;
 
+        let _slot = SessionOperationSlot::acquire(
+            &self.active_sessions,
+            &session_id,
+            SessionOperation::CompactLocal,
+        )?;
+
         let session = self
             .db
             .get_session(&session_id)?
@@ -196,6 +208,11 @@ impl DesktopRuntime {
         &self,
         session_id: String,
     ) -> Result<SessionCompactResult> {
+        let _slot = SessionOperationSlot::acquire(
+            &self.active_sessions,
+            &session_id,
+            SessionOperation::CompactEngine,
+        )?;
         let session = self
             .db
             .get_session(&session_id)?
@@ -267,6 +284,11 @@ impl DesktopRuntime {
     }
 
     pub fn sessions_delete(&self, session_id: String) -> Result<()> {
+        let _slot = SessionOperationSlot::acquire(
+            &self.active_sessions,
+            &session_id,
+            SessionOperation::Delete,
+        )?;
         self.db.delete_session(&session_id)?;
         Ok(())
     }

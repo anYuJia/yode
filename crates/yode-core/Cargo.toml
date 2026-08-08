@@ -27,6 +27,7 @@ uuid = { workspace = true }
 regex = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
+fs2 = { workspace = true }
 rusqlite = { workspace = true }
 serde_yaml_ng = { workspace = true }
 reqwest = { workspace = true }
@@ -35,6 +36,7 @@ tar = "0.4.45"
 flate2 = "1.1.9"
 tempfile = "3.27.0"
 walkdir = "2.5.0"
+toml_edit = "0.19"
 
 [dev-dependencies]
 tempfile = "3.27.0"

@@ -1,7 +1,13 @@
 import { applyDesktopEventToTimelineItems } from "./timelineUtils";
 import { isUserQuery } from "./askUser";
 import type { UserQuery } from "./askUser";
-import { DesktopEvent, PendingUserQuestion, TimelineItem, UsageSnapshot } from "./desktopTypes";
+import {
+  DesktopEvent,
+  PendingUserQuestion,
+  RunState,
+  TimelineItem,
+  UsageSnapshot
+} from "./desktopTypes";
 import { recordFromUnknown } from "./jsonUtils";
 
 type NotificationPolicy = "completion" | "permission" | "question";
@@ -16,12 +22,16 @@ type DesktopEventHandlerContext = {
   eventKind?: string;
   payload: unknown;
   currentTurnId?: string | null;
+  getCurrentTurnId?: (sessionId: string) => string | null;
   sendSystemNotification: (title: string, body: string, policy: NotificationPolicy) => void;
-  setCurrentTurnId: (turnId: string | null) => void;
-  setIsProcessing: (isProcessing: boolean) => void;
-  setPendingUserQuestion: (question: PendingUserQuestionUpdater) => void;
-  setTimelineItems: (updater: (items: TimelineItem[]) => TimelineItem[]) => void;
-  setUsageSnapshot: (updater: (current: UsageSnapshot | null) => UsageSnapshot | null) => void;
+  setCurrentTurnId: (turnId: string | null, sessionId?: string | null) => void;
+  setIsProcessing: (isProcessing: boolean, sessionId?: string | null) => void;
+  setPendingUserQuestion: (question: PendingUserQuestionUpdater, sessionId?: string | null) => void;
+  setTimelineItems: (updater: (items: TimelineItem[]) => TimelineItem[], sessionId?: string | null) => void;
+  setUsageSnapshot: (
+    updater: (current: UsageSnapshot | null) => UsageSnapshot | null,
+    sessionId?: string | null
+  ) => void;
 };
 
 type DesktopEventEnvelope = {
@@ -63,9 +73,14 @@ function getTurnTrack(sessionId: string, turnId: string): TurnTrack {
 }
 
 /** 丢弃重复、乱序、已取消/已完成 turn 的迟到事件。返回 false 表示应丢弃。 */
-function acceptSequencedEvent(sessionId: string, turnId: string, seq: number): boolean {
+function acceptSequencedEvent(
+  sessionId: string,
+  turnId: string,
+  seq: number,
+  options: { allowCancelled?: boolean } = {}
+): boolean {
   const track = getTurnTrack(sessionId, turnId);
-  if (track.cancelled || track.done) return false;
+  if ((track.cancelled && !options.allowCancelled) || track.done) return false;
   if (seq <= track.lastSeq) return false;
   track.lastSeq = seq;
   return true;
@@ -77,12 +92,68 @@ function acceptSequencedEvent(sessionId: string, turnId: string, seq: number): b
 const DELTA_BATCH_MS = 25;
 let pendingBatch: DesktopEventEnvelope[] = [];
 let batchTimer: number | null = null;
-// flush 时读取“最新”的处理器上下文（含最新 activeSessionId），
-// 避免 25ms 窗口内切换会话后旧 delta 写入新会话时间线。
+// flush 时读取最新处理器上下文。每个 delta 都携带会话 ID，写入其专属状态，
+// 因此切换会话不会让 25ms 窗口内的旧 delta 污染当前时间线。
 let latestHandlerContext: DesktopEventHandlerContext | null = null;
-// 事件驱动的“当前 turn”：由 turn_started 置位、终态事件清空，
-// 比 React state（异步同步）更及时，用于合帧按 turn 过滤。
-let lastSeenTurn: { sessionId: string; turnId: string } | null = null;
+// 事件驱动的当前 turn。不同会话可以同时运行，必须独立追踪。
+const lastSeenTurns = new Map<string, string>();
+
+/** 取消后的状态核验延迟。到期时只查询后端状态，绝不基于时间直接解锁 UI。 */
+export const CANCELLATION_STATUS_WATCHDOG_MS = 2500;
+
+export type CancellationWatchdogDecision = "ignore" | "wait" | "release";
+
+const TERMINAL_TURN_EVENT_KINDS = new Set(["cancelled", "done", "turn_completed", "error"]);
+const TERMINAL_RUN_STATUSES = new Set(["cancelled", "completed", "done", "failed"]);
+
+export function isCurrentTurnId(currentTurnId: string | null | undefined, turnId: string | undefined) {
+  return currentTurnId !== null && currentTurnId !== undefined && currentTurnId === turnId;
+}
+
+/**
+ * 判断事件是否为某个 turn 的后端终态事件（cancelled/done/turn_completed/error）。
+ * 返回匹配的 (sessionId, turnId)；非终态事件或无法识别归属时返回 null。
+ * 调用方可用它在终态事件到达时立即停止该 turn 的取消轮询 watchdog。
+ */
+export function isTerminalTurnEvent(
+  payload: unknown,
+  eventKind?: string
+): { sessionId: string; turnId: string } | null {
+  const envelope = desktopEventEnvelope(payload, eventKind);
+  if (!envelope.sessionId || !envelope.turnId) return null;
+  return TERMINAL_TURN_EVENT_KINDS.has(envelope.kind)
+    ? { sessionId: envelope.sessionId, turnId: envelope.turnId }
+    : null;
+}
+
+/** 只有对应当前 turn 的后端终态事件才能将会话恢复为可发送状态。 */
+export function shouldReleaseCurrentTurnForTerminalEvent(
+  currentTurnId: string | null | undefined,
+  turnId: string | undefined,
+  kind: string
+) {
+  return TERMINAL_TURN_EVENT_KINDS.has(kind) && isCurrentTurnId(currentTurnId, turnId);
+}
+
+/**
+ * watchdog 只能依据同一 session + turn 的后端终态解锁。
+ * 若用户已经开始新 turn，或后端仍未报告终态，则保持当前状态不变。
+ */
+export function cancellationWatchdogDecision({
+  currentTurnId,
+  sessionId,
+  turnId,
+  runs
+}: {
+  currentTurnId: string | null | undefined;
+  sessionId: string;
+  turnId: string;
+  runs: RunState[];
+}): CancellationWatchdogDecision {
+  if (!isCurrentTurnId(currentTurnId, turnId)) return "ignore";
+  const run = runs.find((candidate) => candidate.sessionId === sessionId && candidate.turnId === turnId);
+  return run && TERMINAL_RUN_STATUSES.has(run.status) ? "release" : "wait";
+}
 
 function flushBatch() {
   if (batchTimer !== null) {
@@ -94,40 +165,38 @@ function flushBatch() {
   pendingBatch = [];
   const context = latestHandlerContext;
   if (!context) return;
-  // 会话 + turn 双重隔离：只应用属于当前激活会话、且属于当前 turn 的增量。
-  // 同一会话内切到新 turn 后，旧 turn 已入队的 delta 一并丢弃。
-  const activeSession = context.activeSessionId;
+  // 会话 + turn 双重隔离：同一会话内切到新 turn 后，旧 turn 已入队的
+  // delta 一并丢弃；其他会话的 delta 更新各自快照，不会写入当前界面。
   const accepted = batch.filter(
     (envelope) =>
-      (!activeSession || !envelope.sessionId || envelope.sessionId === activeSession) &&
+      envelope.sessionId != null &&
       envelope.turnId != null &&
-      lastSeenTurn != null &&
-      envelope.turnId === lastSeenTurn.turnId
+      envelope.turnId === lastSeenTurns.get(envelope.sessionId)
   );
   if (accepted.length === 0) return;
-  if (accepted.length === 1) {
-    const envelope = accepted[0];
-    context.setTimelineItems((items) =>
-      applyDesktopEventToTimelineItems(
-        items,
-        envelope.desktopEvent ?? envelope.rawPayload,
-        envelope.desktopEvent ? undefined : envelope.kind
-      )
-    );
-    return;
+  const groupedBySession = new Map<string, DesktopEventEnvelope[]>();
+  for (const envelope of accepted) {
+    const sessionEvents = groupedBySession.get(envelope.sessionId!) ?? [];
+    sessionEvents.push(envelope);
+    groupedBySession.set(envelope.sessionId!, sessionEvents);
   }
-  // 多个增量合并在一次状态更新中应用，保持顺序并减少 React 提交
-  context.setTimelineItems((items) => {
-    let next = items;
-    for (const envelope of accepted) {
-      next = applyDesktopEventToTimelineItems(
-        next,
-        envelope.desktopEvent ?? envelope.rawPayload,
-        envelope.desktopEvent ? undefined : envelope.kind
-      );
-    }
-    return next;
-  });
+  // 同一会话的多个增量合并在一次状态更新中应用，保持顺序并减少 React 提交。
+  for (const [sessionId, sessionEvents] of groupedBySession) {
+    context.setTimelineItems(
+      (items) => {
+        let next = items;
+        for (const envelope of sessionEvents) {
+          next = applyDesktopEventToTimelineItems(
+            next,
+            envelope.desktopEvent ?? envelope.rawPayload,
+            envelope.desktopEvent ? undefined : envelope.kind
+          );
+        }
+        return next;
+      },
+      sessionId
+    );
+  }
 }
 
 function isDeltaKind(kind: string) {
@@ -145,26 +214,18 @@ function scheduleBatchFlush() {
 export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
   latestHandlerContext = context;
   const envelope = desktopEventEnvelope(context.payload, context.eventKind);
-  if (
-    envelope.sessionId &&
-    context.activeSessionId &&
-    envelope.sessionId !== context.activeSessionId
-  ) {
-    return;
-  }
+  const targetSessionId = envelope.sessionId ?? context.activeSessionId;
 
   // 完整的 DesktopEvent 信封：按 turn 隔离并过滤重复/乱序/取消后迟到事件
   if (envelope.desktopEvent && envelope.sessionId && envelope.turnId) {
     const { seq, kind } = envelope.desktopEvent;
-    // currentTurnId 为 null（turn 刚结束或会话刚切换）时，
-    // 只接受轨道中已存在且未终态的 turn（如 turn_completed 后的 done），
-    // 杜绝旧会话/旧 turn 的迟到事件混入新时间线。
+    // currentTurnId 由会话专属快照提供；只有该会话当前 turn 的事件能更新快照。
+    const currentTurnId = context.getCurrentTurnId?.(envelope.sessionId) ?? context.currentTurnId;
+    const ownsCurrentTurn = isCurrentTurnId(currentTurnId, envelope.turnId);
     const isCurrentTurn =
-      context.currentTurnId == null
-        ? turnTracks.has(turnTrackKey(envelope.sessionId, envelope.turnId))
-        : envelope.turnId === context.currentTurnId;
+      ownsCurrentTurn || lastSeenTurns.get(envelope.sessionId) === envelope.turnId;
 
-    // 非当前 turn 的常规事件直接丢弃，避免跨 turn/跨会话串入。
+    // 非当前 turn 的常规事件直接丢弃，避免跨 turn 串入同一会话。
     // 生命周期事件（cancelling/cancelled）仍需流转以维护该 turn 的轨道状态。
     if (
       !isCurrentTurn &&
@@ -175,29 +236,37 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
       return;
     }
 
-    // 事件驱动地维护“当前 turn”（在门禁之后更新）：
+    // 事件驱动地维护“当前 turn”（在 seq 门禁之后更新）：
     // - turn_started：已有进行中的 turn 时，同会话其他 turn 的 turn_started
-    //   视为过期/乱序事件拒绝（不覆盖当前 turn）；跨会话的 turn_started
-    //   由 App 层 discardPendingDeltas 重置后才会被接受。
-    // - 终态事件（turn_completed/error/cancelling/cancelled/done）清空当前 turn。
+    //   视为过期/乱序事件拒绝（不覆盖当前 turn）。
+    // - 终态事件（turn_completed/error/cancelled/done）清空当前 turn。
     if (kind === "turn_started") {
       if (
-        lastSeenTurn != null &&
-        (lastSeenTurn.sessionId !== envelope.sessionId ||
-          lastSeenTurn.turnId !== envelope.turnId)
+        lastSeenTurns.has(envelope.sessionId) &&
+        lastSeenTurns.get(envelope.sessionId) !== envelope.turnId
       ) {
         return;
       }
-      lastSeenTurn = { sessionId: envelope.sessionId, turnId: envelope.turnId };
-    } else if (
-      kind === "turn_completed" ||
-      kind === "error" ||
-      kind === "cancelling" ||
-      kind === "cancelled" ||
-      kind === "done"
-    ) {
-      if (lastSeenTurn != null && lastSeenTurn.turnId === envelope.turnId) {
-        lastSeenTurn = null;
+      if (!acceptSequencedEvent(envelope.sessionId, envelope.turnId, seq)) {
+        return;
+      }
+      lastSeenTurns.set(envelope.sessionId, envelope.turnId);
+    } else if (kind === "cancelled") {
+      if (!acceptSequencedEvent(envelope.sessionId, envelope.turnId, seq, { allowCancelled: true })) {
+        return;
+      }
+      if (lastSeenTurns.get(envelope.sessionId) === envelope.turnId) {
+        lastSeenTurns.delete(envelope.sessionId);
+      }
+    } else {
+      if (!acceptSequencedEvent(envelope.sessionId, envelope.turnId, seq)) {
+        return;
+      }
+      if (
+        (kind === "turn_completed" || kind === "error" || kind === "done") &&
+        lastSeenTurns.get(envelope.sessionId) === envelope.turnId
+      ) {
+        lastSeenTurns.delete(envelope.sessionId);
       }
     }
 
@@ -206,26 +275,25 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
       const track = getTurnTrack(envelope.sessionId, envelope.turnId);
       track.cancelled = true;
       if (kind === "cancelled") {
-        if (isCurrentTurn) {
-          context.setIsProcessing(false);
-          context.setCurrentTurnId(null);
+        if (shouldReleaseCurrentTurnForTerminalEvent(currentTurnId, envelope.turnId, kind)) {
+          context.setIsProcessing(false, envelope.sessionId);
+          context.setCurrentTurnId(null, envelope.sessionId);
         }
-        context.setPendingUserQuestion((current) =>
-          current && current.turnId === envelope.turnId ? null : current
+        context.setPendingUserQuestion(
+          (current) => (current && current.turnId === envelope.turnId ? null : current),
+          envelope.sessionId
         );
         // 更新取消提示为终态
-        context.setTimelineItems((items) =>
-          items.map((item) =>
-            item.kind === "boundary" && item.id.includes(`cancel-${envelope.turnId}-`)
-              ? { ...item, title: "已手动终止", body: "用户已取消此轮运行。" }
-              : item
-          )
+        context.setTimelineItems(
+          (items) =>
+            items.map((item) =>
+              item.kind === "boundary" && item.id.includes(`cancel-${envelope.turnId}-`)
+                ? { ...item, title: "已手动终止", body: "用户已取消此轮运行。" }
+                : item
+            ),
+          envelope.sessionId
         );
       }
-      return;
-    }
-
-    if (!acceptSequencedEvent(envelope.sessionId, envelope.turnId, seq)) {
       return;
     }
 
@@ -233,9 +301,9 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
       flushBatch();
       const track = getTurnTrack(envelope.sessionId, envelope.turnId);
       track.done = true;
-      if (isCurrentTurn) {
-        context.setIsProcessing(false);
-        context.setCurrentTurnId(null);
+      if (shouldReleaseCurrentTurnForTerminalEvent(currentTurnId, envelope.turnId, kind)) {
+        context.setIsProcessing(false, envelope.sessionId);
+        context.setCurrentTurnId(null, envelope.sessionId);
       }
       return;
     }
@@ -243,9 +311,9 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
 
   if (envelope.kind === "turn_started") {
     flushBatch();
-    context.setIsProcessing(true);
+    context.setIsProcessing(true, targetSessionId);
     if (envelope.turnId) {
-      context.setCurrentTurnId(envelope.turnId);
+      context.setCurrentTurnId(envelope.turnId, targetSessionId);
     }
   } else if (envelope.kind === "ask_user" && envelope.sessionId && envelope.turnId) {
     flushBatch();
@@ -254,13 +322,16 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
       stringField(envelope.payloadRecord, "body", "任务正在等待输入。"),
       "question"
     );
-    context.setPendingUserQuestion({
-      sessionId: envelope.sessionId,
-      turnId: envelope.turnId,
-      title: optionalStringField(envelope.payloadRecord, "title"),
-      question: stringField(envelope.payloadRecord, "body", "请回复问题"),
-      query: userQueryField(envelope.payloadRecord, "query")
-    });
+    context.setPendingUserQuestion(
+      {
+        sessionId: envelope.sessionId,
+        turnId: envelope.turnId,
+        title: optionalStringField(envelope.payloadRecord, "title"),
+        question: stringField(envelope.payloadRecord, "body", "请回复问题"),
+        query: userQueryField(envelope.payloadRecord, "query")
+      },
+      targetSessionId
+    );
   } else if (envelope.kind === "tool_confirm_required" || envelope.kind === "permission") {
     flushBatch();
     context.sendSystemNotification(
@@ -269,17 +340,25 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
       "permission"
     );
   } else if (envelope.kind === "usage_update" || envelope.kind === "cost_update") {
-    context.setUsageSnapshot((current) => mergeUsageSnapshot(current, envelope.payloadRecord));
+    context.setUsageSnapshot(
+      (current) => mergeUsageSnapshot(current, envelope.payloadRecord),
+      targetSessionId
+    );
   } else if (envelope.kind === "turn_completed" || envelope.kind === "error") {
     flushBatch();
-    const isCurrentTurn =
-      context.currentTurnId == null ||
-      (envelope.turnId ? envelope.turnId === context.currentTurnId : true);
-    if (isCurrentTurn) {
-      context.setIsProcessing(false);
-      context.setCurrentTurnId(null);
+    const currentTurnId = envelope.sessionId
+      ? (context.getCurrentTurnId?.(envelope.sessionId) ?? context.currentTurnId)
+      : context.currentTurnId;
+    const shouldReleaseCurrentTurn = shouldReleaseCurrentTurnForTerminalEvent(
+      currentTurnId,
+      envelope.turnId,
+      envelope.kind
+    );
+    if (shouldReleaseCurrentTurn) {
+      context.setIsProcessing(false, targetSessionId);
+      context.setCurrentTurnId(null, targetSessionId);
+      context.setPendingUserQuestion(null, targetSessionId);
     }
-    context.setPendingUserQuestion(null);
     if (envelope.kind === "turn_completed") {
       context.sendSystemNotification(
         "Yode 已完成任务",
@@ -297,12 +376,14 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
   }
 
   flushBatch();
-  context.setTimelineItems((items) =>
-    applyDesktopEventToTimelineItems(
-      items,
-      envelope.desktopEvent ?? envelope.rawPayload,
-      envelope.desktopEvent ? undefined : envelope.kind
-    )
+  context.setTimelineItems(
+    (items) =>
+      applyDesktopEventToTimelineItems(
+        items,
+        envelope.desktopEvent ?? envelope.rawPayload,
+        envelope.desktopEvent ? undefined : envelope.kind
+      ),
+    targetSessionId
   );
 }
 
@@ -383,25 +464,29 @@ export function resetDesktopEventFiltersForTest() {
   pendingBatch = [];
   turnTracks.clear();
   latestHandlerContext = null;
-  lastSeenTurn = null;
+  lastSeenTurns.clear();
 }
 
 /**
  * 丢弃未 flush 的增量批缓冲。
- * 切换会话/新建会话时调用，防止 25ms 窗口内的旧会话 delta 写入新会话时间线。
+ * 指定会话时仅丢弃该会话的批缓冲；无参数仅供全局重置场景使用。
  */
-export function discardPendingDeltas() {
+export function discardPendingDeltas(sessionId?: string) {
   if (batchTimer !== null) {
     clearTimeout(batchTimer);
     batchTimer = null;
   }
-  pendingBatch = [];
-  lastSeenTurn = null;
+  if (sessionId === undefined) {
+    pendingBatch = [];
+    lastSeenTurns.clear();
+    return;
+  }
+  pendingBatch = pendingBatch.filter((envelope) => envelope.sessionId !== sessionId);
+  lastSeenTurns.delete(sessionId);
 }
 
 /**
- * 清空指定会话的全部 turn 轨道。
- * 切换会话时调用：此后该会话的迟到事件因“无轨道记录”而被丢弃。
+ * 清空指定会话的全部 turn 轨道，例如会话被移除后不再接收其迟到事件。
  */
 export function resetTurnTracksForSession(sessionId: string) {
   const prefix = `${sessionId}:`;
@@ -410,4 +495,6 @@ export function resetTurnTracksForSession(sessionId: string) {
       turnTracks.delete(key);
     }
   }
+  lastSeenTurns.delete(sessionId);
+  pendingBatch = pendingBatch.filter((envelope) => envelope.sessionId !== sessionId);
 }

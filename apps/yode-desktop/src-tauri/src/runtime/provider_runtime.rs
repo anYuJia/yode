@@ -77,103 +77,103 @@ impl DesktopRuntime {
         if provider.is_empty() || model.is_empty() {
             anyhow::bail!("provider and model cannot be empty");
         }
-        let mut config = self
-            .config
-            .lock()
-            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
-        if !config
-            .llm
-            .providers
-            .iter()
-            .any(|(id, provider_config)| resolved_provider_id(id, provider_config) == provider)
-        {
-            anyhow::bail!("Provider '{}' not found", provider);
-        }
-        let (provider, model) = normalized_provider_model(&config, &provider, &model);
-        config.llm.default_provider = provider;
-        config.llm.default_model = model;
-        config.save()?;
-        Ok(DefaultLlm {
-            provider: config.llm.default_provider.clone(),
-            model: config.llm.default_model.clone(),
+        // 在文件锁内以磁盘最新配置校验并应用窄修改：其他进程并发更新的
+        // 字段不会被本请求的完整快照覆盖。
+        let provider_name = provider.clone();
+        let model_name = model.clone();
+        self.update_user_config(move |config| {
+            if !config.llm.providers.iter().any(|(id, provider_config)| {
+                resolved_provider_id(id, provider_config) == provider_name
+            }) {
+                anyhow::bail!("Provider '{}' not found", provider_name);
+            }
+            let (provider, model) = normalized_provider_model(config, &provider_name, &model_name);
+            config.llm.default_provider = provider.clone();
+            config.llm.default_model = model.clone();
+            Ok((provider, model))
         })
+        .map(|(provider, model)| DefaultLlm { provider, model })
     }
 
     pub fn config_save_providers(&self, providers: Vec<DesktopProvider>) -> Result<()> {
-        let mut config = self
+        // 在文件锁内基于磁盘最新配置合并保存：空 api_key 表示“保持原配置密钥”，
+        // 密钥从最新磁盘配置读取，其他进程并发更新的字段不会被本快照覆盖。
+        self.update_user_config(move |config| {
+            let mut new_providers = std::collections::HashMap::new();
+            for p in providers {
+                let id = p.id.trim().to_string();
+                if id.is_empty() {
+                    continue;
+                }
+                // 前端永不接触真实密钥：api_key 为空表示“保持原配置密钥”，
+                // 只有用户显式输入新密钥才覆盖。
+                let existing_key = config
+                    .llm
+                    .providers
+                    .iter()
+                    .find(|(existing_id, existing_config)| {
+                        resolved_provider_id(existing_id, existing_config) == id
+                    })
+                    .and_then(|(_, existing_config)| existing_config.api_key.clone())
+                    .filter(|key| !key.trim().is_empty());
+                let api_key = if p.api_key.trim().is_empty() {
+                    existing_key
+                } else {
+                    Some(p.api_key.trim().to_string())
+                };
+                new_providers.insert(
+                    id,
+                    yode_core::config::ProviderConfig {
+                        format: p.format,
+                        base_url: if p.base_url.is_empty() {
+                            None
+                        } else {
+                            Some(p.base_url)
+                        },
+                        api_key,
+                        models: p.models,
+                        enabled: Some(p.enabled),
+                        gradient: p.gradient,
+                    },
+                );
+            }
+            if !new_providers.iter().any(|(id, provider_config)| {
+                resolved_provider_id(id, provider_config) == config.llm.default_provider
+            }) {
+                if let Some((provider, config_provider)) = new_providers
+                    .iter()
+                    .find(|(_, provider)| provider.enabled.unwrap_or(true))
+                    .or_else(|| new_providers.iter().next())
+                {
+                    config.llm.default_provider = provider.clone();
+                    config.llm.default_model = config_provider
+                        .models
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| config.llm.default_model.clone());
+                }
+            }
+            config.llm.providers = new_providers;
+            let (provider, model) = normalized_provider_model(
+                config,
+                &config.llm.default_provider,
+                &config.llm.default_model,
+            );
+            config.llm.default_provider = provider;
+            config.llm.default_model = model;
+            Ok(())
+        })?;
+        // 写入成功后才重建 provider registry；失败时 registry 保持原状。
+        let config = self
             .config
             .lock()
-            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
-        let mut new_providers = std::collections::HashMap::new();
-        for p in providers {
-            let id = p.id.trim().to_string();
-            if id.is_empty() {
-                continue;
-            }
-            // 前端永不接触真实密钥：api_key 为空表示“保持原配置密钥”，
-            // 只有用户显式输入新密钥才覆盖。
-            let existing_key = config
-                .llm
-                .providers
-                .iter()
-                .find(|(existing_id, existing_config)| {
-                    resolved_provider_id(existing_id, existing_config) == id
-                })
-                .and_then(|(_, existing_config)| existing_config.api_key.clone())
-                .filter(|key| !key.trim().is_empty());
-            let api_key = if p.api_key.trim().is_empty() {
-                existing_key
-            } else {
-                Some(p.api_key.trim().to_string())
-            };
-            new_providers.insert(
-                id,
-                yode_core::config::ProviderConfig {
-                    format: p.format,
-                    base_url: if p.base_url.is_empty() {
-                        None
-                    } else {
-                        Some(p.base_url)
-                    },
-                    api_key,
-                    models: p.models,
-                    enabled: Some(p.enabled),
-                    gradient: p.gradient,
-                },
-            );
-        }
-        if !new_providers.iter().any(|(id, provider_config)| {
-            resolved_provider_id(id, provider_config) == config.llm.default_provider
-        }) {
-            if let Some((provider, config_provider)) = new_providers
-                .iter()
-                .find(|(_, provider)| provider.enabled.unwrap_or(true))
-                .or_else(|| new_providers.iter().next())
-            {
-                config.llm.default_provider = provider.clone();
-                config.llm.default_model = config_provider
-                    .models
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| config.llm.default_model.clone());
-            }
-        }
-        config.llm.providers = new_providers;
-        let (provider, model) = normalized_provider_model(
-            &config,
-            &config.llm.default_provider,
-            &config.llm.default_model,
-        );
-        config.llm.default_provider = provider;
-        config.llm.default_model = model;
-        config.save()?;
-
-        let new_registry = bootstrap_providers(&config);
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?
+            .clone();
         let mut reg_guard = self
             .provider_registry
             .lock()
             .map_err(|_| anyhow::anyhow!("registry lock poisoned"))?;
-        *reg_guard = new_registry;
+        *reg_guard = bootstrap_providers(&config);
 
         Ok(())
     }

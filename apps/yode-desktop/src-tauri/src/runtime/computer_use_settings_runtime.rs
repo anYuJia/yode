@@ -8,7 +8,7 @@ use crate::computer_use_settings::{
     application_display_name, computer_use_settings_from_desktop_settings,
     normalize_computer_use_settings, validate_computer_use_settings,
 };
-use crate::desktop_settings_store::{read_desktop_settings_async, write_desktop_settings_async};
+use crate::desktop_settings_store::{read_desktop_settings_async, update_desktop_settings_async};
 use crate::protocol::{ComputerUseSettings, DesktopActionResult};
 
 impl DesktopRuntime {
@@ -95,20 +95,23 @@ impl DesktopRuntime {
     ) -> Result<ComputerUseSettings> {
         validate_computer_use_settings(&settings)?;
         let normalized = normalize_computer_use_settings(settings);
-        let mut desktop_settings = read_desktop_settings_async().await?;
-        desktop_settings.insert(
-            "yode-computer-use-anyapp".to_string(),
-            json!(normalized.any_app_status),
-        );
-        desktop_settings.insert(
-            "yode-computer-use-chrome".to_string(),
-            json!(normalized.chrome_status),
-        );
-        desktop_settings.insert(
-            "yode-computer-use-allowed-apps".to_string(),
-            json!(normalized.allowed_apps),
-        );
-        write_desktop_settings_async(&desktop_settings).await?;
+        let persisted = normalized.clone();
+        update_desktop_settings_async(move |desktop_settings| {
+            desktop_settings.insert(
+                "yode-computer-use-anyapp".to_string(),
+                json!(persisted.any_app_status),
+            );
+            desktop_settings.insert(
+                "yode-computer-use-chrome".to_string(),
+                json!(persisted.chrome_status),
+            );
+            desktop_settings.insert(
+                "yode-computer-use-allowed-apps".to_string(),
+                json!(persisted.allowed_apps),
+            );
+            Ok(())
+        })
+        .await?;
         Ok(normalized)
     }
 }

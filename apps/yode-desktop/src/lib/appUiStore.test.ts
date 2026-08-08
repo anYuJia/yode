@@ -175,6 +175,120 @@ describe("app UI store", () => {
     expect(useAppUiStore.getState().composerImages).toEqual([]);
   });
 
+  it("keeps turn, composer, timeline, and usage state isolated per session", async () => {
+    stubMemoryLocalStorage();
+
+    const { useAppUiStore } = await import("./appUiStore");
+    const store = useAppUiStore.getState();
+    const sessionOneImage = {
+      id: "session-one-image",
+      name: "one.png",
+      mediaType: "image/png",
+      base64: "one",
+      dataUrl: "data:image/png;base64,one",
+      size: 3
+    };
+
+    store.setActiveSessionId("session-1");
+    store.setDraft("会话一草稿");
+    store.setComposerImages([sessionOneImage]);
+    store.setCurrentTurnId("turn-1");
+    store.setIsProcessing(true);
+    store.setMessageQueue([{ content: "会话一排队消息", images: [] }]);
+    store.setPendingUserQuestion({ sessionId: "session-1", turnId: "turn-1", question: "继续吗？" });
+    store.setTimelineItems([{ id: "one", kind: "assistant", title: "助手", body: "会话一内容" }]);
+    store.setUsageSnapshot({ inputTokens: 10, outputTokens: 2 });
+
+    store.setActiveSessionId("session-2");
+    expect(useAppUiStore.getState().draft).toBe("");
+    expect(useAppUiStore.getState().composerImages).toEqual([]);
+    expect(useAppUiStore.getState().isProcessing).toBe(false);
+    expect(useAppUiStore.getState().timelineItems).toEqual([]);
+
+    store.setDraft("会话二草稿");
+    store.setTimelineItems([{ id: "two", kind: "assistant", title: "助手", body: "会话二内容" }]);
+    store.setUsageSnapshot({ inputTokens: 3 });
+
+    store.setActiveSessionId("session-1");
+    const restored = useAppUiStore.getState();
+    expect(restored.draft).toBe("会话一草稿");
+    expect(restored.composerImages).toEqual([sessionOneImage]);
+    expect(restored.currentTurnId).toBe("turn-1");
+    expect(restored.isProcessing).toBe(true);
+    expect(restored.messageQueue).toEqual([{ content: "会话一排队消息", images: [] }]);
+    expect(restored.pendingUserQuestion?.question).toBe("继续吗？");
+    expect(restored.timelineItems).toMatchObject([{ id: "one", body: "会话一内容" }]);
+    expect(restored.usageSnapshot).toEqual({ inputTokens: 10, outputTokens: 2 });
+
+    store.setActiveSessionId("session-2");
+    expect(useAppUiStore.getState().draft).toBe("会话二草稿");
+    expect(useAppUiStore.getState().timelineItems).toMatchObject([{ id: "two", body: "会话二内容" }]);
+    expect(useAppUiStore.getState().usageSnapshot).toEqual({ inputTokens: 3 });
+  });
+
+  it("moves detached review input out of the source session before restoring a failed review", async () => {
+    stubMemoryLocalStorage();
+
+    const { useAppUiStore } = await import("./appUiStore");
+    const store = useAppUiStore.getState();
+    const reviewImages = [{
+      id: "review-image",
+      name: "review.png",
+      mediaType: "image/png",
+      base64: "review",
+      dataUrl: "data:image/png;base64,review",
+      size: 6
+    }];
+
+    store.setActiveSessionId("session-source");
+    store.setDraft("/review 检查这个改动");
+    store.setComposerImages(reviewImages);
+
+    // detached /review：必须先清空原会话，再进入独立草稿槽。
+    store.setDraft("", "session-source");
+    store.setComposerImages([], "session-source");
+    store.setActiveSessionId(null);
+    store.setDraft("");
+    store.setComposerImages([]);
+
+    // 请求失败时只在独立草稿槽恢复，不能写回原会话。
+    store.setDraft("/review 检查这个改动", null);
+    store.setComposerImages(reviewImages, null);
+
+    expect(store.getSessionUiState("session-source")).toMatchObject({
+      draft: "",
+      composerImages: []
+    });
+    expect(useAppUiStore.getState()).toMatchObject({
+      activeSessionId: null,
+      draft: "/review 检查这个改动",
+      composerImages: reviewImages
+    });
+  });
+
+  it("keeps a newly created turn inactive when its draft request no longer owns the screen", async () => {
+    stubMemoryLocalStorage();
+
+    const { canActivateCreatedSession, useAppUiStore } = await import("./appUiStore");
+    const store = useAppUiStore.getState();
+
+    store.setActiveSessionId(null);
+    store.setDraft("新会话请求");
+    store.setTimelineItems([{ id: "pending", kind: "user", title: "用户", body: "新会话请求" }]);
+    store.setActiveSessionId("session-b");
+
+    // 回包始终提升草稿状态到服务端新建的会话；但用户已切到 B，不得抢回焦点。
+    store.promoteDraftToSession("session-created");
+    expect(canActivateCreatedSession("session-b", 7, 7)).toBe(false);
+    expect(useAppUiStore.getState().activeSessionId).toBe("session-b");
+    expect(store.getSessionUiState("session-created")).toMatchObject({
+      draft: "新会话请求",
+      timelineItems: [{ id: "pending", body: "新会话请求" }]
+    });
+    expect(canActivateCreatedSession(null, 7, 7)).toBe(true);
+    expect(canActivateCreatedSession(null, 7, 8)).toBe(false);
+  });
+
   it("keeps session and timeline state in the shared store", async () => {
     stubMemoryLocalStorage();
 

@@ -7,7 +7,7 @@ use serde_json::json;
 use super::DesktopRuntime;
 use crate::desktop_settings_store::{
     desktop_bool_setting, desktop_string_setting, read_desktop_settings_async,
-    write_desktop_settings_async,
+    update_desktop_settings_async,
 };
 use crate::protocol::{DesktopActionResult, PersonalizationState};
 
@@ -45,10 +45,12 @@ impl DesktopRuntime {
             }
         }
 
-        let mut settings = read_desktop_settings_async().await?;
-        settings.insert("yode-enable-memories".to_string(), json!(false));
-        settings.insert("yode-skip-tool-chats".to_string(), json!(false));
-        write_desktop_settings_async(&settings).await?;
+        update_desktop_settings_async(|settings| {
+            settings.insert("yode-enable-memories".to_string(), json!(false));
+            settings.insert("yode-skip-tool-chats".to_string(), json!(false));
+            Ok(())
+        })
+        .await?;
 
         Ok(DesktopActionResult {
             ok: true,
