@@ -87,6 +87,7 @@ pub(super) fn openai_message_to_internal(msg: &OpenAiMessage) -> Message {
     }
 
     Message {
+        storage_id: None,
         role: string_to_role(&msg.role),
         content,
         content_blocks: blocks,

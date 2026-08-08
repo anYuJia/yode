@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
-use std::fs;
+use std::fs::{self, OpenOptions};
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -227,10 +228,9 @@ async fn complete_oauth_flow(server: &str, code: &str, redirect_uri: &str) -> Re
     let body = response.text().await?;
     if !status.is_success() {
         anyhow::bail!(
-            "OAuth token exchange failed for '{}': HTTP {}: {}",
+            "OAuth token exchange failed for '{}': HTTP {}",
             server,
-            status,
-            body
+            status
         );
     }
     let token_response: TokenResponse = serde_json::from_str(&body)?;
@@ -348,6 +348,11 @@ fn oauth_dir() -> Result<PathBuf> {
         .join(".yode")
         .join("mcp-auth");
     fs::create_dir_all(&path)?;
+    let metadata = fs::symlink_metadata(&path)?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        anyhow::bail!("MCP OAuth 存储目录不是安全目录。 ");
+    }
+    restrict_permissions(&path, 0o700)?;
     Ok(path)
 }
 
@@ -376,20 +381,116 @@ fn write_json<T: Serialize>(path: &Path, value: &T) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    fs::write(path, serde_json::to_string_pretty(value)?)?;
-    Ok(())
+    reject_symlink(path)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("OAuth 凭据路径缺少父目录。"))?;
+    reject_symlink(parent)?;
+    restrict_permissions(parent, 0o700)?;
+
+    let serialized = serde_json::to_vec_pretty(value)?;
+    let temporary = parent.join(format!(
+        ".{}.tmp-{}-{}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("oauth"),
+        std::process::id(),
+        Uuid::new_v4().simple()
+    ));
+    let result = (|| -> Result<()> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temporary)?;
+        restrict_permissions(&temporary, 0o600)?;
+        file.write_all(&serialized)?;
+        file.sync_all()?;
+        reject_symlink(path)?;
+        fs::rename(&temporary, path)?;
+        sync_directory(parent);
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary);
+    }
+    result
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
-    let contents = fs::read_to_string(path)?;
+    reject_symlink(path)?;
+    let metadata = fs::metadata(path)?;
+    if !metadata.is_file() {
+        anyhow::bail!("OAuth 凭据路径不是普通文件。 ");
+    }
+    ensure_private_permissions(&metadata, path)?;
+    let mut file = {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            OpenOptions::new()
+                .read(true)
+                .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+                .open(path)?
+        }
+        #[cfg(not(unix))]
+        {
+            OpenOptions::new().read(true).open(path)?
+        }
+    };
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
     Ok(serde_json::from_str(&contents)?)
+}
+
+fn reject_symlink(path: &Path) -> Result<()> {
+    if let Ok(metadata) = fs::symlink_metadata(path) {
+        if metadata.file_type().is_symlink() {
+            anyhow::bail!("拒绝使用符号链接作为 MCP OAuth 凭据路径。 ");
+        }
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restrict_permissions(path: &Path, mode: u32) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_permissions(_path: &Path, _mode: u32) -> Result<()> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn ensure_private_permissions(metadata: &fs::Metadata, path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    if metadata.permissions().mode() & 0o077 != 0 {
+        anyhow::bail!("MCP OAuth 凭据文件权限过宽：{}。", path.display());
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn ensure_private_permissions(_metadata: &fs::Metadata, _path: &Path) -> Result<()> {
+    Ok(())
+}
+
+fn sync_directory(path: &Path) {
+    if let Ok(directory) = fs::File::open(path) {
+        let _ = directory.sync_all();
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::tool::Tool;
 
-    use super::{base64_url_no_pad, build_authorization_url, percent_encode, McpAuthTool};
+    use super::{
+        base64_url_no_pad, build_authorization_url, percent_encode, read_json, write_json,
+        McpAuthTool,
+    };
 
     #[test]
     fn mcp_auth_requires_confirmation_for_external_auth_flow() {
@@ -424,5 +525,43 @@ mod tests {
             base64_url_no_pad(b"any carnal pleasure."),
             "YW55IGNhcm5hbCBwbGVhc3VyZS4"
         );
+    }
+
+    #[test]
+    fn oauth_credentials_are_private_and_symlinks_are_rejected() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("session.json");
+        write_json(&path, &serde_json::json!({"state":"opaque"})).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(
+                std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+                0o600
+            );
+        }
+        let value: serde_json::Value = read_json(&path).unwrap();
+        assert_eq!(value["state"], "opaque");
+
+        #[cfg(unix)]
+        {
+            let link = directory.path().join("link.json");
+            std::os::unix::fs::symlink(&path, &link).unwrap();
+            assert!(write_json(&link, &serde_json::json!({"state":"new"})).is_err());
+            assert!(read_json::<serde_json::Value>(&link).is_err());
+        }
+    }
+
+    #[test]
+    fn oauth_corrupt_credentials_return_an_error() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("broken.json");
+        std::fs::write(&path, b"{broken").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        assert!(read_json::<serde_json::Value>(&path).is_err());
     }
 }

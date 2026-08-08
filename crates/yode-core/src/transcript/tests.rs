@@ -20,6 +20,7 @@ fn writes_compaction_transcript_file() {
     let messages = vec![
         Message::user("hello"),
         Message {
+            storage_id: None,
             role: yode_llm::types::Role::Assistant,
             content: Some("working".to_string()),
             content_blocks: vec![yode_llm::types::ContentBlock::Text {

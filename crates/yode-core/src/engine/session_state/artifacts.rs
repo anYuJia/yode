@@ -166,7 +166,7 @@ impl AgentEngine {
         reasoning: Option<&str>,
         tool_calls_json: Option<&str>,
         tool_call_id: Option<&str>,
-    ) {
+    ) -> Option<i64> {
         self.persist_message_with_images(
             role,
             content,
@@ -174,7 +174,7 @@ impl AgentEngine {
             tool_calls_json,
             tool_call_id,
             None,
-        );
+        )
     }
 
     pub(in crate::engine) fn persist_message_with_images(
@@ -185,9 +185,9 @@ impl AgentEngine {
         tool_calls_json: Option<&str>,
         tool_call_id: Option<&str>,
         images: Option<&[yode_llm::types::ImageData]>,
-    ) {
+    ) -> Option<i64> {
         if let Some(db) = &self.db {
-            if let Err(err) = db.save_message_with_images(
+            let id = match db.save_message_with_images(
                 &self.context.session_id,
                 role,
                 content,
@@ -196,12 +196,18 @@ impl AgentEngine {
                 tool_call_id,
                 images,
             ) {
-                warn!("Failed to persist message: {}", err);
-            }
+                Ok(id) => Some(id),
+                Err(err) => {
+                    warn!("Failed to persist message: {}", err);
+                    None
+                }
+            };
             if let Err(err) = db.touch_session(&self.context.session_id) {
                 warn!("Failed to touch session: {}", err);
             }
+            return id;
         }
+        None
     }
 
     pub(in crate::engine) fn persist_message_with_metadata(
@@ -212,9 +218,9 @@ impl AgentEngine {
         tool_calls_json: Option<&str>,
         tool_call_id: Option<&str>,
         metadata: Option<&serde_json::Value>,
-    ) {
+    ) -> Option<i64> {
         if let Some(db) = &self.db {
-            if let Err(err) = db.save_message_with_metadata(
+            let id = match db.save_message_with_metadata(
                 &self.context.session_id,
                 role,
                 content,
@@ -223,10 +229,24 @@ impl AgentEngine {
                 tool_call_id,
                 metadata,
             ) {
-                warn!("Failed to persist message: {}", err);
-            }
+                Ok(id) => Some(id),
+                Err(err) => {
+                    warn!("Failed to persist message: {}", err);
+                    None
+                }
+            };
             if let Err(err) = db.touch_session(&self.context.session_id) {
                 warn!("Failed to touch session: {}", err);
+            }
+            return id;
+        }
+        None
+    }
+
+    pub(in crate::engine) fn attach_last_persisted_id(&mut self, id: Option<i64>) {
+        if let Some(id) = id {
+            if let Some(message) = self.messages.last_mut() {
+                message.storage_id = Some(id);
             }
         }
     }
@@ -533,15 +553,21 @@ impl AgentEngine {
         }
     }
 
-    pub(in crate::engine) fn sync_persisted_messages_snapshot(&self) {
+    pub(in crate::engine) fn sync_persisted_messages_snapshot(&mut self) {
         let Some(db) = &self.db else {
             return;
         };
 
         let snapshot = self.messages.iter().skip(1).cloned().collect::<Vec<_>>();
-        if let Err(err) = db.replace_messages(&self.context.session_id, &snapshot) {
-            warn!("Failed to rewrite session message snapshot: {}", err);
-            return;
+        let ids = match db.replace_messages(&self.context.session_id, &snapshot) {
+            Ok(ids) => ids,
+            Err(err) => {
+                warn!("Failed to rewrite session message snapshot: {}", err);
+                return;
+            }
+        };
+        for (message, id) in self.messages.iter_mut().skip(1).zip(ids) {
+            message.storage_id = Some(id);
         }
 
         if let Err(err) = db.touch_session(&self.context.session_id) {

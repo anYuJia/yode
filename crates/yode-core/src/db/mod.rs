@@ -74,6 +74,7 @@ impl Database {
                 tool_call_id TEXT,
                 images_json TEXT,
                 metadata_json TEXT,
+                sort_order INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES sessions(id)
             );
@@ -107,6 +108,7 @@ impl Database {
             "last_compact_boundary_json",
             "last_compact_boundary_json TEXT",
         )?;
+        migrate_message_sort_order(&conn)?;
         Ok(())
     }
 
@@ -115,6 +117,32 @@ impl Database {
             .lock()
             .map_err(|_| anyhow::anyhow!("database connection lock poisoned"))
     }
+}
+
+fn migrate_message_sort_order(conn: &Connection) -> Result<()> {
+    let current: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if current >= 6 {
+        return Ok(());
+    }
+    conn.execute_batch("BEGIN IMMEDIATE;")?;
+    let result = ensure_column(
+        conn,
+        "messages",
+        "sort_order",
+        "sort_order INTEGER NOT NULL DEFAULT 0",
+    )
+    .and_then(|_| {
+        conn.execute(
+            "UPDATE messages SET sort_order = id WHERE sort_order = 0",
+            [],
+        )?;
+        conn.execute_batch("PRAGMA user_version = 6; COMMIT;")?;
+        Ok(())
+    });
+    if result.is_err() {
+        let _ = conn.execute_batch("ROLLBACK;");
+    }
+    result
 }
 
 fn ensure_column(

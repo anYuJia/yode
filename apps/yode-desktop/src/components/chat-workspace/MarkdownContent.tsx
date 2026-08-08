@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getFileIcon, fileIconMeta } from "../FileIcon";
 import { CodeBlock } from "./CodeBlock";
 import { hasCodeBlockContent } from "./codeBlockContent";
@@ -287,7 +287,8 @@ export function safeMarkdownUrl(rawUrl: string, kind: MarkdownUrlKind): string |
   return null;
 }
 
-function lexerCached(processedText: string): Token[] {
+function lexerCached(processedText: string, cache = true): Token[] {
+  if (!cache) return marked.lexer(processedText);
   const cached = lexerCache.get(processedText);
   if (cached) return cached;
   const tokens = marked.lexer(processedText);
@@ -302,18 +303,49 @@ function lexerCached(processedText: string): Token[] {
 export const MarkdownContent = React.memo(function MarkdownContent({
   text,
   variant = "answer",
-  appLang
+  appLang,
+  streaming = false
 }: {
   text: string;
   variant?: MarkdownVariant;
   appLang?: string;
+  streaming?: boolean;
 }) {
-  const processedText = useMemo(() => preprocessMarkdown(text), [text]);
-  const tokens = useMemo(() => lexerCached(processedText), [processedText]);
+  const [renderedText, setRenderedText] = useState(text);
+  const latestTextRef = useRef(text);
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    latestTextRef.current = text;
+    // 短回答仍逐帧呈现；超过此阈值后最多每 120ms 做一次完整 Markdown 解析。
+    if (!streaming || text.length <= 16 * 1024) {
+      if (timerRef.current !== null) {
+        window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+      setRenderedText((current) => current === text ? current : text);
+      return;
+    }
+    if (timerRef.current !== null) return;
+    timerRef.current = window.setTimeout(() => {
+      timerRef.current = null;
+      setRenderedText((current) => current === latestTextRef.current ? current : latestTextRef.current);
+    }, 120);
+  }, [text, streaming]);
+
+  useEffect(() => () => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+  }, []);
+
+  const processedText = useMemo(() => preprocessMarkdown(renderedText), [renderedText]);
+  const tokens = useMemo(
+    () => lexerCached(processedText, !streaming || renderedText === text),
+    [processedText, renderedText, streaming, text]
+  );
 
   return (
     <div className={`markdown-content markdown-content-${variant}`}>
-      <RenderTokens tokens={tokens} appLang={appLang} />
+      <RenderTokens tokens={tokens} appLang={appLang} streaming={streaming && renderedText !== text} />
     </div>
   );
 });
@@ -324,11 +356,19 @@ export function renderInlineMarkdown(text: string, appLang?: string) {
   return <RenderTokens tokens={tokens} appLang={appLang} />;
 }
 
-const RenderTokens = React.memo(function RenderTokens({ tokens, appLang }: { tokens: Token[]; appLang?: string }) {
+const RenderTokens = React.memo(function RenderTokens({
+  tokens,
+  appLang,
+  streaming = false
+}: {
+  tokens: Token[];
+  appLang?: string;
+  streaming?: boolean;
+}) {
   return (
     <>
       {tokens.map((token, index) => (
-        <RenderToken key={index} token={token} appLang={appLang} />
+        <RenderToken key={index} token={token} appLang={appLang} streaming={streaming} />
       ))}
     </>
   );
@@ -338,18 +378,22 @@ function childTokens(tokens?: Token[]) {
   return tokens ?? [];
 }
 
-function RenderToken({ token, appLang }: { token: Token; appLang?: string }): React.ReactElement | null {
+function RenderToken({ token, appLang, streaming = false }: {
+  token: Token;
+  appLang?: string;
+  streaming?: boolean;
+}): React.ReactElement | null {
   switch (token.type) {
     case "heading": {
       const heading = token as Tokens.Heading;
       const Tag = `h${Math.min(heading.depth, 4)}` as keyof JSX.IntrinsicElements;
       const text = stripHeadingMarker(heading.text);
-      return <Tag>{text || <RenderTokens tokens={childTokens(heading.tokens)} appLang={appLang} />}</Tag>;
+      return <Tag>{text || <RenderTokens tokens={childTokens(heading.tokens)} appLang={appLang} streaming={streaming} />}</Tag>;
     }
     case "code": {
       const code = token as Tokens.Code;
       if (!hasCodeBlockContent(code.text)) return null;
-      return <CodeBlock text={code.text} lang={code.lang || ""} appLang={appLang} />;
+      return <CodeBlock text={code.text} lang={code.lang || ""} appLang={appLang} streaming={streaming} />;
     }
     case "list": {
       const list = token as Tokens.List;
@@ -366,7 +410,7 @@ function RenderToken({ token, appLang }: { token: Token; appLang?: string }): Re
                   style={{ marginRight: "6px", verticalAlign: "middle" }}
                 />
               )}
-              <RenderTokens tokens={childTokens(item.tokens)} appLang={appLang} />
+              <RenderTokens tokens={childTokens(item.tokens)} appLang={appLang} streaming={streaming} />
             </li>
           ))}
         </ListTag>
@@ -381,7 +425,7 @@ function RenderToken({ token, appLang }: { token: Token; appLang?: string }): Re
               <tr style={{ borderBottom: "2px solid var(--line)" }}>
                 {table.header.map((cell, i) => (
                   <th key={i} style={{ padding: "8px", textAlign: cell.align || "left", fontWeight: "bold" }}>
-                    <RenderTokens tokens={childTokens(cell.tokens)} appLang={appLang} />
+                    <RenderTokens tokens={childTokens(cell.tokens)} appLang={appLang} streaming={streaming} />
                   </th>
                 ))}
               </tr>
@@ -391,7 +435,7 @@ function RenderToken({ token, appLang }: { token: Token; appLang?: string }): Re
                 <tr key={ri} style={{ borderBottom: "1px solid var(--line-soft)" }}>
                   {row.map((cell, ci) => (
                     <td key={ci} style={{ padding: "8px", textAlign: cell.align || "left" }}>
-                      <RenderTokens tokens={childTokens(cell.tokens)} appLang={appLang} />
+                      <RenderTokens tokens={childTokens(cell.tokens)} appLang={appLang} streaming={streaming} />
                     </td>
                   ))}
                 </tr>
@@ -413,7 +457,7 @@ function RenderToken({ token, appLang }: { token: Token; appLang?: string }): Re
       }
       return (
         <p>
-          <RenderTokens tokens={childTokens(paragraph.tokens)} appLang={appLang} />
+          <RenderTokens tokens={childTokens(paragraph.tokens)} appLang={appLang} streaming={streaming} />
         </p>
       );
     }
@@ -421,7 +465,7 @@ function RenderToken({ token, appLang }: { token: Token; appLang?: string }): Re
       const blockquote = token as Tokens.Blockquote;
       return (
         <blockquote style={{ borderLeft: "4px solid var(--line-soft)", paddingLeft: "12px", margin: "8px 0", color: "var(--text-muted)" }}>
-          <RenderTokens tokens={childTokens(blockquote.tokens)} appLang={appLang} />
+          <RenderTokens tokens={childTokens(blockquote.tokens)} appLang={appLang} streaming={streaming} />
         </blockquote>
       );
     }
@@ -432,7 +476,7 @@ function RenderToken({ token, appLang }: { token: Token; appLang?: string }): Re
       const strong = token as Tokens.Strong;
       return (
         <strong>
-          <RenderTokens tokens={childTokens(strong.tokens)} appLang={appLang} />
+          <RenderTokens tokens={childTokens(strong.tokens)} appLang={appLang} streaming={streaming} />
         </strong>
       );
     }
@@ -440,7 +484,7 @@ function RenderToken({ token, appLang }: { token: Token; appLang?: string }): Re
       const em = token as Tokens.Em;
       return (
         <em>
-          <RenderTokens tokens={childTokens(em.tokens)} appLang={appLang} />
+          <RenderTokens tokens={childTokens(em.tokens)} appLang={appLang} streaming={streaming} />
         </em>
       );
     }
@@ -452,16 +496,16 @@ function RenderToken({ token, appLang }: { token: Token; appLang?: string }): Re
       const link = token as Tokens.Link;
       const href = safeMarkdownUrl(link.href, "link");
       if (!href) {
-        return <RenderTokens tokens={childTokens(link.tokens)} appLang={appLang} />;
+        return <RenderTokens tokens={childTokens(link.tokens)} appLang={appLang} streaming={streaming} />;
       }
 
       if (href.startsWith("#")) {
-        return <a href={href}><RenderTokens tokens={childTokens(link.tokens)} appLang={appLang} /></a>;
+        return <a href={href}><RenderTokens tokens={childTokens(link.tokens)} appLang={appLang} streaming={streaming} /></a>;
       }
 
       return (
         <a href={href} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>
-          <RenderTokens tokens={childTokens(link.tokens)} appLang={appLang} />
+          <RenderTokens tokens={childTokens(link.tokens)} appLang={appLang} streaming={streaming} />
         </a>
       );
     }
@@ -476,7 +520,7 @@ function RenderToken({ token, appLang }: { token: Token; appLang?: string }): Re
     case "text": {
       const text = token as Tokens.Text;
       if (text.tokens && text.tokens.length > 0) {
-        return <RenderTokens tokens={text.tokens} appLang={appLang} />;
+        return <RenderTokens tokens={text.tokens} appLang={appLang} streaming={streaming} />;
       }
       return <>{text.text}</>;
     }
@@ -489,7 +533,7 @@ function RenderToken({ token, appLang }: { token: Token; appLang?: string }): Re
     }
     default: {
       if ("tokens" in token && token.tokens) {
-        return <RenderTokens tokens={token.tokens} appLang={appLang} />;
+        return <RenderTokens tokens={token.tokens} appLang={appLang} streaming={streaming} />;
       }
       return <>{("text" in token ? (token.text as string) : "")}</>;
     }

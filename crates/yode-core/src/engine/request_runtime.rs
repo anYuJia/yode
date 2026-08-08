@@ -187,6 +187,7 @@ impl AgentEngine {
 
         Some(
             Message {
+                storage_id: None,
                 role: Role::Assistant,
                 content: (!full_text.is_empty()).then(|| full_text.to_string()),
                 reasoning: (!full_reasoning.is_empty()).then(|| full_reasoning.to_string()),

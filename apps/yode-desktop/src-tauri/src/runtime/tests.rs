@@ -15,7 +15,9 @@ use super::terminal_helpers::{
     apply_terminal_color_env, clamp_pty_size, parse_terminal_run_stdout, terminal_shell_command,
 };
 use super::{find_workspace_root, DesktopRuntime};
-use crate::protocol::{CreateSessionRequest, DesktopMcpServer, DesktopProvider};
+use crate::protocol::{
+    CreateSessionRequest, DesktopMcpEnvInput, DesktopMcpServerInput, DesktopProvider,
+};
 
 fn test_config() -> Config {
     toml::from_str(include_str!("../../../../../config/default.toml")).unwrap()
@@ -245,6 +247,34 @@ async fn edit_diff_artifact_read_rejects_parent_components() {
 
     assert!(error.contains("unsafe components"));
     let _ = std::fs::remove_dir_all(project_root);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn edit_diff_artifact_read_rejects_symlink_escape() {
+    let project_root = unique_temp_dir("project-root-symlink");
+    let outside_root = unique_temp_dir("outside-symlink");
+    let artifact_dir = project_root.join(".yode").join("edit-diffs");
+    std::fs::create_dir_all(&artifact_dir).unwrap();
+    std::fs::create_dir_all(&outside_root).unwrap();
+    std::fs::write(outside_root.join("secret.diff"), "secret\n").unwrap();
+    std::os::unix::fs::symlink(
+        outside_root.join("secret.diff"),
+        artifact_dir.join("link.diff"),
+    )
+    .unwrap();
+
+    let error = read_edit_diff_artifact_from_roots(
+        ".yode/edit-diffs/link.diff",
+        std::slice::from_ref(&project_root),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+
+    assert!(error.contains("outside") || error.contains("symlink"));
+    let _ = std::fs::remove_dir_all(project_root);
+    let _ = std::fs::remove_dir_all(outside_root);
 }
 
 #[test]
@@ -677,13 +707,13 @@ bearer_token_env = "DOCS_TOKEN"
         .update_user_config(|config| {
             let existing = config.mcp.servers.clone();
             config.mcp.servers = super::mcp_config::desktop_mcp_servers_to_config(
-                &[DesktopMcpServer {
+                &[DesktopMcpServerInput {
                     name: "docs".to_string(),
                     transport: "stdio".to_string(),
                     command: Some("npx".to_string()),
                     args: vec!["-y".to_string(), "docs".to_string()],
                     url: None,
-                    env: std::collections::HashMap::new(),
+                    env: std::collections::HashMap::<String, DesktopMcpEnvInput>::new(),
                     disabled: false,
                 }],
                 &existing,

@@ -22,6 +22,9 @@ import {
 
 const MAX_IMAGE_ATTACHMENTS = 8;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_PIXELS = 24_000_000;
+const MAX_TOTAL_IMAGE_BYTES = 24 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_PIXELS = 48_000_000;
 
 interface ComposerProps {
   draft: string;
@@ -178,18 +181,44 @@ export function Composer({
       return;
     }
 
-    const next = await Promise.all(acceptedFiles.map(fileToImageAttachment));
-    onImagesChange([...images, ...next]);
-    if (skippedTooLarge > 0 || skippedTooMany > 0) {
+    const existingBytes = images.reduce((sum, image) => sum + (image.size || 0), 0);
+    const existingPixels = images.reduce((sum, image) => sum + (image.width || 0) * (image.height || 0), 0);
+    const next: ImageAttachment[] = [];
+    let totalBytes = existingBytes;
+    let totalPixels = existingPixels;
+    let skippedBudget = 0;
+    for (const file of acceptedFiles) {
+      if (totalBytes + file.size > MAX_TOTAL_IMAGE_BYTES) {
+        skippedBudget += 1;
+        continue;
+      }
+      try {
+        const attachment = await fileToImageAttachment(file);
+        const pixels = (attachment.width || 0) * (attachment.height || 0);
+        if (pixels > MAX_IMAGE_PIXELS || totalPixels + pixels > MAX_TOTAL_IMAGE_PIXELS) {
+          skippedBudget += 1;
+          continue;
+        }
+        next.push(attachment);
+        totalBytes += file.size;
+        totalPixels += pixels;
+      } catch {
+        skippedBudget += 1;
+      }
+    }
+    if (next.length > 0) onImagesChange([...images, ...next]);
+    if (skippedTooLarge > 0 || skippedTooMany > 0 || skippedBudget > 0) {
       setAttachmentNotice(
         isZh
           ? [
               skippedTooLarge > 0 ? `${skippedTooLarge} 张图片超过 10MB，已跳过。` : "",
-              skippedTooMany > 0 ? `最多可添加 ${MAX_IMAGE_ATTACHMENTS} 张图片，超出的已跳过。` : ""
+              skippedTooMany > 0 ? `最多可添加 ${MAX_IMAGE_ATTACHMENTS} 张图片，超出的已跳过。` : "",
+              skippedBudget > 0 ? `${skippedBudget} 张图片超过像素或附件总预算，已跳过。` : ""
             ].filter(Boolean).join(" ")
           : [
               skippedTooLarge > 0 ? `${skippedTooLarge} image(s) exceeded 10MB and were skipped.` : "",
-              skippedTooMany > 0 ? `Only ${MAX_IMAGE_ATTACHMENTS} images can be attached; extra images were skipped.` : ""
+              skippedTooMany > 0 ? `Only ${MAX_IMAGE_ATTACHMENTS} images can be attached; extra images were skipped.` : "",
+              skippedBudget > 0 ? `${skippedBudget} image(s) exceeded the pixel or total attachment budget and were skipped.` : ""
             ].filter(Boolean).join(" ")
       );
     } else {
@@ -578,14 +607,32 @@ function fileToImageAttachment(file: File): Promise<ImageAttachment> {
     reader.onload = () => {
       const dataUrl = String(reader.result ?? "");
       const base64 = dataUrl.includes(",") ? dataUrl.split(",", 2)[1] : dataUrl;
-      resolve({
+      const finish = (width: number, height: number) => resolve({
         id: `${Date.now()}-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`,
         name: file.name || "image",
         mediaType: file.type || "image/png",
         base64,
         dataUrl,
-        size: file.size
+        size: file.size,
+        width,
+        height
       });
+      const image = new Image();
+      image.onload = () => {
+        const width = image.naturalWidth || image.width;
+        const height = image.naturalHeight || image.height;
+        image.src = "";
+        if (!width || !height) {
+          reject(new Error("无法解析图片尺寸"));
+          return;
+        }
+        finish(width, height);
+      };
+      image.onerror = () => {
+        image.src = "";
+        reject(new Error("无法解析图片尺寸"));
+      };
+      image.src = dataUrl;
     };
     reader.readAsDataURL(file);
   });

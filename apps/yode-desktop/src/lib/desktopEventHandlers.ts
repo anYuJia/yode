@@ -90,11 +90,12 @@ function acceptSequencedEvent(
 // 高频的文本/推理增量事件在 25ms 内合并为一次状态更新，
 // 限制 UI 提交频率（约 40 次/秒），同时不损失事件顺序。
 const DELTA_BATCH_MS = 25;
-let pendingBatch: DesktopEventEnvelope[] = [];
-let batchTimer: number | null = null;
-// flush 时读取最新处理器上下文。每个 delta 都携带会话 ID，写入其专属状态，
-// 因此切换会话不会让 25ms 窗口内的旧 delta 污染当前时间线。
-let latestHandlerContext: DesktopEventHandlerContext | null = null;
+type DeltaBatch = {
+  events: DesktopEventEnvelope[];
+  timer: number;
+  context: DesktopEventHandlerContext;
+};
+const deltaBatches = new Map<string, DeltaBatch>();
 // 事件驱动的当前 turn。不同会话可以同时运行，必须独立追踪。
 const lastSeenTurns = new Map<string, string>();
 
@@ -155,64 +156,44 @@ export function cancellationWatchdogDecision({
   return run && TERMINAL_RUN_STATUSES.has(run.status) ? "release" : "wait";
 }
 
-function flushBatch() {
-  if (batchTimer !== null) {
-    clearTimeout(batchTimer);
-    batchTimer = null;
-  }
-  if (pendingBatch.length === 0) return;
-  const batch = pendingBatch;
-  pendingBatch = [];
-  const context = latestHandlerContext;
-  if (!context) return;
-  // 会话 + turn 双重隔离：同一会话内切到新 turn 后，旧 turn 已入队的
-  // delta 一并丢弃；其他会话的 delta 更新各自快照，不会写入当前界面。
-  const accepted = batch.filter(
-    (envelope) =>
-      envelope.sessionId != null &&
-      envelope.turnId != null &&
-      envelope.turnId === lastSeenTurns.get(envelope.sessionId)
+function flushBatch(key: string) {
+  const batch = deltaBatches.get(key);
+  if (!batch) return;
+  clearTimeout(batch.timer);
+  deltaBatches.delete(key);
+  const first = batch.events[0];
+  if (!first?.sessionId || !first.turnId || first.turnId !== lastSeenTurns.get(first.sessionId)) return;
+  batch.context.setTimelineItems(
+    (items) => batch.events.reduce(
+      (next, envelope) => applyDesktopEventToTimelineItems(
+        next,
+        envelope.desktopEvent ?? envelope.rawPayload,
+        envelope.desktopEvent ? undefined : envelope.kind
+      ), items
+    ),
+    first.sessionId
   );
-  if (accepted.length === 0) return;
-  const groupedBySession = new Map<string, DesktopEventEnvelope[]>();
-  for (const envelope of accepted) {
-    const sessionEvents = groupedBySession.get(envelope.sessionId!) ?? [];
-    sessionEvents.push(envelope);
-    groupedBySession.set(envelope.sessionId!, sessionEvents);
-  }
-  // 同一会话的多个增量合并在一次状态更新中应用，保持顺序并减少 React 提交。
-  for (const [sessionId, sessionEvents] of groupedBySession) {
-    context.setTimelineItems(
-      (items) => {
-        let next = items;
-        for (const envelope of sessionEvents) {
-          next = applyDesktopEventToTimelineItems(
-            next,
-            envelope.desktopEvent ?? envelope.rawPayload,
-            envelope.desktopEvent ? undefined : envelope.kind
-          );
-        }
-        return next;
-      },
-      sessionId
-    );
-  }
+}
+
+function flushAllBatches() {
+  for (const key of [...deltaBatches.keys()]) flushBatch(key);
 }
 
 function isDeltaKind(kind: string) {
   return kind === "assistant_text_delta" || kind === "assistant_reasoning_delta";
 }
 
-function scheduleBatchFlush() {
-  if (batchTimer !== null) return;
-  batchTimer = setTimeout(() => {
-    batchTimer = null;
-    flushBatch();
-  }, DELTA_BATCH_MS);
+function scheduleBatchFlush(key: string, context: DesktopEventHandlerContext, envelope: DesktopEventEnvelope) {
+  const existing = deltaBatches.get(key);
+  if (existing) {
+    existing.events.push(envelope);
+    return;
+  }
+  const timer = setTimeout(() => flushBatch(key), DELTA_BATCH_MS);
+  deltaBatches.set(key, { events: [envelope], timer, context });
 }
 
 export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
-  latestHandlerContext = context;
   const envelope = desktopEventEnvelope(context.payload, context.eventKind);
   const targetSessionId = envelope.sessionId ?? context.activeSessionId;
 
@@ -271,7 +252,7 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
     }
 
     if (kind === "cancelling" || kind === "cancelled") {
-      flushBatch();
+      flushAllBatches();
       const track = getTurnTrack(envelope.sessionId, envelope.turnId);
       track.cancelled = true;
       if (kind === "cancelled") {
@@ -298,7 +279,7 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
     }
 
     if (kind === "done") {
-      flushBatch();
+      flushAllBatches();
       const track = getTurnTrack(envelope.sessionId, envelope.turnId);
       track.done = true;
       if (shouldReleaseCurrentTurnForTerminalEvent(currentTurnId, envelope.turnId, kind)) {
@@ -310,13 +291,13 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
   }
 
   if (envelope.kind === "turn_started") {
-    flushBatch();
+    flushAllBatches();
     context.setIsProcessing(true, targetSessionId);
     if (envelope.turnId) {
       context.setCurrentTurnId(envelope.turnId, targetSessionId);
     }
   } else if (envelope.kind === "ask_user" && envelope.sessionId && envelope.turnId) {
-    flushBatch();
+    flushAllBatches();
     context.sendSystemNotification(
       "Yode 需要你的回复",
       stringField(envelope.payloadRecord, "body", "任务正在等待输入。"),
@@ -333,7 +314,7 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
       targetSessionId
     );
   } else if (envelope.kind === "tool_confirm_required" || envelope.kind === "permission") {
-    flushBatch();
+    flushAllBatches();
     context.sendSystemNotification(
       "Yode 请求执行权限",
       stringField(envelope.payloadRecord, "body", "有操作需要确认。"),
@@ -345,7 +326,7 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
       targetSessionId
     );
   } else if (envelope.kind === "turn_completed" || envelope.kind === "error") {
-    flushBatch();
+    flushAllBatches();
     const currentTurnId = envelope.sessionId
       ? (context.getCurrentTurnId?.(envelope.sessionId) ?? context.currentTurnId)
       : context.currentTurnId;
@@ -370,12 +351,14 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
 
   if (isDeltaKind(envelope.kind)) {
     // 高频增量事件合帧，降低 React 提交频率
-    pendingBatch.push(envelope);
-    scheduleBatchFlush();
+    if (envelope.sessionId && envelope.turnId) {
+      // 同一 turn 的 text/reasoning delta 共用一个队列，保留跨流事件顺序。
+      scheduleBatchFlush(`${envelope.sessionId}:${envelope.turnId}`, context, envelope);
+    }
     return;
   }
 
-  flushBatch();
+  flushAllBatches();
   context.setTimelineItems(
     (items) =>
       applyDesktopEventToTimelineItems(
@@ -457,13 +440,9 @@ function numberField(value: Record<string, unknown>, key: string) {
 
 /** 测试辅助：清空合帧缓冲与 turn 轨道。 */
 export function resetDesktopEventFiltersForTest() {
-  if (batchTimer !== null) {
-    clearTimeout(batchTimer);
-    batchTimer = null;
-  }
-  pendingBatch = [];
+  for (const batch of deltaBatches.values()) clearTimeout(batch.timer);
+  deltaBatches.clear();
   turnTracks.clear();
-  latestHandlerContext = null;
   lastSeenTurns.clear();
 }
 
@@ -472,16 +451,18 @@ export function resetDesktopEventFiltersForTest() {
  * 指定会话时仅丢弃该会话的批缓冲；无参数仅供全局重置场景使用。
  */
 export function discardPendingDeltas(sessionId?: string) {
-  if (batchTimer !== null) {
-    clearTimeout(batchTimer);
-    batchTimer = null;
-  }
   if (sessionId === undefined) {
-    pendingBatch = [];
+    for (const batch of deltaBatches.values()) clearTimeout(batch.timer);
+    deltaBatches.clear();
     lastSeenTurns.clear();
     return;
   }
-  pendingBatch = pendingBatch.filter((envelope) => envelope.sessionId !== sessionId);
+  for (const [key, batch] of deltaBatches) {
+    if (batch.events.some((envelope) => envelope.sessionId === sessionId)) {
+      clearTimeout(batch.timer);
+      deltaBatches.delete(key);
+    }
+  }
   lastSeenTurns.delete(sessionId);
 }
 
@@ -496,5 +477,10 @@ export function resetTurnTracksForSession(sessionId: string) {
     }
   }
   lastSeenTurns.delete(sessionId);
-  pendingBatch = pendingBatch.filter((envelope) => envelope.sessionId !== sessionId);
+  for (const [key, batch] of deltaBatches) {
+    if (batch.events.some((envelope) => envelope.sessionId === sessionId)) {
+      clearTimeout(batch.timer);
+      deltaBatches.delete(key);
+    }
+  }
 }

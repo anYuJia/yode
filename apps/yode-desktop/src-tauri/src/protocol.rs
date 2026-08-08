@@ -423,7 +423,40 @@ pub struct DesktopWorktree {
     pub size: String,
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+/// 仅供 WebView 展示的 MCP 环境变量元数据。环境变量值可能包含访问令牌，绝不能
+/// 通过 Tauri 响应返回给前端。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopMcpEnv {
+    pub key: String,
+    pub has_value: bool,
+    pub source: String,
+}
+
+/// WebView 保存 MCP 配置时提交的一次性环境变量修改。未提供 `value` 表示保留后端
+/// 已有值；只有 `clear: true` 才会删除已有值。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopMcpEnvInput {
+    pub value: Option<String>,
+    #[serde(default)]
+    pub clear: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopMcpServerInput {
+    pub name: String,
+    pub transport: String,
+    pub command: Option<String>,
+    pub args: Vec<String>,
+    pub url: Option<String>,
+    #[serde(default)]
+    pub env: std::collections::HashMap<String, DesktopMcpEnvInput>,
+    pub disabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopMcpServer {
     pub name: String,
@@ -431,7 +464,7 @@ pub struct DesktopMcpServer {
     pub command: Option<String>,
     pub args: Vec<String>,
     pub url: Option<String>,
-    pub env: std::collections::HashMap<String, String>,
+    pub env: Vec<DesktopMcpEnv>,
     pub disabled: bool,
 }
 

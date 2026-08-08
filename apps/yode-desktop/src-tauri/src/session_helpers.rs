@@ -152,45 +152,7 @@ fn role_heading(role: &str) -> &'static str {
 pub(super) fn stored_message_to_message(
     message: StoredMessage,
 ) -> Option<yode_llm::types::Message> {
-    let role = match message.role.as_str() {
-        "user" => yode_llm::types::Role::User,
-        "assistant" => yode_llm::types::Role::Assistant,
-        "tool" => yode_llm::types::Role::Tool,
-        "system" => yode_llm::types::Role::System,
-        _ => return None,
-    };
-    let tool_calls: Vec<yode_llm::types::ToolCall> = message
-        .tool_calls_json
-        .as_deref()
-        .and_then(|json| parse_stored_json(&message, "tool_calls_json", json))
-        .unwrap_or_default();
-    let mut blocks = Vec::new();
-    if let Some(reasoning) = &message.reasoning {
-        blocks.push(yode_llm::types::ContentBlock::Thinking {
-            thinking: reasoning.clone(),
-            signature: None,
-        });
-    }
-    if let Some(content) = &message.content {
-        blocks.push(yode_llm::types::ContentBlock::Text {
-            text: content.clone(),
-        });
-    }
-
-    let images = stored_images(&message);
-
-    Some(
-        yode_llm::types::Message {
-            role,
-            content: message.content,
-            content_blocks: blocks,
-            reasoning: message.reasoning,
-            tool_calls,
-            tool_call_id: message.tool_call_id,
-            images,
-        }
-        .normalized(),
-    )
+    message.to_message()
 }
 
 pub(super) fn stored_images(message: &StoredMessage) -> Vec<yode_llm::types::ImageData> {
@@ -249,6 +211,7 @@ mod tests {
             tool_call_id: None,
             images_json: images_json.map(ToString::to_string),
             metadata_json: metadata_json.map(ToString::to_string),
+            sort_order: 0,
             created_at: Utc::now(),
         }
     }

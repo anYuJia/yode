@@ -172,6 +172,115 @@ fn replace_messages_preserves_user_images() {
 }
 
 #[test]
+fn replace_messages_keeps_retained_rows_metadata_images_and_order() {
+    let temp = tempdir().unwrap();
+    let db = Database::open(&temp.path().join("sessions.db")).unwrap();
+    db.create_session(&Session {
+        id: "snapshot-session".to_string(),
+        name: None,
+        project_root: None,
+        provider: "mock".to_string(),
+        model: "mock-model".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    })
+    .unwrap();
+    {
+        let conn = db.lock_connection().unwrap();
+        for (tool_call_id, image, metadata) in [
+            ("call-a", "Zmlyc3Q=", r#"{"source":"first"}"#),
+            ("call-b", "c2Vjb25k", r#"{"source":"second"}"#),
+        ] {
+            conn.execute(
+                "INSERT INTO messages (session_id, role, content, tool_call_id, images_json, metadata_json, sort_order, created_at) VALUES (?1, 'tool', 'same output', ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    "snapshot-session",
+                    tool_call_id,
+                    format!(r#"[{{"base64":"{image}","media_type":"image/png"}}]"#),
+                    metadata,
+                    if tool_call_id == "call-a" { 0 } else { 1 },
+                    format!("2026-01-01T00:00:0{}Z", if tool_call_id == "call-a" { 1 } else { 2 }),
+                ],
+            )
+            .unwrap();
+        }
+    }
+
+    let stored = db.load_messages("snapshot-session").unwrap();
+    let retained = stored[1].to_message().unwrap();
+    let retained_id = stored[1].id;
+    let retained_created_at = stored[1].created_at;
+    let ids = db
+        .replace_messages(
+            "snapshot-session",
+            &[Message::system("[Context summary] compressed"), retained],
+        )
+        .unwrap();
+
+    assert_eq!(ids[1], retained_id);
+    let after = db.load_messages("snapshot-session").unwrap();
+    assert_eq!(after.len(), 2);
+    assert_eq!(
+        after[0].content.as_deref(),
+        Some("[Context summary] compressed")
+    );
+    assert_eq!(after[1].id, retained_id);
+    assert_eq!(after[1].tool_call_id.as_deref(), Some("call-b"));
+    assert_eq!(after[1].created_at, retained_created_at);
+    assert_eq!(
+        after[1].images_json.as_deref(),
+        Some(r#"[{"base64":"c2Vjb25k","media_type":"image/png"}]"#)
+    );
+    assert_eq!(
+        after[1].metadata_json.as_deref(),
+        Some(r#"{"source":"second"}"#)
+    );
+}
+
+#[test]
+fn replace_messages_rolls_back_when_a_later_snapshot_message_is_invalid() {
+    let temp = tempdir().unwrap();
+    let db = Database::open(&temp.path().join("sessions.db")).unwrap();
+    db.create_session(&Session {
+        id: "rollback-session".to_string(),
+        name: None,
+        project_root: None,
+        provider: "mock".to_string(),
+        model: "mock-model".to_string(),
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    })
+    .unwrap();
+    db.save_message_with_metadata(
+        "rollback-session",
+        "tool",
+        Some("same output"),
+        None,
+        None,
+        Some("call-1"),
+        Some(&json!({"activity": "preserve"})),
+    )
+    .unwrap();
+    let before = db.load_messages("rollback-session").unwrap();
+    let mut invalid = Message::user("new message");
+    invalid.storage_id = Some(9_999_999);
+
+    assert!(db
+        .replace_messages(
+            "rollback-session",
+            &[before[0].to_message().unwrap(), invalid],
+        )
+        .is_err());
+
+    let after = db.load_messages("rollback-session").unwrap();
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].id, before[0].id);
+    assert_eq!(after[0].content, before[0].content);
+    assert_eq!(after[0].metadata_json, before[0].metadata_json);
+    assert_eq!(after[0].images_json, before[0].images_json);
+}
+
+#[test]
 fn save_message_preserves_metadata_json() {
     let temp = tempdir().unwrap();
     let db = Database::open(&temp.path().join("sessions.db")).unwrap();
@@ -286,7 +395,7 @@ fn open_enables_pragmas_and_sets_schema_version() {
         let version: i64 = conn
             .query_row("PRAGMA user_version", [], |row| row.get(0))
             .unwrap();
-        assert_eq!(version, 5, "all migrations must be applied");
+        assert_eq!(version, 6, "all migrations must be applied");
     }
     // 重新打开后 pragma 仍生效（WAL 持久化在库上，user_version 持久化）
     let db = Database::open(&path).unwrap();
@@ -294,7 +403,7 @@ fn open_enables_pragmas_and_sets_schema_version() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
 }
 
 #[test]

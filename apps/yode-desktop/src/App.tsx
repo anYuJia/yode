@@ -142,6 +142,11 @@ function imageToRequestPayload(image: ImageAttachment) {
   };
 }
 
+// 历史时间线只需要预览数据，发送用的 base64 不应随每条消息长期保留。
+function imageForTimeline(image: ImageAttachment): ImageAttachment {
+  return { ...image, base64: "" };
+}
+
 function refreshProviderCache() {
   if (!("__TAURI_INTERNALS__" in window)) {
     return;
@@ -260,7 +265,7 @@ export function App() {
   const setPermissionMode = useAppUiStore((state) => state.setPermissionMode);
   const isProcessing = useAppUiStore((state) => state.isProcessing);
   const setIsProcessing = useAppUiStore((state) => state.setIsProcessing);
-  const messageQueue = useAppUiStore((state) => state.messageQueue);
+  const sessionUiStates = useAppUiStore((state) => state.sessionUiStates);
   const setMessageQueue = useAppUiStore((state) => state.setMessageQueue);
   const composerImages = useAppUiStore((state) => state.composerImages);
   const setComposerImages = useAppUiStore((state) => state.setComposerImages);
@@ -272,6 +277,7 @@ export function App() {
   const setUsageSnapshot = useAppUiStore((state) => state.setUsageSnapshot);
   const clearTurnState = useAppUiStore((state) => state.clearTurnState);
   const getSessionUiState = useAppUiStore((state) => state.getSessionUiState);
+  const removeSessionUiState = useAppUiStore((state) => state.removeSessionUiState);
   const promoteDraftToSession = useAppUiStore((state) => state.promoteDraftToSession);
   const activeSessionIdRef = useRef<string | null>(null);
   const draftRequestSequenceRef = useRef(0);
@@ -279,6 +285,8 @@ export function App() {
   // 取消轮询登记簿：按 (sessionId, turnId) 幂等维护 watcher 与 pending 登记，
   // 终态事件/新 turn/切会话/卸载时自动清理，杜绝旧 watchdog 解锁新任务。
   const cancellationWatchdogRegistryRef = useRef(new CancellationWatchdogRegistry());
+  const queuedDispatchesRef = useRef(new Set<string>());
+  const deletedSessionIdsRef = useRef(new Set<string>());
   const terminalConversationKey = activeSessionId ?? "__draft__";
   const terminalOpen = terminalOpenByConversation[terminalConversationKey] ?? false;
   const setTerminalOpenForCurrentConversation = (open: boolean) => {
@@ -691,6 +699,8 @@ export function App() {
         loadBootstrap();
         return;
       }
+      deletedSessionIdsRef.current.add(detail.sessionId);
+      queuedDispatchesRef.current.delete(detail.sessionId);
       setSessionItems((items) => items.filter((session) => session.id !== detail.sessionId));
       if (activeSessionIdRef.current === detail.sessionId) {
         activeSessionIdRef.current = null;
@@ -708,6 +718,18 @@ export function App() {
       window.removeEventListener(SESSIONS_IMPORTED_EVENT, handleUnarchive);
     };
   }, []);
+
+  // 归档/永久删除的会话若已无后台运行或待确认问题，释放完整时间线、附件和队列快照。
+  // 若仍在运行则保留到终态事件，避免后台事件更新到不存在的空槽位。
+  useEffect(() => {
+    for (const sessionId of deletedSessionIdsRef.current) {
+      const sessionUiState = getSessionUiState(sessionId);
+      if (sessionUiState.isProcessing || sessionUiState.pendingUserQuestion) continue;
+      queuedDispatchesRef.current.delete(sessionId);
+      removeSessionUiState(sessionId);
+      deletedSessionIdsRef.current.delete(sessionId);
+    }
+  }, [sessionUiStates, getSessionUiState, removeSessionUiState]);
 
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) {
@@ -996,7 +1018,7 @@ export function App() {
           kind: "user",
           title: "用户 (等待中...)",
           body: content,
-          attachments: imagesAtSend,
+          attachments: imagesAtSend.map(imageForTimeline),
           createdAt: Date.now()
         }
       ]);
@@ -1015,7 +1037,7 @@ export function App() {
           kind: "user",
           title: "用户",
           body: content,
-          attachments: imagesAtSend,
+          attachments: imagesAtSend.map(imageForTimeline),
           createdAt: Date.now()
         }
       ],
@@ -1082,15 +1104,28 @@ export function App() {
     }
   }
 
+  // 队列属于会话，而不是当前页面。后台会话收到终态后也必须继续消费队首，
+  // 同时用 ref 防止 Zustand 的连续更新让同一会话重复发起请求。
   useEffect(() => {
-    if (!isProcessing && messageQueue.length > 0 && activeSession?.id) {
-      const queuedSessionId = activeSession.id;
-      const nextMessage = messageQueue[0];
+    for (const [queuedSessionId, sessionUiState] of Object.entries(sessionUiStates)) {
+      if (
+        queuedSessionId === "__draft__" ||
+        deletedSessionIdsRef.current.has(queuedSessionId) ||
+        sessionUiState.isProcessing ||
+        sessionUiState.pendingUserQuestion ||
+        sessionUiState.messageQueue.length === 0 ||
+        queuedDispatchesRef.current.has(queuedSessionId)
+      ) {
+        continue;
+      }
+
+      const nextMessage = sessionUiState.messageQueue[0];
       const nextContent = nextMessage.content;
-      setMessageQueue((prev) => prev.slice(1));
+      queuedDispatchesRef.current.add(queuedSessionId);
+      setMessageQueue((prev) => prev.slice(1), queuedSessionId);
       setIsProcessing(true, queuedSessionId);
       discardPendingDeltas(queuedSessionId);
-      
+
       setTimelineItems(
         (items) =>
           items.map((item) =>
@@ -1101,7 +1136,7 @@ export function App() {
         queuedSessionId
       );
 
-      invoke<TurnAccepted>("turn_send_message", {
+      void invoke<TurnAccepted>("turn_send_message", {
         request: {
           sessionId: queuedSessionId,
           content: nextContent,
@@ -1113,7 +1148,12 @@ export function App() {
           model: undefined
         }
       }).then((res) => {
-        // 新 turn 接管该会话：旧的取消轮询（若仍存在）立即失效并清理
+        queuedDispatchesRef.current.delete(queuedSessionId);
+        if (deletedSessionIdsRef.current.has(queuedSessionId)) {
+          // 删除与 IPC 回包竞态：不得因迟到回包重新显示或继续该会话。
+          setIsProcessing(false, queuedSessionId);
+          return;
+        }
         cancellationWatchdogRegistryRef.current.stopSession(res.sessionId);
         setCurrentTurnId(res.turnId, res.sessionId);
         setIsProcessing(true, res.sessionId);
@@ -1121,7 +1161,7 @@ export function App() {
           upsertSessionKeepingActive(items, res.session, activeSessionIdRef.current)
         );
       }).catch((err) => {
-        // 发送失败（如 in-flight 拒绝）：队列项在发送前已出队，不会无限重试
+        queuedDispatchesRef.current.delete(queuedSessionId);
         console.error(err);
         setIsProcessing(false, queuedSessionId);
         setTimelineItems(
@@ -1139,7 +1179,7 @@ export function App() {
         );
       });
     }
-  }, [isProcessing, messageQueue, activeSession?.id]);
+  }, [sessionUiStates, setMessageQueue, setIsProcessing, setTimelineItems, setSessionItems]);
 
   async function handleCancelMessage() {
     if (!(activeSession?.id && currentTurnId)) return;
@@ -1224,6 +1264,8 @@ export function App() {
     if (!session) return;
 
     archiveSessionLocally(session);
+    deletedSessionIdsRef.current.add(sessionId);
+    queuedDispatchesRef.current.delete(sessionId);
     setSessionItems(prev => prev.filter(s => s.id !== sessionId));
     cancellationWatchdogRegistryRef.current.stopSession(sessionId);
     if (activeSessionIdRef.current === sessionId) {

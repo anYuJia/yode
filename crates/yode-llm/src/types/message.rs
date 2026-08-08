@@ -34,6 +34,10 @@ pub enum ContentBlock {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
+    /// Database identity used only while a persisted session snapshot is being rewritten.
+    /// It is deliberately excluded from provider payloads and serialized transcripts.
+    #[serde(skip)]
+    pub storage_id: Option<i64>,
     pub role: Role,
     /// Standardized content blocks (preferred for modern models)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -53,6 +57,7 @@ impl Message {
     pub fn system(content: impl Into<String>) -> Self {
         let text = content.into();
         Self {
+            storage_id: None,
             role: Role::System,
             content: Some(text.clone()),
             content_blocks: vec![ContentBlock::Text { text }],
@@ -66,6 +71,7 @@ impl Message {
     pub fn user(content: impl Into<String>) -> Self {
         let text = content.into();
         Self {
+            storage_id: None,
             role: Role::User,
             content: Some(text.clone()),
             content_blocks: vec![ContentBlock::Text { text }],
@@ -80,6 +86,7 @@ impl Message {
     pub fn user_with_images(content: impl Into<String>, images: Vec<ImageData>) -> Self {
         let text = content.into();
         Self {
+            storage_id: None,
             role: Role::User,
             content: Some(text.clone()),
             content_blocks: vec![ContentBlock::Text { text }],
@@ -93,6 +100,7 @@ impl Message {
     pub fn assistant(content: impl Into<String>) -> Self {
         let text = content.into();
         Self {
+            storage_id: None,
             role: Role::Assistant,
             content: Some(text.clone()),
             content_blocks: vec![ContentBlock::Text { text }],
@@ -117,6 +125,7 @@ impl Message {
         }
 
         Self {
+            storage_id: None,
             role: Role::Assistant,
             content,
             content_blocks: blocks,
@@ -144,6 +153,7 @@ impl Message {
         tool_calls: Vec<ToolCall>,
     ) -> Self {
         Self {
+            storage_id: None,
             role: Role::Assistant,
             content: None,
             content_blocks,
@@ -158,6 +168,7 @@ impl Message {
     pub fn tool_result(tool_call_id: impl Into<String>, content: impl Into<String>) -> Self {
         let text = content.into();
         Self {
+            storage_id: None,
             role: Role::Tool,
             content: Some(text.clone()),
             content_blocks: vec![ContentBlock::Text { text }],
@@ -176,6 +187,7 @@ impl Message {
     ) -> Self {
         let text = content.into();
         Self {
+            storage_id: None,
             role: Role::Tool,
             content: Some(text.clone()),
             content_blocks: vec![ContentBlock::Text { text }],
@@ -311,6 +323,7 @@ mod tests {
     #[test]
     fn normalize_builds_blocks_from_flat_fields() {
         let message = Message {
+            storage_id: None,
             role: Role::Assistant,
             content: Some("final answer".to_string()),
             content_blocks: Vec::new(),
@@ -335,6 +348,7 @@ mod tests {
     #[test]
     fn normalize_backfills_flat_fields_from_blocks() {
         let message = Message {
+            storage_id: None,
             role: Role::Assistant,
             content: None,
             content_blocks: vec![

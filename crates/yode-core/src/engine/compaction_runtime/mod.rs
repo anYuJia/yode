@@ -501,7 +501,9 @@ impl AgentEngine {
                 matches!(message.role, Role::System)
                     && message.content.as_deref() == Some(previous_summary)
             }) {
+                let storage_id = message.storage_id;
                 *message = Message::system(new_summary.to_string());
+                message.storage_id = storage_id;
                 return;
             }
         }
@@ -514,7 +516,9 @@ impl AgentEngine {
                     .unwrap_or_default()
                     .starts_with(SESSION_MEMORY_SUMMARY_PREFIX)
         }) {
+            let storage_id = message.storage_id;
             *message = Message::system(new_summary.to_string());
+            message.storage_id = storage_id;
         }
     }
 

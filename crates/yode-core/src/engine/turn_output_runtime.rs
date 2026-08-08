@@ -19,13 +19,14 @@ impl AgentEngine {
         } else {
             None
         };
-        self.persist_message(
+        let persisted_id = self.persist_message(
             "assistant",
             message.content.as_deref(),
             message.reasoning.as_deref(),
             tc_json.as_deref(),
             None,
         );
+        self.attach_last_persisted_id(persisted_id);
     }
 
     pub(super) async fn record_completed_tool_outcome(
@@ -48,7 +49,7 @@ impl AgentEngine {
             .await;
         self.messages
             .push(Message::tool_result(&tool_call_id, &result.content));
-        self.persist_message_with_metadata(
+        let persisted_id = self.persist_message_with_metadata(
             "tool",
             Some(&result.content),
             None,
@@ -56,6 +57,7 @@ impl AgentEngine {
             Some(&tool_call_id),
             result.metadata.as_ref(),
         );
+        self.attach_last_persisted_id(persisted_id);
 
         let _ = event_tx.send(EngineEvent::ToolResult {
             id: tool_call_id,
@@ -181,7 +183,8 @@ impl AgentEngine {
                 advisory_parts.join("\n\n")
             );
             self.messages.push(Message::system(&message));
-            self.persist_message("system", Some(&message), None, None, None);
+            let persisted_id = self.persist_message("system", Some(&message), None, None, None);
+            self.attach_last_persisted_id(persisted_id);
         }
 
         self.append_hook_wake_notifications_as_system_message();
@@ -211,7 +214,8 @@ impl AgentEngine {
             continuation_parts.join("\n\n")
         );
         self.messages.push(Message::system(&message));
-        self.persist_message("system", Some(&message), None, None, None);
+        let persisted_id = self.persist_message("system", Some(&message), None, None, None);
+        self.attach_last_persisted_id(persisted_id);
         true
     }
 }

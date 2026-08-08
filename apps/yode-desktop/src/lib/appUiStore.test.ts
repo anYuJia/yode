@@ -226,6 +226,31 @@ describe("app UI store", () => {
     expect(useAppUiStore.getState().usageSnapshot).toEqual({ inputTokens: 3 });
   });
 
+  it("removes an inactive session snapshot so attachments and queued messages can be collected", async () => {
+    stubMemoryLocalStorage();
+
+    const { useAppUiStore } = await import("./appUiStore");
+    const store = useAppUiStore.getState();
+    store.setActiveSessionId("session-to-remove");
+    store.setTimelineItems([{ id: "large", kind: "assistant", title: "助手", body: "历史" }]);
+    store.setMessageQueue([{ content: "不应继续发送", images: [] }]);
+
+    expect(useAppUiStore.getState().sessionUiStates["session-to-remove"]).toBeDefined();
+    store.removeSessionUiState("session-to-remove");
+
+    expect(useAppUiStore.getState().sessionUiStates["session-to-remove"]).toBeUndefined();
+    expect(store.getSessionUiState("session-to-remove")).toEqual({
+      composerImages: [],
+      currentTurnId: null,
+      draft: "",
+      isProcessing: false,
+      messageQueue: [],
+      pendingUserQuestion: null,
+      timelineItems: [],
+      usageSnapshot: null
+    });
+  });
+
   it("moves detached review input out of the source session before restoring a failed review", async () => {
     stubMemoryLocalStorage();
 

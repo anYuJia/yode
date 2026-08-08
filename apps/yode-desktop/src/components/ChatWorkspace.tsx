@@ -75,7 +75,9 @@ function timelineMeta(item: TimelineItem) {
 
 function timelineMetadataLength(item: TimelineItem) {
   if (!("metadata" in item) || item.metadata == null) return 0;
-  return JSON.stringify(item.metadata).length;
+  // 滚动布局只需知道元数据形状是否变化；避免每个流式批次序列化大型工具 metadata。
+  if (typeof item.metadata === "object") return Object.keys(item.metadata as object).length;
+  return 1;
 }
 
 interface ChatWorkspaceProps {

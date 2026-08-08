@@ -601,7 +601,10 @@ describe("desktop settings helpers", () => {
         transport: "stdio",
         command: "node",
         args: ["--eval", "123"],
-        env: { NODE_ENV: "test", PORT: "3000" },
+        env: [
+          { key: "NODE_ENV", hasValue: true, source: "旧配置" },
+          { key: "PORT", hasValue: true, source: "旧配置" }
+        ],
         disabled: false
       },
       {
@@ -624,10 +627,11 @@ describe("desktop settings helpers", () => {
     expect(loadMcpServers()).toEqual(DEFAULT_MCP_SERVERS);
   });
 
-  it("saves normalized mcp servers through the shared helper", () => {
+  it("does not persist mcp servers or environment values in local storage", () => {
     const saved = new Map<string, string>();
     vi.stubGlobal("localStorage", {
-      setItem: (key: string, value: string) => saved.set(key, value)
+      setItem: (key: string, value: string) => saved.set(key, value),
+      removeItem: (key: string) => saved.delete(key)
     });
 
     saveMcpServers([
@@ -636,22 +640,13 @@ describe("desktop settings helpers", () => {
         transport: "stdio",
         command: "node",
         args: ["--eval"],
-        env: { NODE_ENV: "test" },
+        env: [{ key: "NODE_ENV", hasValue: true, source: "配置文件" }],
         disabled: false
       },
       { name: "invalid", transport: "stdio", disabled: false }
     ]);
 
-    expect(JSON.parse(saved.get("yode-mcp-servers") || "[]")).toEqual([
-      {
-        name: "node_repl",
-        transport: "stdio",
-        command: "node",
-        args: ["--eval"],
-        env: { NODE_ENV: "test" },
-        disabled: false
-      }
-    ]);
+    expect(saved.has("yode-mcp-servers")).toBe(false);
   });
 });
 

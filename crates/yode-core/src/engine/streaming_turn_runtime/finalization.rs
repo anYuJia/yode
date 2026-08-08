@@ -15,6 +15,7 @@ impl AgentEngine {
         cancel_token: Option<&CancellationToken>,
     ) -> Result<StreamFinalizeAction> {
         let mut assistant_msg = Message {
+            storage_id: None,
             role: Role::Assistant,
             content: if buffers.full_text.is_empty() {
                 None

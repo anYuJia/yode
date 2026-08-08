@@ -6,6 +6,16 @@ import { hasCodeBlockContent } from "./codeBlockContent";
 // 高亮结果缓存：流式渲染时同一代码块逐帧增长，避免每个 delta 全量 highlight
 const HIGHLIGHT_CACHE_MAX = 64;
 const highlightCache = new Map<string, string>();
+const STREAMING_HIGHLIGHT_MAX = 24 * 1024;
+
+function escapeCodeHtml(text: string) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/\"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
 
 function highlightCached(cleanText: string, lang: string): string {
   const key = `${lang}\u0000${cleanText}`;
@@ -34,7 +44,12 @@ function highlightCached(cleanText: string, lang: string): string {
   return value;
 }
 
-export const CodeBlock = React.memo(function CodeBlock({ text, lang, appLang }: { text: string; lang: string; appLang?: string }) {
+export const CodeBlock = React.memo(function CodeBlock({
+  text,
+  lang,
+  appLang,
+  streaming = false
+}: { text: string; lang: string; appLang?: string; streaming?: boolean }) {
   const isZh = appLang !== "en";
   const [copied, setCopied] = useState(false);
   const shouldRender = hasCodeBlockContent(text);
@@ -52,7 +67,14 @@ export const CodeBlock = React.memo(function CodeBlock({ text, lang, appLang }: 
     cleanText = lines.slice(0, truncateIndex).join("\n");
   }
 
-  const highlighted = useMemo(() => highlightCached(cleanText, lang), [cleanText, lang]);
+  const highlighted = useMemo(() => {
+    // 大型流式代码先使用转义纯文本，避免每个增量触发 highlightAuto；
+    // 完成后仍按原策略完整高亮。
+    if (streaming && (!lang || cleanText.length > STREAMING_HIGHLIGHT_MAX)) {
+      return escapeCodeHtml(cleanText);
+    }
+    return highlightCached(cleanText, lang);
+  }, [cleanText, lang, streaming]);
 
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(cleanText);

@@ -118,6 +118,7 @@ type AppUiState = {
   viewMode: ViewMode;
   clearTurnState: () => void;
   getSessionUiState: (sessionId: string | null) => SessionUiState;
+  removeSessionUiState: (sessionId: string) => void;
   promoteDraftToSession: (sessionId: string) => void;
   reloadProjectStorage: () => void;
   refreshGeneralSettings: (options?: { apply?: boolean }) => void;
@@ -212,6 +213,13 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     pendingUserQuestion: null
   })),
   getSessionUiState: (sessionId) => stateForSession(get(), sessionId),
+  removeSessionUiState: (sessionId) => set((state) => {
+    const key = sessionUiStateKey(sessionId);
+    if (!(key in state.sessionUiStates)) return state;
+    const sessionUiStates = { ...state.sessionUiStates };
+    delete sessionUiStates[key];
+    return { sessionUiStates };
+  }),
   promoteDraftToSession: (sessionId) => set((state) => {
     const draftSessionState = stateForSession(state, null);
     return {

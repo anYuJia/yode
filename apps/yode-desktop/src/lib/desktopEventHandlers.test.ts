@@ -722,6 +722,37 @@ describe("desktop event isolation", () => {
     expect(items.join()).not.toContain("旧会话内容");
   });
 
+  it("keeps another session's batch timer alive when one session is discarded", () => {
+    vi.useFakeTimers();
+    const sessionA = handlerContext({
+      activeSessionId: "session-a",
+      currentTurnId: "turn-a",
+      payload: desktopEvent("session-a", "turn-a", 1, "turn_started", {})
+    });
+    const sessionB = handlerContext({
+      activeSessionId: "session-b",
+      currentTurnId: "turn-b",
+      payload: desktopEvent("session-b", "turn-b", 1, "turn_started", {})
+    });
+
+    handleDesktopRuntimeEvent(sessionA.context);
+    handleDesktopRuntimeEvent(sessionB.context);
+    handleDesktopRuntimeEvent({
+      ...sessionA.context,
+      payload: desktopEvent("session-a", "turn-a", 2, "assistant_text_delta", { body: "A" })
+    });
+    handleDesktopRuntimeEvent({
+      ...sessionB.context,
+      payload: desktopEvent("session-b", "turn-b", 2, "assistant_text_delta", { body: "B" })
+    });
+
+    discardPendingDeltas("session-a");
+    vi.advanceTimersByTime(30);
+
+    expect(sessionA.getTimeline().some((item) => item.kind === "assistant" && item.body === "A")).toBe(false);
+    expect(sessionB.getTimeline().some((item) => item.kind === "assistant" && item.body === "B")).toBe(true);
+  });
+
   it("does not accept events from a cleared session after switching back", () => {
     vi.useFakeTimers();
     const { context, getTimeline } = handlerContext({});

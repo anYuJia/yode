@@ -350,6 +350,7 @@ mod tests {
     #[test]
     fn gemini_conversion_uses_stable_tool_result_name_fallback() {
         let tool_message = Message {
+            storage_id: None,
             role: crate::types::Role::Tool,
             content: Some("tool result".to_string()),
             content_blocks: Vec::new(),

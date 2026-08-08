@@ -178,6 +178,8 @@ export type ImageAttachment = {
   base64: string;
   dataUrl: string;
   size: number;
+  width?: number;
+  height?: number;
 };
 
 export type PendingUserQuestion = {

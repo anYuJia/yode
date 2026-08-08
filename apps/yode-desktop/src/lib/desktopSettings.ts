@@ -98,14 +98,29 @@ export type HooksSettings = {
 
 export type McpTransport = "stdio" | "sse" | "http" | "websocket";
 
+export type McpEnvMeta = {
+  key: string;
+  hasValue: boolean;
+  source: string;
+};
+
+export type McpEnvInput = {
+  value?: string;
+  clear?: boolean;
+};
+
 export type McpServer = {
   name: string;
   transport: McpTransport;
   command?: string;
   args?: string[];
   url?: string;
-  env?: Record<string, string>;
+  env?: McpEnvMeta[];
   disabled: boolean;
+};
+
+export type McpServerInput = Omit<McpServer, "env"> & {
+  env?: Record<string, McpEnvInput>;
 };
 
 export const DEFAULT_GIT_SETTINGS: GitSettings = {
@@ -171,7 +186,7 @@ export const DEFAULT_MCP_SERVERS: McpServer[] = [
     transport: "stdio",
     command: "node",
     args: [],
-    env: {},
+    env: [],
     disabled: false
   }
 ];
@@ -612,14 +627,28 @@ function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }
 
-function normalizeEnv(value: unknown): Record<string, string> {
+function normalizeEnvMeta(value: unknown): McpEnvMeta[] {
   const record = recordFromUnknown(value);
-  if (!record) return {};
-  return Object.fromEntries(
-    Object.entries(record)
-      .filter(([key]) => key.trim().length > 0)
-      .map(([key, item]) => [key, String(item)])
-  );
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        const entry = recordFromUnknown(item);
+        if (!entry || typeof entry.key !== "string" || !entry.key.trim()) return null;
+        return {
+          key: entry.key.trim(),
+          hasValue: Boolean(entry.hasValue),
+          source: typeof entry.source === "string" ? entry.source : "配置文件"
+        };
+      })
+      .filter((entry): entry is McpEnvMeta => entry !== null);
+  }
+  // 旧版本 localStorage 可能含有明文值；只迁移 key 元数据，并删除原始值。
+  if (record) {
+    return Object.keys(record)
+      .filter((key) => key.trim())
+      .map((key) => ({ key: key.trim(), hasValue: true, source: "旧配置" }));
+  }
+  return [];
 }
 
 export function normalizeMcpServer(raw: unknown): McpServer | null {
@@ -638,7 +667,7 @@ export function normalizeMcpServer(raw: unknown): McpServer | null {
       transport: transportRaw,
       command,
       args: normalizeStringArray(server.args),
-      env: normalizeEnv(server.env),
+      env: normalizeEnvMeta(server.env),
       disabled
     };
   }
@@ -661,25 +690,35 @@ export function normalizeMcpServers(list: unknown): McpServer[] {
 export function loadMcpServers(): McpServer[] {
   try {
     const raw = localStorage.getItem(MCP_STORAGE_KEYS.servers);
+    // 该键属于旧版本，不能继续在浏览器存储中保留潜在密钥。
+    localStorage.removeItem?.(MCP_STORAGE_KEYS.servers);
     if (!raw) return DEFAULT_MCP_SERVERS;
     const servers = normalizeMcpServers(JSON.parse(raw));
-    return servers.length > 0 ? servers : DEFAULT_MCP_SERVERS;
+    if (servers.length > 0) {
+      return servers;
+    }
+    return DEFAULT_MCP_SERVERS;
   } catch {
     return DEFAULT_MCP_SERVERS;
   }
 }
 
 export async function loadPersistedMcpServers(fallback = DEFAULT_MCP_SERVERS): Promise<McpServer[]> {
-  const servers = normalizeMcpServers(await loadDesktopSetting(MCP_STORAGE_KEYS.servers, fallback));
-  return servers.length > 0 ? servers : DEFAULT_MCP_SERVERS;
+  // MCP 的环境变量可能是令牌，禁止通过通用桌面设置或 localStorage 读取旧值。
+  const normalized = normalizeMcpServers(fallback);
+  return normalized.length > 0 ? normalized : DEFAULT_MCP_SERVERS;
 }
 
 export function saveMcpServers(servers: McpServer[]): void {
-  localStorage.setItem(MCP_STORAGE_KEYS.servers, JSON.stringify(normalizeMcpServers(servers)));
+  // MCP 配置可能包含令牌。配置只由桌面后端持久化，WebView 不写入 localStorage。
+  void servers;
+  localStorage.removeItem?.(MCP_STORAGE_KEYS.servers);
 }
 
 export function savePersistedMcpServers(servers: McpServer[]): Promise<void> {
-  return saveDesktopSetting(MCP_STORAGE_KEYS.servers, normalizeMcpServers(servers));
+  void servers;
+  localStorage.removeItem?.(MCP_STORAGE_KEYS.servers);
+  return Promise.resolve();
 }
 
 export function saveGeneralSettingValue(key: string, value: string | boolean) {

@@ -49,7 +49,8 @@ impl AgentEngine {
                 combined
             );
             self.messages.push(Message::system(&message));
-            self.persist_message("system", Some(&message), None, None, None);
+            let persisted_id = self.persist_message("system", Some(&message), None, None, None);
+            self.attach_last_persisted_id(persisted_id);
         }
 
         self.append_hook_wake_notifications_as_system_message();
