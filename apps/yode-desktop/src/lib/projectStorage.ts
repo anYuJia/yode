@@ -1,5 +1,6 @@
 import { SessionSummary } from "./desktopTypes";
 import { recordFromUnknown } from "./jsonUtils";
+import { storageReadJson, storageReadRaw, storageWriteJson } from "./storageAdapter";
 
 export const PROJECT_ROOTS_STORAGE_KEY = "yode-project-roots";
 export const PROJECT_ORDER_STORAGE_KEY = "yode-project-order";
@@ -87,7 +88,7 @@ export function dispatchSessionsImported(sessions: SessionSummary[]) {
 }
 
 export function loadStoredSelectedProjectRoot(): string | null | undefined {
-  const raw = localStorage.getItem(SELECTED_PROJECT_ROOT_STORAGE_KEY);
+  const raw = storageReadRaw(SELECTED_PROJECT_ROOT_STORAGE_KEY);
   if (raw === null) return undefined;
   return raw === STANDALONE_PROJECT_SENTINEL ? null : raw;
 }
@@ -153,30 +154,18 @@ export function normalizeProjectEnvironments(projects: ProjectEnvironment[]): Pr
 }
 
 export function loadStoredProjectEnvironments(roots = loadRealProjectRoots()): ProjectEnvironment[] {
-  try {
-    const raw = localStorage.getItem(ENVIRONMENT_PROJECTS_STORAGE_KEY);
-    if (!raw) return mergeProjectEnvironments([], roots);
-    const parsed: unknown = JSON.parse(raw);
-    return mergeProjectEnvironments(Array.isArray(parsed) ? (parsed as ProjectEnvironment[]) : [], roots);
-  } catch {
-    return mergeProjectEnvironments([], roots);
-  }
+  const parsed: unknown = storageReadJson<unknown>(ENVIRONMENT_PROJECTS_STORAGE_KEY, null);
+  return mergeProjectEnvironments(Array.isArray(parsed) ? (parsed as ProjectEnvironment[]) : [], roots);
 }
 
 export function loadStoredStringArray(key: string): string[] {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((value): value is string => typeof value === "string");
-  } catch {
-    return [];
-  }
+  const parsed = storageReadJson<unknown>(key, null);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((value): value is string => typeof value === "string");
 }
 
 export function saveStoredStringArray(key: string, values: string[]) {
-  localStorage.setItem(key, JSON.stringify(Array.from(new Set(values))));
+  storageWriteJson(key, Array.from(new Set(values)));
 }
 
 export function addStoredStringArrayValue(key: string, value: string) {
@@ -210,18 +199,12 @@ export function isArchivedChat(value: unknown): value is ArchivedChatInfo {
 }
 
 export function loadStoredArchivedChats(): ArchivedChatInfo[] {
-  try {
-    const raw = localStorage.getItem(ARCHIVED_CHATS_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed.filter(isArchivedChat) : [];
-  } catch {
-    return [];
-  }
+  const parsed: unknown = storageReadJson<unknown>(ARCHIVED_CHATS_STORAGE_KEY, null);
+  return Array.isArray(parsed) ? parsed.filter(isArchivedChat) : [];
 }
 
 export function saveStoredArchivedChats(chats: ArchivedChatInfo[]) {
-  localStorage.setItem(ARCHIVED_CHATS_STORAGE_KEY, JSON.stringify(chats));
+  storageWriteJson(ARCHIVED_CHATS_STORAGE_KEY, chats);
 }
 
 export function archiveSessionLocally(session: SessionSummary) {
@@ -256,7 +239,7 @@ export function markArchivedSessionDeletedLocally(sessionId: string) {
 
 function loadStoredProjectRootsByKey(key: string): string[] {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = storageReadRaw(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];

@@ -1,3 +1,6 @@
+
+import { storageReadRaw } from "./storageAdapter";
+
 export const SIDEBAR_WIDTH_STORAGE_KEY = "yode-sidebar-width";
 export const INSPECTOR_WIDTH_STORAGE_KEY = "yode-inspector-width";
 export const TERMINAL_HEIGHT_STORAGE_KEY = "yode-terminal-height";
@@ -25,7 +28,7 @@ export function clampNumber(value: number, min: number, max: number) {
 }
 
 export function loadStoredNumber(key: string, fallback: number) {
-  const raw = localStorage.getItem(key);
+  const raw = storageReadRaw(key);
   if (!raw) return fallback;
   const parsed = Number(raw);
   return Number.isFinite(parsed) ? parsed : fallback;

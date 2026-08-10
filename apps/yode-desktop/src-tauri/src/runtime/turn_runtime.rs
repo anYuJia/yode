@@ -23,7 +23,7 @@ use super::{
     DesktopRuntime,
 };
 use crate::hook_settings::build_desktop_hook_manager;
-use crate::protocol::{DesktopEvent, SendMessageRequest, SessionRunState, TurnAccepted};
+use crate::protocol::{SendMessageRequest, SessionRunState, TurnAccepted};
 use crate::session_helpers::title_from_content_or_images;
 
 impl DesktopRuntime {
@@ -280,15 +280,14 @@ impl DesktopRuntime {
                     Ok(db) => db,
                     Err(err) => {
                         tracing::error!("Failed to open database in background thread: {}", err);
-                        let desktop_event = DesktopEvent {
-                            schema_version: 1,
-                            session_id: session_id.clone(),
-                            turn_id: emit_turn_id.clone(),
-                            seq: seq_base,
-                            kind: "error".to_string(),
-                            timestamp: Utc::now().to_rfc3339(),
-                            payload: json!({ "body": err.to_string() }),
-                        };
+                        let desktop_event = super::turn_loop::envelope_to_desktop_event(
+                            &session_id,
+                            &emit_turn_id,
+                            seq_base,
+                            Utc::now().to_rfc3339(),
+                            yode_runtime::DesktopEventKind::Error,
+                            json!({ "body": err.to_string() }),
+                        );
                         emit_desktop_event(&app, desktop_event);
                         // 后台启动失败：释放占位与 token，避免会话被永久判定为运行中
                         release_turn_occupancy(
@@ -325,15 +324,14 @@ impl DesktopRuntime {
                             "Failed to open journal database in background thread: {}",
                             err
                         );
-                        let desktop_event = DesktopEvent {
-                            schema_version: 1,
-                            session_id: session_id.clone(),
-                            turn_id: emit_turn_id.clone(),
-                            seq: seq_base,
-                            kind: "error".to_string(),
-                            timestamp: Utc::now().to_rfc3339(),
-                            payload: json!({ "body": err.to_string() }),
-                        };
+                        let desktop_event = super::turn_loop::envelope_to_desktop_event(
+                            &session_id,
+                            &emit_turn_id,
+                            seq_base,
+                            Utc::now().to_rfc3339(),
+                            yode_runtime::DesktopEventKind::Error,
+                            json!({ "body": err.to_string() }),
+                        );
                         emit_desktop_event(&app, desktop_event);
                         release_turn_occupancy(
                             &active_sessions_clone,

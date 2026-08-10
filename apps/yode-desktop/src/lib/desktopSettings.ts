@@ -1,5 +1,12 @@
 import { invoke } from "@tauri-apps/api/core";
 import { recordFromUnknown } from "./jsonUtils";
+import {
+  storageReadRaw,
+  storageReadString,
+  storageRemoveItem,
+  storageWriteJson,
+  storageWriteString
+} from "./storageAdapter";
 
 export type GeneralSettings = {
   bottomPanel: boolean;
@@ -303,18 +310,21 @@ export async function loadDesktopSetting<T>(key: string, fallback: T): Promise<T
       console.error(err);
     }
   }
+  const raw = storageReadRaw(key);
+  if (raw === null) return fallback;
   try {
-    const raw = localStorage.getItem(key);
-    if (raw === null) return fallback;
     return JSON.parse(raw) as T;
   } catch {
-    const raw = localStorage.getItem(key);
-    return (raw === null ? fallback : (raw as T));
+    return raw as T;
   }
 }
 
 export async function saveDesktopSetting<T>(key: string, value: T): Promise<void> {
-  localStorage.setItem(key, typeof value === "string" ? value : JSON.stringify(value));
+  if (typeof value === "string") {
+    storageWriteString(key, value);
+  } else {
+    storageWriteJson(key, value);
+  }
   if (!isTauriRuntime()) return;
   try {
     await invoke("desktop_setting_set", { request: { key, value } });
@@ -339,51 +349,51 @@ export function loadGeneralSettings(): GeneralSettings {
 }
 
 export function loadGeneralSettingsPayload(): GeneralSettingsPayload {
-  const followUpBehavior = localStorage.getItem("yode-follow-up-behavior");
+  const followUpBehavior = storageReadRaw("yode-follow-up-behavior");
   return {
-    workMode: localStorage.getItem("yode-work-mode") || "coding",
-    defaultFilePermission: localStorage.getItem("yode-def-perm") !== "false",
-    autoReview: localStorage.getItem("yode-auto-review") !== "false",
-    fullAccess: localStorage.getItem("yode-full-access") !== "false",
-    openDestination: localStorage.getItem("yode-open-dest") || "VS Code",
-    showInMenuBar: localStorage.getItem("yode-show-menu-bar") !== "false",
-    bottomPanel: localStorage.getItem("yode-bottom-panel") !== "false",
-    terminalLocation: localStorage.getItem("yode-term-loc") || "bottom",
-    preventSleep: localStorage.getItem("yode-prevent-sleep") === "true",
-    codeReviewPolicy: localStorage.getItem("yode-code-review-policy") || "inline",
-    suggestedPrompts: localStorage.getItem("yode-suggested-prompts") !== "false",
-    contextUsage: localStorage.getItem("yode-context-usage") === "true",
+    workMode: storageReadString("yode-work-mode", "coding"),
+    defaultFilePermission: storageReadString("yode-def-perm", "true") !== "false",
+    autoReview: storageReadString("yode-auto-review", "true") !== "false",
+    fullAccess: storageReadString("yode-full-access", "true") !== "false",
+    openDestination: storageReadString("yode-open-dest", "VS Code"),
+    showInMenuBar: storageReadString("yode-show-menu-bar", "true") !== "false",
+    bottomPanel: storageReadString("yode-bottom-panel", "true") !== "false",
+    terminalLocation: storageReadString("yode-term-loc", "bottom"),
+    preventSleep: storageReadString("yode-prevent-sleep", "false") === "true",
+    codeReviewPolicy: storageReadString("yode-code-review-policy", "inline"),
+    suggestedPrompts: storageReadString("yode-suggested-prompts", "true") !== "false",
+    contextUsage: storageReadString("yode-context-usage", "false") === "true",
     // 当前运行时不支持向进行中的 turn 注入消息；旧版 "steer" 设置必须诚实回退。
     followUpBehavior: followUpBehavior === "steer" ? "queue" : (followUpBehavior || "queue"),
-    requireOptEnter: localStorage.getItem("yode-require-opt-enter") === "true",
-    completionNotification: localStorage.getItem("yode-completion-notif") || "Only when unfocused",
-    permissionNotification: localStorage.getItem("yode-perm-notif") !== "false",
-    questionNotification: localStorage.getItem("yode-question-notif") !== "false"
+    requireOptEnter: storageReadString("yode-require-opt-enter", "false") === "true",
+    completionNotification: storageReadString("yode-completion-notif", "Only when unfocused"),
+    permissionNotification: storageReadString("yode-perm-notif", "true") !== "false",
+    questionNotification: storageReadString("yode-question-notif", "true") !== "false"
   };
 }
 
 export function loadConfigurationSettings(): ConfigurationSettings {
   return {
-    scope: localStorage.getItem(CONFIGURATION_STORAGE_KEYS.scope) || "User config",
-    approvalPolicy: localStorage.getItem(CONFIGURATION_STORAGE_KEYS.approvalPolicy) || "On request",
-    sandboxSettings: localStorage.getItem(CONFIGURATION_STORAGE_KEYS.sandboxSettings) || "Read only",
-    exposeDependencies: localStorage.getItem(CONFIGURATION_STORAGE_KEYS.exposeDependencies) !== "false"
+    scope: storageReadString(CONFIGURATION_STORAGE_KEYS.scope, "User config"),
+    approvalPolicy: storageReadString(CONFIGURATION_STORAGE_KEYS.approvalPolicy, "On request"),
+    sandboxSettings: storageReadString(CONFIGURATION_STORAGE_KEYS.sandboxSettings, "Read only"),
+    exposeDependencies: storageReadString(CONFIGURATION_STORAGE_KEYS.exposeDependencies, "true") !== "false"
   };
 }
 
 export function saveConfigurationSettings(settings: ConfigurationSettings): void {
-  localStorage.setItem(CONFIGURATION_STORAGE_KEYS.scope, settings.scope);
-  localStorage.setItem(CONFIGURATION_STORAGE_KEYS.approvalPolicy, settings.approvalPolicy);
-  localStorage.setItem(CONFIGURATION_STORAGE_KEYS.sandboxSettings, settings.sandboxSettings);
-  localStorage.setItem(CONFIGURATION_STORAGE_KEYS.exposeDependencies, String(settings.exposeDependencies));
+  storageWriteString(CONFIGURATION_STORAGE_KEYS.scope, settings.scope);
+  storageWriteString(CONFIGURATION_STORAGE_KEYS.approvalPolicy, settings.approvalPolicy);
+  storageWriteString(CONFIGURATION_STORAGE_KEYS.sandboxSettings, settings.sandboxSettings);
+  storageWriteString(CONFIGURATION_STORAGE_KEYS.exposeDependencies, String(settings.exposeDependencies));
 }
 
 export function loadWorktreesSettings(): WorktreesSettings {
   return {
-    baseDir: localStorage.getItem(WORKTREES_STORAGE_KEYS.baseDir) || "~/.yode/worktrees",
-    autoDeleteOnSessionEnd: localStorage.getItem(WORKTREES_STORAGE_KEYS.autoDeleteOnSessionEnd) !== "false",
-    preserveUncommitted: localStorage.getItem(WORKTREES_STORAGE_KEYS.preserveUncommitted) !== "false",
-    cleanUnusedCache: localStorage.getItem(WORKTREES_STORAGE_KEYS.cleanUnusedCache) === "true"
+    baseDir: storageReadString(WORKTREES_STORAGE_KEYS.baseDir, "~/.yode/worktrees"),
+    autoDeleteOnSessionEnd: storageReadString(WORKTREES_STORAGE_KEYS.autoDeleteOnSessionEnd, "true") !== "false",
+    preserveUncommitted: storageReadString(WORKTREES_STORAGE_KEYS.preserveUncommitted, "true") !== "false",
+    cleanUnusedCache: storageReadString(WORKTREES_STORAGE_KEYS.cleanUnusedCache, "false") === "true"
   };
 }
 
@@ -411,15 +421,15 @@ export function saveWorktreesSetting<K extends keyof WorktreesSettings>(
 
 export function loadGitSettings(): GitSettings {
   return {
-    branchPrefix: localStorage.getItem(GIT_STORAGE_KEYS.branchPrefix) || DEFAULT_GIT_SETTINGS.branchPrefix,
-    mergeMethod: localStorage.getItem(GIT_STORAGE_KEYS.mergeMethod) || DEFAULT_GIT_SETTINGS.mergeMethod,
-    showPrIcons: localStorage.getItem(GIT_STORAGE_KEYS.showPrIcons) !== "false",
-    alwaysForcePush: localStorage.getItem(GIT_STORAGE_KEYS.alwaysForcePush) === "true",
-    createDraftPrs: localStorage.getItem(GIT_STORAGE_KEYS.createDraftPrs) !== "false",
-    autoDeleteWorktrees: localStorage.getItem(GIT_STORAGE_KEYS.autoDeleteWorktrees) !== "false",
-    autoDeleteLimit: Number(localStorage.getItem(GIT_STORAGE_KEYS.autoDeleteLimit) || DEFAULT_GIT_SETTINGS.autoDeleteLimit),
-    commitInstructions: localStorage.getItem(GIT_STORAGE_KEYS.commitInstructions) || DEFAULT_GIT_SETTINGS.commitInstructions,
-    prInstructions: localStorage.getItem(GIT_STORAGE_KEYS.prInstructions) || DEFAULT_GIT_SETTINGS.prInstructions
+    branchPrefix: storageReadString(GIT_STORAGE_KEYS.branchPrefix, DEFAULT_GIT_SETTINGS.branchPrefix),
+    mergeMethod: storageReadString(GIT_STORAGE_KEYS.mergeMethod, DEFAULT_GIT_SETTINGS.mergeMethod),
+    showPrIcons: storageReadString(GIT_STORAGE_KEYS.showPrIcons, "true") !== "false",
+    alwaysForcePush: storageReadString(GIT_STORAGE_KEYS.alwaysForcePush, "false") === "true",
+    createDraftPrs: storageReadString(GIT_STORAGE_KEYS.createDraftPrs, "true") !== "false",
+    autoDeleteWorktrees: storageReadString(GIT_STORAGE_KEYS.autoDeleteWorktrees, "true") !== "false",
+    autoDeleteLimit: Number(storageReadString(GIT_STORAGE_KEYS.autoDeleteLimit, String(DEFAULT_GIT_SETTINGS.autoDeleteLimit))),
+    commitInstructions: storageReadString(GIT_STORAGE_KEYS.commitInstructions, DEFAULT_GIT_SETTINGS.commitInstructions),
+    prInstructions: storageReadString(GIT_STORAGE_KEYS.prInstructions, DEFAULT_GIT_SETTINGS.prInstructions)
   };
 }
 
@@ -438,20 +448,20 @@ export async function loadPersistedGitSettings(fallback = DEFAULT_GIT_SETTINGS):
 }
 
 export function saveGitSettings(settings: GitSettings): void {
-  localStorage.setItem(GIT_STORAGE_KEYS.branchPrefix, settings.branchPrefix);
-  localStorage.setItem(GIT_STORAGE_KEYS.mergeMethod, settings.mergeMethod);
-  localStorage.setItem(GIT_STORAGE_KEYS.showPrIcons, JSON.stringify(settings.showPrIcons));
-  localStorage.setItem(GIT_STORAGE_KEYS.alwaysForcePush, JSON.stringify(settings.alwaysForcePush));
-  localStorage.setItem(GIT_STORAGE_KEYS.createDraftPrs, JSON.stringify(settings.createDraftPrs));
-  localStorage.setItem(GIT_STORAGE_KEYS.autoDeleteWorktrees, JSON.stringify(settings.autoDeleteWorktrees));
-  localStorage.setItem(GIT_STORAGE_KEYS.autoDeleteLimit, JSON.stringify(settings.autoDeleteLimit));
-  localStorage.setItem(GIT_STORAGE_KEYS.commitInstructions, settings.commitInstructions);
-  localStorage.setItem(GIT_STORAGE_KEYS.prInstructions, settings.prInstructions);
+  storageWriteString(GIT_STORAGE_KEYS.branchPrefix, settings.branchPrefix);
+  storageWriteString(GIT_STORAGE_KEYS.mergeMethod, settings.mergeMethod);
+  storageWriteString(GIT_STORAGE_KEYS.showPrIcons, JSON.stringify(settings.showPrIcons));
+  storageWriteString(GIT_STORAGE_KEYS.alwaysForcePush, JSON.stringify(settings.alwaysForcePush));
+  storageWriteString(GIT_STORAGE_KEYS.createDraftPrs, JSON.stringify(settings.createDraftPrs));
+  storageWriteString(GIT_STORAGE_KEYS.autoDeleteWorktrees, JSON.stringify(settings.autoDeleteWorktrees));
+  storageWriteString(GIT_STORAGE_KEYS.autoDeleteLimit, JSON.stringify(settings.autoDeleteLimit));
+  storageWriteString(GIT_STORAGE_KEYS.commitInstructions, settings.commitInstructions);
+  storageWriteString(GIT_STORAGE_KEYS.prInstructions, settings.prInstructions);
 }
 
 function loadStoredStringArray(key: string): string[] {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = storageReadRaw(key);
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : [];
@@ -462,10 +472,10 @@ function loadStoredStringArray(key: string): string[] {
 
 export function loadBrowserSettings(): BrowserSettings {
   return {
-    enabled: localStorage.getItem(BROWSER_STORAGE_KEYS.enabled) !== "false",
+    enabled: storageReadString(BROWSER_STORAGE_KEYS.enabled, "true") !== "false",
     annotationScreenshots:
-      localStorage.getItem(BROWSER_STORAGE_KEYS.annotationScreenshots) || DEFAULT_BROWSER_SETTINGS.annotationScreenshots,
-    approvalPolicy: localStorage.getItem(BROWSER_STORAGE_KEYS.approvalPolicy) || DEFAULT_BROWSER_SETTINGS.approvalPolicy,
+      storageReadString(BROWSER_STORAGE_KEYS.annotationScreenshots, DEFAULT_BROWSER_SETTINGS.annotationScreenshots),
+    approvalPolicy: storageReadString(BROWSER_STORAGE_KEYS.approvalPolicy, DEFAULT_BROWSER_SETTINGS.approvalPolicy),
     blockedDomains: loadStoredStringArray(BROWSER_STORAGE_KEYS.blockedDomains),
     allowedDomains: loadStoredStringArray(BROWSER_STORAGE_KEYS.allowedDomains)
   };
@@ -485,22 +495,22 @@ export async function loadPersistedBrowserSettings(fallback = DEFAULT_BROWSER_SE
 }
 
 export function saveBrowserSettings(settings: BrowserSettings): void {
-  localStorage.setItem(BROWSER_STORAGE_KEYS.enabled, JSON.stringify(settings.enabled));
-  localStorage.setItem(BROWSER_STORAGE_KEYS.annotationScreenshots, settings.annotationScreenshots);
-  localStorage.setItem(BROWSER_STORAGE_KEYS.approvalPolicy, settings.approvalPolicy);
-  localStorage.setItem(BROWSER_STORAGE_KEYS.blockedDomains, JSON.stringify(settings.blockedDomains));
-  localStorage.setItem(BROWSER_STORAGE_KEYS.allowedDomains, JSON.stringify(settings.allowedDomains));
+  storageWriteString(BROWSER_STORAGE_KEYS.enabled, JSON.stringify(settings.enabled));
+  storageWriteString(BROWSER_STORAGE_KEYS.annotationScreenshots, settings.annotationScreenshots);
+  storageWriteString(BROWSER_STORAGE_KEYS.approvalPolicy, settings.approvalPolicy);
+  storageWriteString(BROWSER_STORAGE_KEYS.blockedDomains, JSON.stringify(settings.blockedDomains));
+  storageWriteString(BROWSER_STORAGE_KEYS.allowedDomains, JSON.stringify(settings.allowedDomains));
 }
 
 export function loadPersonalizationSettings(): PersonalizationSettings {
   return {
     personality:
-      localStorage.getItem(PERSONALIZATION_STORAGE_KEYS.personality) || DEFAULT_PERSONALIZATION_SETTINGS.personality,
+      storageReadString(PERSONALIZATION_STORAGE_KEYS.personality, DEFAULT_PERSONALIZATION_SETTINGS.personality),
     customInstructions:
-      localStorage.getItem(PERSONALIZATION_STORAGE_KEYS.customInstructions) ||
+      storageReadRaw(PERSONALIZATION_STORAGE_KEYS.customInstructions) ||
       DEFAULT_PERSONALIZATION_SETTINGS.customInstructions,
-    enableMemories: localStorage.getItem(PERSONALIZATION_STORAGE_KEYS.enableMemories) === "true",
-    skipToolChats: localStorage.getItem(PERSONALIZATION_STORAGE_KEYS.skipToolChats) === "true"
+    enableMemories: storageReadString(PERSONALIZATION_STORAGE_KEYS.enableMemories, "false") === "true",
+    skipToolChats: storageReadString(PERSONALIZATION_STORAGE_KEYS.skipToolChats, "false") === "true"
   };
 }
 
@@ -519,10 +529,10 @@ export async function loadPersistedPersonalizationSettings(
 }
 
 export function savePersonalizationSettings(settings: PersonalizationSettings): void {
-  localStorage.setItem(PERSONALIZATION_STORAGE_KEYS.personality, settings.personality);
-  localStorage.setItem(PERSONALIZATION_STORAGE_KEYS.customInstructions, settings.customInstructions);
-  localStorage.setItem(PERSONALIZATION_STORAGE_KEYS.enableMemories, String(settings.enableMemories));
-  localStorage.setItem(PERSONALIZATION_STORAGE_KEYS.skipToolChats, String(settings.skipToolChats));
+  storageWriteString(PERSONALIZATION_STORAGE_KEYS.personality, settings.personality);
+  storageWriteString(PERSONALIZATION_STORAGE_KEYS.customInstructions, settings.customInstructions);
+  storageWriteString(PERSONALIZATION_STORAGE_KEYS.enableMemories, String(settings.enableMemories));
+  storageWriteString(PERSONALIZATION_STORAGE_KEYS.skipToolChats, String(settings.skipToolChats));
 }
 
 export function savePersonalizationSetting<K extends keyof PersonalizationSettings>(
@@ -540,8 +550,8 @@ function normalizeInstallStatus(value: string | null): InstallStatus {
 
 export function loadComputerUseSettings(): ComputerUseSettings {
   return {
-    anyAppStatus: normalizeInstallStatus(localStorage.getItem(COMPUTER_USE_STORAGE_KEYS.anyAppStatus)),
-    chromeStatus: normalizeInstallStatus(localStorage.getItem(COMPUTER_USE_STORAGE_KEYS.chromeStatus)),
+    anyAppStatus: normalizeInstallStatus(storageReadRaw(COMPUTER_USE_STORAGE_KEYS.anyAppStatus)),
+    chromeStatus: normalizeInstallStatus(storageReadRaw(COMPUTER_USE_STORAGE_KEYS.chromeStatus)),
     allowedApps: loadStoredStringArray(COMPUTER_USE_STORAGE_KEYS.allowedApps)
   };
 }
@@ -557,9 +567,9 @@ export async function loadPersistedComputerUseSettings(
 }
 
 export function saveComputerUseSettings(settings: ComputerUseSettings): void {
-  localStorage.setItem(COMPUTER_USE_STORAGE_KEYS.anyAppStatus, settings.anyAppStatus);
-  localStorage.setItem(COMPUTER_USE_STORAGE_KEYS.chromeStatus, settings.chromeStatus);
-  localStorage.setItem(COMPUTER_USE_STORAGE_KEYS.allowedApps, JSON.stringify(settings.allowedApps));
+  storageWriteString(COMPUTER_USE_STORAGE_KEYS.anyAppStatus, settings.anyAppStatus);
+  storageWriteString(COMPUTER_USE_STORAGE_KEYS.chromeStatus, settings.chromeStatus);
+  storageWriteString(COMPUTER_USE_STORAGE_KEYS.allowedApps, JSON.stringify(settings.allowedApps));
 }
 
 export function normalizeHookEntry(raw: unknown): HookEntry | null {
@@ -589,7 +599,7 @@ export function normalizeHooks(list: unknown): HookEntry[] {
 
 function loadStoredHooks(): HookEntry[] {
   try {
-    const raw = localStorage.getItem(HOOKS_STORAGE_KEYS.hooks);
+    const raw = storageReadRaw(HOOKS_STORAGE_KEYS.hooks);
     if (!raw) return DEFAULT_HOOKS;
     const hooks = normalizeHooks(JSON.parse(raw));
     return hooks.length > 0 ? hooks : DEFAULT_HOOKS;
@@ -600,7 +610,7 @@ function loadStoredHooks(): HookEntry[] {
 
 export function loadHooksSettings(): HooksSettings {
   return {
-    enabled: localStorage.getItem(HOOKS_STORAGE_KEYS.enabled) !== "false",
+    enabled: storageReadString(HOOKS_STORAGE_KEYS.enabled, "true") !== "false",
     hooks: loadStoredHooks()
   };
 }
@@ -615,8 +625,8 @@ export async function loadPersistedHooksSettings(fallback = DEFAULT_HOOKS_SETTIN
 }
 
 export function saveHooksSettings(settings: HooksSettings): void {
-  localStorage.setItem(HOOKS_STORAGE_KEYS.enabled, JSON.stringify(settings.enabled));
-  localStorage.setItem(HOOKS_STORAGE_KEYS.hooks, JSON.stringify(normalizeHooks(settings.hooks)));
+  storageWriteString(HOOKS_STORAGE_KEYS.enabled, JSON.stringify(settings.enabled));
+  storageWriteString(HOOKS_STORAGE_KEYS.hooks, JSON.stringify(normalizeHooks(settings.hooks)));
 }
 
 export function isMcpTransport(value: string): value is McpTransport {
@@ -689,9 +699,9 @@ export function normalizeMcpServers(list: unknown): McpServer[] {
 
 export function loadMcpServers(): McpServer[] {
   try {
-    const raw = localStorage.getItem(MCP_STORAGE_KEYS.servers);
+    const raw = storageReadRaw(MCP_STORAGE_KEYS.servers);
     // 该键属于旧版本，不能继续在浏览器存储中保留潜在密钥。
-    localStorage.removeItem?.(MCP_STORAGE_KEYS.servers);
+    storageRemoveItem(MCP_STORAGE_KEYS.servers);
     if (!raw) return DEFAULT_MCP_SERVERS;
     const servers = normalizeMcpServers(JSON.parse(raw));
     if (servers.length > 0) {
@@ -712,17 +722,17 @@ export async function loadPersistedMcpServers(fallback = DEFAULT_MCP_SERVERS): P
 export function saveMcpServers(servers: McpServer[]): void {
   // MCP 配置可能包含令牌。配置只由桌面后端持久化，WebView 不写入 localStorage。
   void servers;
-  localStorage.removeItem?.(MCP_STORAGE_KEYS.servers);
+  storageRemoveItem(MCP_STORAGE_KEYS.servers);
 }
 
 export function savePersistedMcpServers(servers: McpServer[]): Promise<void> {
   void servers;
-  localStorage.removeItem?.(MCP_STORAGE_KEYS.servers);
+  storageRemoveItem(MCP_STORAGE_KEYS.servers);
   return Promise.resolve();
 }
 
 export function saveGeneralSettingValue(key: string, value: string | boolean) {
-  localStorage.setItem(key, String(value));
+  storageWriteString(key, String(value));
   window.dispatchEvent(
     new CustomEvent<GeneralSettingsChangeDetail>(GENERAL_SETTINGS_CHANGE_EVENT, {
       detail: { key, value, payload: loadGeneralSettingsPayload() }
@@ -740,7 +750,7 @@ export async function applyGeneralSettings(): Promise<void> {
 }
 
 export function toggleBottomPanelSetting() {
-  const next = localStorage.getItem("yode-bottom-panel") === "false";
+  const next = storageReadRaw("yode-bottom-panel") === "false";
   saveGeneralSettingValue("yode-bottom-panel", next);
   return next;
 }

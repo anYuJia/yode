@@ -52,6 +52,23 @@ export function storageWriteString(key: string, value: string): void {
 }
 
 /**
+ * 原始读取：需要区分「键缺失（null）」与「空字符串」的旧逻辑使用。
+ * 普通读取优先使用 `storageReadString` / `storageReadJson`。
+ */
+export function storageReadRaw(key: string): string | null {
+  return localStorage.getItem(key);
+}
+
+/** 删除键（旧版清理逻辑迁移用）。 */
+export function storageRemoveItem(key: string): void {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // 忽略清理失败
+  }
+}
+
+/**
  * 执行 localStorage 迁移。每个 key 只迁移一次：迁移完成后写入
  * `yode-storage-migrations` 标记集合，后续调用跳过已迁移的 key。
  * 返回本次执行的迁移数量。

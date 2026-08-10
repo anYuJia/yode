@@ -190,6 +190,23 @@ pub struct DesktopEvent {
     pub payload: Value,
 }
 
+/// 线上线型与 yode-runtime 统一事件信封的唯一转换点：
+/// 事件构造只允许经 `DesktopEventEnvelope::new`（强类型 kind），
+/// 这里仅做字段平铺，不再允许在运行时散落构造裸事件。
+impl From<yode_runtime::DesktopEventEnvelope> for DesktopEvent {
+    fn from(envelope: yode_runtime::DesktopEventEnvelope) -> Self {
+        Self {
+            schema_version: envelope.schema_version,
+            session_id: envelope.session_id,
+            turn_id: envelope.turn_id,
+            seq: envelope.seq,
+            kind: envelope.kind.as_str().to_string(),
+            timestamp: envelope.timestamp,
+            payload: envelope.payload,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeState {

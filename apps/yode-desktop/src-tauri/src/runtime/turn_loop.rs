@@ -8,7 +8,8 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use yode_core::db::{Database, TurnEvent, TurnState};
 use yode_core::engine::EngineEvent;
 use yode_runtime::{
-    engine_event_to_runtime_parts, run_status_for_event_kind, DesktopEventKind, DesktopEventPayload,
+    engine_event_to_runtime_parts, run_status_for_event_kind, DesktopEventEnvelope,
+    DesktopEventKind, DesktopEventPayload,
 };
 use yode_tools::tool::UserQuery;
 
@@ -27,11 +28,10 @@ type AskUserSenderMap = Arc<Mutex<HashMap<TurnKey, tokio::sync::mpsc::UnboundedS
 pub(super) type CancelTokenMap = Arc<Mutex<HashMap<TurnKey, tokio_util::sync::CancellationToken>>>;
 type PendingConfirmationMap = Arc<Mutex<HashMap<TurnKey, PendingConfirmation>>>;
 
-/// 事件信封 → 前端可见事件：兼容旧字段（kind 字符串 + payload 对象），
-/// 并携带稳定 schemaVersion。payload 落盘前由 DB 层统一脱敏。
-const EVENT_SCHEMA_VERSION: u32 = 1;
-
-fn envelope_to_desktop_event(
+/// 事件信封 → 前端可见事件：经 `DesktopEventEnvelope::new` 统一构造
+/// （强类型 kind + 稳定 schemaVersion），再平铺为线上线型。
+/// payload 落盘前由 DB 层统一脱敏。
+pub(super) fn envelope_to_desktop_event(
     session_id: &str,
     turn_id: &str,
     seq: u64,
@@ -39,15 +39,7 @@ fn envelope_to_desktop_event(
     kind: DesktopEventKind,
     payload: serde_json::Value,
 ) -> DesktopEvent {
-    DesktopEvent {
-        schema_version: EVENT_SCHEMA_VERSION,
-        session_id: session_id.to_string(),
-        turn_id: turn_id.to_string(),
-        seq,
-        kind: kind.as_str().to_string(),
-        timestamp,
-        payload,
-    }
+    DesktopEventEnvelope::new(session_id, turn_id, seq, timestamp, kind, payload).into()
 }
 
 /// 在事件写入的同一临界区内同步持久化 turn 状态（数据库为事实来源，

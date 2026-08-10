@@ -472,6 +472,7 @@ pub struct PendingConfirmationParts {
 }
 
 /// 统一事件信封：schemaVersion 稳定，老字段继续输出，新字段只增不改。
+/// 事件信封的唯一构造入口：kind 必须来自 `DesktopEventKind`（不允许裸字符串）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopEventEnvelope {
@@ -485,6 +486,25 @@ pub struct DesktopEventEnvelope {
 }
 
 impl DesktopEventEnvelope {
+    pub fn new(
+        session_id: impl Into<String>,
+        turn_id: impl Into<String>,
+        seq: u64,
+        timestamp: String,
+        kind: DesktopEventKind,
+        payload: Value,
+    ) -> Self {
+        Self {
+            schema_version: 1,
+            session_id: session_id.into(),
+            turn_id: turn_id.into(),
+            seq,
+            timestamp,
+            kind,
+            payload,
+        }
+    }
+
     /// 序列化为前端可见的完整 JSON（含 payload 强类型字段）。
     pub fn to_value(&self) -> Value {
         serde_json::to_value(self).unwrap_or_else(|_| json!({ "serialize_error": true }))

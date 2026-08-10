@@ -309,9 +309,17 @@ export function ChatWorkspace({
       nextMetrics,
       shouldStickToBottomRef.current
     );
+    const previousScrollTop = lastScrollTopRef.current;
     lastScrollTopRef.current = panel.scrollTop;
-    // 向上翻页：接近顶部且还有更早消息时加载更早窗口（幂等由调用方保证）
-    if (panel.scrollTop <= 60 && hasMoreHistory && !historyLoading) {
+    // 向上翻页：只有「从更下方滚动到接近顶部」才触发加载更早窗口。
+    // 初始加载时 scrollTop 为 0（或自动滚到底部前的瞬时值），不能算用户翻页，
+    // 否则首次打开就会把整个历史一次性加载完，分页形同虚设。
+    if (
+      panel.scrollTop <= 60 &&
+      previousScrollTop > 60 &&
+      hasMoreHistory &&
+      !historyLoading
+    ) {
       onLoadOlderHistory();
     }
   };
