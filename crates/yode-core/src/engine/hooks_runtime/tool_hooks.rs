@@ -128,11 +128,12 @@ impl AgentEngine {
             return (None, None);
         }
         let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
-        let short_session = self.context.session_id.chars().take(8).collect::<String>();
-        let summary_path = dir.join(format!("{}-{}-hook-deferred.md", stamp, short_session));
+        let session_token =
+            crate::session_artifact::session_artifact_token(&self.context.session_id);
+        let summary_path = dir.join(format!("{}-{}-hook-deferred.md", session_token, stamp));
         let state_path = dir.join(format!(
             "{}-{}-hook-deferred-state.json",
-            stamp, short_session
+            session_token, stamp
         ));
         let payload = json!({
             "kind": "hook_deferred_tool_call",
@@ -150,7 +151,8 @@ impl AgentEngine {
             "resume_hint": format!("Retry tool '{}' after completing the deferred external action.", tool_name),
         });
         let summary = format!(
-            "# Hook Deferred Tool Call\n\n- Tool: {}\n- Working dir: {}\n- Reason: {}\n- Source hook: {}\n- Resume hint: Retry tool `{}` after the deferred external action completes.\n- State artifact: {}\n",
+            "# Hook Deferred Tool Call\n\n- Session: {}\n- Tool: {}\n- Working dir: {}\n- Reason: {}\n- Source hook: {}\n- Resume hint: Retry tool `{}` after the deferred external action completes.\n- State artifact: {}\n",
+            self.context.session_id,
             tool_name,
             working_dir,
             reason,
@@ -158,19 +160,21 @@ impl AgentEngine {
             tool_name,
             state_path.display(),
         );
-        let summary_ok = match tokio::fs::write(&summary_path, summary).await {
-            Ok(()) => true,
-            Err(err) => {
-                tracing::warn!(
-                    "Failed to write hook defer summary artifact {}: {}",
-                    summary_path.display(),
-                    err
-                );
-                false
-            }
-        };
+        let summary_ok =
+            match crate::session_artifact::atomic_write_async(&summary_path, &summary).await {
+                Ok(()) => true,
+                Err(err) => {
+                    tracing::warn!(
+                        "Failed to write hook defer summary artifact {}: {}",
+                        summary_path.display(),
+                        err
+                    );
+                    false
+                }
+            };
         let state_ok = match serde_json::to_string_pretty(&payload) {
-            Ok(body) => match tokio::fs::write(&state_path, body).await {
+            Ok(body) => match crate::session_artifact::atomic_write_async(&state_path, &body).await
+            {
                 Ok(()) => true,
                 Err(err) => {
                     tracing::warn!(
@@ -310,7 +314,8 @@ impl AgentEngine {
         if !combined.is_empty() {
             let message = format!("[{}]\n{}", banner, combined);
             self.messages.push(Message::system(&message));
-            self.persist_message("system", Some(&message), None, None, None);
+            let persisted_id = self.persist_message("system", Some(&message), None, None, None);
+            self.attach_last_persisted_id(persisted_id);
         }
 
         self.append_hook_wake_notifications_as_system_message();

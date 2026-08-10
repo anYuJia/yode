@@ -250,7 +250,9 @@ export function groupEditSummaryItems(items: TimelineItem[]): TimelineItem[] {
 // ─── compileInlineItems 按 turn 缓存 ────────────────────────────────────────
 // 流式输出时只有活动 turn 的条目变化；历史 turn 的输入对象引用稳定，
 // 缓存其编译结果（结构共享）可让 React.memo 跳过历史节点重渲染。
-const COMPILE_CACHE_MAX = 24;
+// 长会话中历史 turn 远多于 24；扩展有界缓存并在命中时提升为最近使用，
+// 避免活动 turn 的更新把历史编译结果每帧全部淘汰。
+const COMPILE_CACHE_MAX = 256;
 const compileCache = new Map<string, TimelineItem[]>();
 
 function compileFingerprint(items: TimelineItem[], isTurnActive: boolean, appLang: string) {
@@ -262,7 +264,9 @@ function compileFingerprint(items: TimelineItem[], isTurnActive: boolean, appLan
     const meta = "meta" in item ? item.meta || "" : "";
     let metadataLength = 0;
     if ("metadata" in item && item.metadata != null) {
-      metadataLength = JSON.stringify(item.metadata).length;
+      metadataLength = typeof item.metadata === "object"
+        ? Object.keys(item.metadata as object).length
+        : 1;
     }
     fingerprint += `|${item.id}:${item.kind}:${body}:${result}:${status}:${meta}:${metadataLength}`;
   }
@@ -276,7 +280,11 @@ function compileInlineItemsCached(
 ): TimelineItem[] {
   const key = compileFingerprint(items, Boolean(isTurnActive), appLang);
   const cached = compileCache.get(key);
-  if (cached) return cached;
+  if (cached) {
+    compileCache.delete(key);
+    compileCache.set(key, cached);
+    return cached;
+  }
   const compiled = compileInlineItemsUncached(items, isTurnActive, appLang);
   if (compileCache.size >= COMPILE_CACHE_MAX) {
     const oldest = compileCache.keys().next().value;
@@ -1484,4 +1492,17 @@ export function messagesToTimelineItems(messages: DesktopMessage[]): TimelineIte
   });
 
   return items;
+}
+
+/**
+ * 历史分页前置合并：把更早窗口的时间线项前置到现有时间线。
+ * 幂等去重（按 item.id），不丢失消息顺序；返回原数组引用时不产生新数组。
+ */
+export function mergeOlderTimelineItems(
+  items: TimelineItem[],
+  older: TimelineItem[]
+): TimelineItem[] {
+  const existing = new Set(items.map((item) => item.id));
+  const fresh = older.filter((item) => !existing.has(item.id));
+  return fresh.length === 0 ? items : [...fresh, ...items];
 }

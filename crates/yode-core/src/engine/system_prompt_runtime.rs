@@ -101,7 +101,7 @@ impl AgentEngine {
         }
 
         if context.project_memory_enabled {
-            if let Some(memory_content) = load_memory_context(&cwd) {
+            if let Some(memory_content) = load_memory_context(&cwd, &context.session_id) {
                 push_segment("Persistent memory", memory_content);
             }
         }

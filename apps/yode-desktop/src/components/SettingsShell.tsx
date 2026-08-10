@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import {
   Settings,
   Eye,
@@ -19,7 +19,16 @@ import {
   ArrowLeft,
   Search
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { Bootstrap } from "../lib/desktopTypes";
+
+import {
+  DesktopSettingsStatus,
+  isTauriRuntime,
+  loadDesktopSettingsStatus,
+  restoreDesktopSettings
+} from "../lib/desktopSettings";
+import { SettingsFileWarning } from "./SettingsFileWarning";
 
 import {
   AppearanceSettings,
@@ -76,6 +85,39 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
 
   const t = (zhText: string, enText: string) => {
     return isZh ? zhText : enText;
+  };
+
+  // 桌面设置文件加载状态：损坏/不可读时设置页必须明确提示并提供可访问操作。
+  const [settingsFileStatus, setSettingsFileStatus] = useState<DesktopSettingsStatus | null>(null);
+
+  const refreshSettingsFileStatus = useCallback(async () => {
+    if (!isTauriRuntime()) return;
+    setSettingsFileStatus(await loadDesktopSettingsStatus());
+  }, []);
+
+  useEffect(() => {
+    void refreshSettingsFileStatus();
+  }, [refreshSettingsFileStatus]);
+
+  const handleOpenSettingsFile = () => {
+    if (!settingsFileStatus) return;
+    void invoke("open_target", {
+      request: { target: null, path: settingsFileStatus.path }
+    }).catch((err) => console.error(err));
+  };
+
+  const handleRestoreSettingsFile = async () => {
+    const confirmed = window.confirm(
+      t(
+        "恢复默认设置会将当前损坏的设置文件备份为 .bak 文件，并生成一份全新的空配置。确定继续吗？",
+        "Restoring defaults will back up the corrupted settings file as a .bak file and create a fresh empty configuration. Continue?"
+      )
+    );
+    if (!confirmed) return;
+    const restored = await restoreDesktopSettings();
+    if (restored && restored.loaded) {
+      await refreshSettingsFileStatus();
+    }
   };
 
   useEffect(() => {
@@ -315,6 +357,13 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
         title={t("拖动调整设置侧边栏宽度", "Drag to resize settings sidebar")}
       />
       <section className="settings-content" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <SettingsFileWarning
+          status={settingsFileStatus ?? { loaded: true, path: "" }}
+          isZh={isZh}
+          onOpenFile={handleOpenSettingsFile}
+          onRetry={() => void refreshSettingsFileStatus()}
+          onRestore={() => void handleRestoreSettingsFile()}
+        />
         <div style={{ width: "100%", maxWidth: "720px" }}>
           <div className="settings-heading" style={{ marginBottom: "24px", paddingTop: "8px" }}>
             <div>

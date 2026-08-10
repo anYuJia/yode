@@ -134,7 +134,7 @@ export const TimelineNode = React.memo(function TimelineNode({ item, appLang, is
           paddingLeft: "33px",
         }}
       >
-        <MarkdownContent text={item.body} variant="process" appLang={appLang} />
+        <MarkdownContent text={item.body} variant="process" appLang={appLang} streaming={item.meta === "streaming"} />
       </div>
     );
   }
@@ -154,7 +154,7 @@ export const TimelineNode = React.memo(function TimelineNode({ item, appLang, is
         <div className="node-header">
           <h2>{item.title}</h2>
         </div>
-        <MarkdownContent text={item.body} variant="answer" appLang={appLang} />
+        <MarkdownContent text={item.body} variant="answer" appLang={appLang} streaming={item.meta === "streaming"} />
       </div>
     </article>
   );

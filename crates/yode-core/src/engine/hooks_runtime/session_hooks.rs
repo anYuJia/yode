@@ -49,7 +49,8 @@ impl AgentEngine {
                 combined
             );
             self.messages.push(Message::system(&message));
-            self.persist_message("system", Some(&message), None, None, None);
+            let persisted_id = self.persist_message("system", Some(&message), None, None, None);
+            self.attach_last_persisted_id(persisted_id);
         }
 
         self.append_hook_wake_notifications_as_system_message();
@@ -192,9 +193,12 @@ impl AgentEngine {
         );
         metadata.insert(
             "live_session_memory_path".to_string(),
-            json!(live_session_memory_path(&self.context.working_dir_compat())
-                .display()
-                .to_string()),
+            json!(live_session_memory_path(
+                &self.context.working_dir_compat(),
+                &self.context.session_id
+            )
+            .display()
+            .to_string()),
         );
         metadata.insert(
             "tracked_failed_tool_results".to_string(),

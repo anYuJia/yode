@@ -547,30 +547,54 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
         </div>
         <div className="terminal-tabs" role="tablist" aria-label="终端会话">
           {tabs.map((tab, index) => (
-            <button
+            <div
               key={tab.id}
               className={`terminal-tab ${tab.id === activeTabId ? "active" : ""}`}
-              onClick={() => setActiveTabId(tab.id)}
-              type="button"
-              role="tab"
-              aria-selected={tab.id === activeTabId}
-              title={`${tab.title} - ${displayCwd(tab.cwd)}`}
             >
-              <span className={`terminal-tab-dot ${tab.isRunning ? "running" : ""}`} />
-              <span className="terminal-tab-label">{tab.title || `bash ${index + 1}`}</span>
-              <span
+              <button
+                className="terminal-tab-select"
+                onClick={() => setActiveTabId(tab.id)}
+                type="button"
+                role="tab"
+                aria-selected={tab.id === activeTabId}
+                title={`${tab.title} - ${displayCwd(tab.cwd)}`}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "7px",
+                  minWidth: 0,
+                  flex: 1,
+                  height: "100%",
+                  padding: 0,
+                  border: 0,
+                  background: "transparent",
+                  color: "inherit",
+                  font: "inherit",
+                  textAlign: "left",
+                  cursor: "pointer"
+                }}
+              >
+                <span className={`terminal-tab-dot ${tab.isRunning ? "running" : ""}`} />
+                <span className="terminal-tab-label">{tab.title || `bash ${index + 1}`}</span>
+              </button>
+              <button
                 className="terminal-tab-close"
-                role="button"
-                tabIndex={-1}
+                type="button"
                 title="关闭终端"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  void closeTab(tab.id);
+                aria-label={`关闭终端 ${tab.title || `bash ${index + 1}`}`}
+                onClick={() => void closeTab(tab.id)}
+                style={{
+                  flex: "0 0 auto",
+                  padding: 0,
+                  border: 0,
+                  background: "transparent",
+                  color: "inherit",
+                  cursor: "pointer"
                 }}
               >
                 <X size={11} />
-              </span>
-            </button>
+              </button>
+            </div>
           ))}
           <button className="terminal-add-tab" onClick={addTab} type="button" title="新增终端">
             <Plus size={13} />

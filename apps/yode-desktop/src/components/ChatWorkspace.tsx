@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useLayoutEffect, useEffect } from "react";
 import { Bot } from "lucide-react";
-import { ImageAttachment, PendingUserQuestion, TimelineItem, UsageSnapshot } from "../lib/desktopTypes";
+import { ImageAttachment, PendingUserQuestion, RunState, TimelineItem, UsageSnapshot } from "../lib/desktopTypes";
 import {
   isIntermediateAssistantItem,
   compileInlineItems,
@@ -75,7 +75,9 @@ function timelineMeta(item: TimelineItem) {
 
 function timelineMetadataLength(item: TimelineItem) {
   if (!("metadata" in item) || item.metadata == null) return 0;
-  return JSON.stringify(item.metadata).length;
+  // 滚动布局只需知道元数据形状是否变化；避免每个流式批次序列化大型工具 metadata。
+  if (typeof item.metadata === "object") return Object.keys(item.metadata as object).length;
+  return 1;
 }
 
 interface ChatWorkspaceProps {
@@ -102,12 +104,23 @@ interface ChatWorkspaceProps {
   currentModel: string;
   onModelChange: (model: string) => void;
   pendingUserQuestion: PendingUserQuestion | null;
-  onAskUserResolve: (answer: string) => void;
+  onAskUserResolve: (answer: string) => Promise<boolean>;
   showSuggestedPrompts: boolean;
   showBottomPanel: boolean;
   showContextUsage: boolean;
   requireOptEnter: boolean;
   usageSnapshot: UsageSnapshot | null;
+  /** 历史分页：还有更早消息时滚动到顶部触发加载；加载期间显示稳定 skeleton。 */
+  hasMoreHistory: boolean;
+  historyLoading: boolean;
+  historyError: boolean;
+  onLoadOlderHistory: () => void;
+  /** 断线恢复失败：保留锁定状态，展示可重试路径。 */
+  replayError?: string | null;
+  onRetryReplay?: () => void;
+  /** 当前会话的持久化 run journal（RunInspector 消费）。 */
+  currentRun: RunState | null;
+  replayState: { status: "idle" | "loading" | "done" | "error"; error?: string };
 }
 
 export function ChatWorkspace({
@@ -140,6 +153,14 @@ export function ChatWorkspace({
   showContextUsage,
   requireOptEnter,
   usageSnapshot,
+  hasMoreHistory,
+  historyLoading,
+  historyError,
+  onLoadOlderHistory,
+  replayError,
+  onRetryReplay,
+  currentRun,
+  replayState,
 }: ChatWorkspaceProps) {
   const isStreaming = useMemo(() => {
     if (pendingUserQuestion) return true;
@@ -288,7 +309,19 @@ export function ChatWorkspace({
       nextMetrics,
       shouldStickToBottomRef.current
     );
+    const previousScrollTop = lastScrollTopRef.current;
     lastScrollTopRef.current = panel.scrollTop;
+    // 向上翻页：只有「从更下方滚动到接近顶部」才触发加载更早窗口。
+    // 初始加载时 scrollTop 为 0（或自动滚到底部前的瞬时值），不能算用户翻页，
+    // 否则首次打开就会把整个历史一次性加载完，分页形同虚设。
+    if (
+      panel.scrollTop <= 60 &&
+      previousScrollTop > 60 &&
+      hasMoreHistory &&
+      !historyLoading
+    ) {
+      onLoadOlderHistory();
+    }
   };
 
   const handleTimelineWheel = (event: React.WheelEvent<HTMLElement>) => {
@@ -429,6 +462,31 @@ export function ChatWorkspace({
           onTouchStart={handleTimelineTouchStart}
           onTouchMove={handleTimelineTouchMove}
         >
+          {historyLoading ? (
+            <div className="timeline-skeleton" role="status" aria-label="加载更早消息">
+              <div className="skeleton-line skeleton-line-wide" />
+              <div className="skeleton-line" />
+              <div className="skeleton-line skeleton-line-short" />
+            </div>
+          ) : null}
+          {historyError ? (
+            <div className="replay-error-banner" role="alert">
+              <span>{appLang === "zh" ? "历史消息加载失败，可重试。" : "Failed to load history messages. Retry?"}</span>
+              <button type="button" onClick={onLoadOlderHistory}>
+                {appLang === "zh" ? "重试加载" : "Retry"}
+              </button>
+            </div>
+          ) : null}
+          {replayError ? (
+            <div className="replay-error-banner" role="alert">
+              <span>{replayError}</span>
+              {onRetryReplay ? (
+                <button type="button" onClick={onRetryReplay}>
+                  {appLang === "zh" ? "重试恢复" : "Retry recovery"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {turns.length === 0 ? (
             <div className="welcome-dashboard">
               <div className="welcome-logo">
@@ -589,6 +647,9 @@ export function ChatWorkspace({
         timelineItems={timelineItems}
         usageSnapshot={usageSnapshot}
         appLang={appLang}
+        currentRun={currentRun}
+        replayState={replayState}
+        onRetryReplay={onRetryReplay}
       />
     </div>
   );

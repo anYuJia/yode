@@ -4,6 +4,8 @@ use std::io::ErrorKind;
 #[derive(Debug, Default, serde::Deserialize)]
 struct PromptCacheArtifactState {
     #[serde(default)]
+    session_id: Option<String>,
+    #[serde(default)]
     last_turn_prompt_tokens: Option<u32>,
     #[serde(default)]
     last_turn_completion_tokens: Option<u32>,
@@ -73,22 +75,31 @@ fn prompt_cache_state_artifact_path(
     project_root: &std::path::Path,
     session_id: &str,
 ) -> std::path::PathBuf {
-    let short_session = session_id.chars().take(8).collect::<String>();
-    project_root
-        .join(".yode")
-        .join("status")
-        .join(format!("{}-prompt-cache-state.json", short_session))
+    project_root.join(".yode").join("status").join(format!(
+        "{}-prompt-cache-state.json",
+        crate::session_artifact::session_artifact_token(session_id)
+    ))
 }
 
 fn prompt_cache_diff_artifact_path(
     project_root: &std::path::Path,
     session_id: &str,
 ) -> std::path::PathBuf {
-    let short_session = session_id.chars().take(8).collect::<String>();
-    project_root
-        .join(".yode")
-        .join("status")
-        .join(format!("{}-prompt-cache-diff.md", short_session))
+    project_root.join(".yode").join("status").join(format!(
+        "{}-prompt-cache-diff.md",
+        crate::session_artifact::session_artifact_token(session_id)
+    ))
+}
+
+/// 兼容查找旧版短 ID 工件路径（仅用于一次性迁移，不再用于新写入）。
+fn legacy_prompt_cache_state_artifact_path(
+    project_root: &std::path::Path,
+    session_id: &str,
+) -> std::path::PathBuf {
+    project_root.join(".yode").join("status").join(format!(
+        "{}-prompt-cache-state.json",
+        crate::session_artifact::legacy_session_short_id(session_id)
+    ))
 }
 
 fn load_prompt_cache_state_artifact(
@@ -96,9 +107,42 @@ fn load_prompt_cache_state_artifact(
     session_id: &str,
 ) -> Option<PromptCacheArtifactState> {
     let path = prompt_cache_state_artifact_path(project_root, session_id);
-    let content = match std::fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(error) if error.kind() == ErrorKind::NotFound => return None,
+    let legacy_path = legacy_prompt_cache_state_artifact_path(project_root, session_id);
+    let (path, content) = match std::fs::read_to_string(&path) {
+        Ok(content) => (path, content),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            let legacy = match std::fs::read_to_string(&legacy_path) {
+                Ok(content) => content,
+                Err(error) if error.kind() == ErrorKind::NotFound => return None,
+                Err(error) => {
+                    warn!(
+                        path = %legacy_path.display(),
+                        "Failed to read legacy prompt cache state artifact: {}",
+                        error
+                    );
+                    return None;
+                }
+            };
+            match verify_prompt_cache_state_artifact(&legacy, session_id) {
+                Ok(cache) => {
+                    crate::session_artifact::rename_verified_legacy_artifact(
+                        &legacy_path,
+                        &path,
+                        session_id,
+                    );
+                    return Some(cache);
+                }
+                Err(reason) => {
+                    warn!(
+                        path = %legacy_path.display(),
+                        "拒绝恢复会话 {} 的旧版 prompt cache 状态工件：{}",
+                        session_id,
+                        reason
+                    );
+                    return None;
+                }
+            }
+        }
         Err(error) => {
             warn!(
                 path = %path.display(),
@@ -108,13 +152,14 @@ fn load_prompt_cache_state_artifact(
             return None;
         }
     };
-    match parse_prompt_cache_state_artifact_content(&content) {
+    match verify_prompt_cache_state_artifact(&content, session_id) {
         Ok(cache) => Some(cache),
-        Err(error) => {
+        Err(reason) => {
             warn!(
                 path = %path.display(),
-                "Failed to parse prompt cache state artifact: {}",
-                error
+                "拒绝恢复会话 {} 的 prompt cache 状态工件：{}",
+                session_id,
+                reason
             );
             None
         }
@@ -126,9 +171,42 @@ async fn load_prompt_cache_state_artifact_async(
     session_id: &str,
 ) -> Option<PromptCacheArtifactState> {
     let path = prompt_cache_state_artifact_path(project_root, session_id);
-    let content = match tokio::fs::read_to_string(&path).await {
-        Ok(content) => content,
-        Err(error) if error.kind() == ErrorKind::NotFound => return None,
+    let legacy_path = legacy_prompt_cache_state_artifact_path(project_root, session_id);
+    let (path, content) = match tokio::fs::read_to_string(&path).await {
+        Ok(content) => (path, content),
+        Err(error) if error.kind() == ErrorKind::NotFound => {
+            let legacy = match tokio::fs::read_to_string(&legacy_path).await {
+                Ok(content) => content,
+                Err(error) if error.kind() == ErrorKind::NotFound => return None,
+                Err(error) => {
+                    warn!(
+                        path = %legacy_path.display(),
+                        "Failed to read legacy prompt cache state artifact: {}",
+                        error
+                    );
+                    return None;
+                }
+            };
+            match verify_prompt_cache_state_artifact(&legacy, session_id) {
+                Ok(cache) => {
+                    crate::session_artifact::rename_verified_legacy_artifact(
+                        &legacy_path,
+                        &path,
+                        session_id,
+                    );
+                    return Some(cache);
+                }
+                Err(reason) => {
+                    warn!(
+                        path = %legacy_path.display(),
+                        "拒绝恢复会话 {} 的旧版 prompt cache 状态工件：{}",
+                        session_id,
+                        reason
+                    );
+                    return None;
+                }
+            }
+        }
         Err(error) => {
             warn!(
                 path = %path.display(),
@@ -138,23 +216,31 @@ async fn load_prompt_cache_state_artifact_async(
             return None;
         }
     };
-    match parse_prompt_cache_state_artifact_content(&content) {
+    match verify_prompt_cache_state_artifact(&content, session_id) {
         Ok(cache) => Some(cache),
-        Err(error) => {
+        Err(reason) => {
             warn!(
                 path = %path.display(),
-                "Failed to parse prompt cache state artifact: {}",
-                error
+                "拒绝恢复会话 {} 的 prompt cache 状态工件：{}",
+                session_id,
+                reason
             );
             None
         }
     }
 }
 
-fn parse_prompt_cache_state_artifact_content(
+fn verify_prompt_cache_state_artifact(
     content: &str,
-) -> Result<PromptCacheArtifactState, serde_json::Error> {
-    serde_json::from_str::<PromptCacheArtifactState>(content)
+    session_id: &str,
+) -> Result<PromptCacheArtifactState, String> {
+    let cache = serde_json::from_str::<PromptCacheArtifactState>(content)
+        .map_err(|error| format!("格式损坏: {error}"))?;
+    match cache.session_id.as_deref() {
+        Some(owner) if owner == session_id => Ok(cache),
+        Some(owner) => Err(format!("内容归属 session {} 与目标不一致", owner)),
+        None => Err("缺少 session_id 字段，无法验证归属（旧版共享工件不迁移）".to_string()),
+    }
 }
 
 impl AgentEngine {
@@ -166,7 +252,7 @@ impl AgentEngine {
         reasoning: Option<&str>,
         tool_calls_json: Option<&str>,
         tool_call_id: Option<&str>,
-    ) {
+    ) -> Option<i64> {
         self.persist_message_with_images(
             role,
             content,
@@ -174,7 +260,7 @@ impl AgentEngine {
             tool_calls_json,
             tool_call_id,
             None,
-        );
+        )
     }
 
     pub(in crate::engine) fn persist_message_with_images(
@@ -185,9 +271,9 @@ impl AgentEngine {
         tool_calls_json: Option<&str>,
         tool_call_id: Option<&str>,
         images: Option<&[yode_llm::types::ImageData]>,
-    ) {
+    ) -> Option<i64> {
         if let Some(db) = &self.db {
-            if let Err(err) = db.save_message_with_images(
+            let id = match db.save_message_with_images(
                 &self.context.session_id,
                 role,
                 content,
@@ -196,12 +282,18 @@ impl AgentEngine {
                 tool_call_id,
                 images,
             ) {
-                warn!("Failed to persist message: {}", err);
-            }
+                Ok(id) => Some(id),
+                Err(err) => {
+                    warn!("Failed to persist message: {}", err);
+                    None
+                }
+            };
             if let Err(err) = db.touch_session(&self.context.session_id) {
                 warn!("Failed to touch session: {}", err);
             }
+            return id;
         }
+        None
     }
 
     pub(in crate::engine) fn persist_message_with_metadata(
@@ -212,9 +304,9 @@ impl AgentEngine {
         tool_calls_json: Option<&str>,
         tool_call_id: Option<&str>,
         metadata: Option<&serde_json::Value>,
-    ) {
+    ) -> Option<i64> {
         if let Some(db) = &self.db {
-            if let Err(err) = db.save_message_with_metadata(
+            let id = match db.save_message_with_metadata(
                 &self.context.session_id,
                 role,
                 content,
@@ -223,10 +315,24 @@ impl AgentEngine {
                 tool_call_id,
                 metadata,
             ) {
-                warn!("Failed to persist message: {}", err);
-            }
+                Ok(id) => Some(id),
+                Err(err) => {
+                    warn!("Failed to persist message: {}", err);
+                    None
+                }
+            };
             if let Err(err) = db.touch_session(&self.context.session_id) {
                 warn!("Failed to touch session: {}", err);
+            }
+            return id;
+        }
+        None
+    }
+
+    pub(in crate::engine) fn attach_last_persisted_id(&mut self, id: Option<i64>) {
+        if let Some(id) = id {
+            if let Some(message) = self.messages.last_mut() {
+                message.storage_id = Some(id);
             }
         }
     }
@@ -275,6 +381,7 @@ impl AgentEngine {
 
     pub(in crate::engine) fn rebuild_runtime_artifact_state_from_disk(&mut self) {
         let project_root = self.context.working_dir_compat();
+        let session_id = self.context.session_id.clone();
         self.last_compaction_mode = None;
         self.last_compaction_at = None;
         self.last_compaction_summary_excerpt = None;
@@ -282,12 +389,13 @@ impl AgentEngine {
         self.last_compaction_transcript_path = None;
         self.last_compact_boundary = None;
 
-        if let Some((path, state)) = latest_transcript_runtime_state(&project_root) {
+        if let Some((path, state)) = latest_transcript_runtime_state(&project_root, &session_id) {
             self.last_compaction_mode = state.mode;
             self.last_compaction_at = state.timestamp;
             self.last_compaction_summary_excerpt = state.summary_excerpt;
             self.last_compaction_session_memory_path = state.session_memory_path.or_else(|| {
-                let session_path = crate::session_memory::session_memory_path(&project_root);
+                let session_path =
+                    crate::session_memory::session_memory_path(&project_root, &session_id);
                 session_path
                     .exists()
                     .then(|| session_path.display().to_string())
@@ -295,13 +403,14 @@ impl AgentEngine {
             self.last_compaction_transcript_path = Some(path.display().to_string());
             self.last_compact_boundary = state.compact_boundary;
         } else {
-            let session_path = crate::session_memory::session_memory_path(&project_root);
+            let session_path =
+                crate::session_memory::session_memory_path(&project_root, &session_id);
             if session_path.exists() {
                 self.last_compaction_session_memory_path = Some(session_path.display().to_string());
             }
         }
 
-        let live_path = crate::session_memory::live_session_memory_path(&project_root);
+        let live_path = crate::session_memory::live_session_memory_path(&project_root, &session_id);
         if let Ok(metadata) = std::fs::metadata(&live_path) {
             let updated_at = metadata.modified().ok().map(|modified| {
                 chrono::DateTime::<chrono::Local>::from(modified)
@@ -397,6 +506,7 @@ impl AgentEngine {
 
     pub(in crate::engine) async fn rebuild_runtime_artifact_state_from_disk_async(&mut self) {
         let project_root = self.context.working_dir_compat();
+        let session_id = self.context.session_id.clone();
         self.last_compaction_mode = None;
         self.last_compaction_at = None;
         self.last_compaction_summary_excerpt = None;
@@ -404,14 +514,17 @@ impl AgentEngine {
         self.last_compaction_transcript_path = None;
         self.last_compact_boundary = None;
 
-        if let Some((path, state)) = latest_transcript_runtime_state_async(&project_root).await {
+        if let Some((path, state)) =
+            latest_transcript_runtime_state_async(&project_root, &session_id).await
+        {
             self.last_compaction_mode = state.mode;
             self.last_compaction_at = state.timestamp;
             self.last_compaction_summary_excerpt = state.summary_excerpt;
             self.last_compaction_session_memory_path = match state.session_memory_path {
                 Some(path) => Some(path),
                 None => {
-                    let session_path = crate::session_memory::session_memory_path(&project_root);
+                    let session_path =
+                        crate::session_memory::session_memory_path(&project_root, &session_id);
                     tokio::fs::try_exists(&session_path)
                         .await
                         .unwrap_or(false)
@@ -421,13 +534,14 @@ impl AgentEngine {
             self.last_compaction_transcript_path = Some(path.display().to_string());
             self.last_compact_boundary = state.compact_boundary;
         } else {
-            let session_path = crate::session_memory::session_memory_path(&project_root);
+            let session_path =
+                crate::session_memory::session_memory_path(&project_root, &session_id);
             if tokio::fs::try_exists(&session_path).await.unwrap_or(false) {
                 self.last_compaction_session_memory_path = Some(session_path.display().to_string());
             }
         }
 
-        let live_path = crate::session_memory::live_session_memory_path(&project_root);
+        let live_path = crate::session_memory::live_session_memory_path(&project_root, &session_id);
         if let Ok(metadata) = tokio::fs::metadata(&live_path).await {
             let updated_at = metadata.modified().ok().map(|modified| {
                 chrono::DateTime::<chrono::Local>::from(modified)
@@ -533,15 +647,21 @@ impl AgentEngine {
         }
     }
 
-    pub(in crate::engine) fn sync_persisted_messages_snapshot(&self) {
+    pub(in crate::engine) fn sync_persisted_messages_snapshot(&mut self) {
         let Some(db) = &self.db else {
             return;
         };
 
         let snapshot = self.messages.iter().skip(1).cloned().collect::<Vec<_>>();
-        if let Err(err) = db.replace_messages(&self.context.session_id, &snapshot) {
-            warn!("Failed to rewrite session message snapshot: {}", err);
-            return;
+        let ids = match db.replace_messages(&self.context.session_id, &snapshot) {
+            Ok(ids) => ids,
+            Err(err) => {
+                warn!("Failed to rewrite session message snapshot: {}", err);
+                return;
+            }
+        };
+        for (message, id) in self.messages.iter_mut().skip(1).zip(ids) {
+            message.storage_id = Some(id);
         }
 
         if let Err(err) = db.touch_session(&self.context.session_id) {
@@ -604,11 +724,13 @@ impl AgentEngine {
 mod tests {
     use super::*;
 
+    const SESSION: &str = "session-12345678-abcd-efgh";
+
     #[test]
     fn missing_prompt_cache_state_artifact_is_ignored() {
         let dir = tempfile::tempdir().unwrap();
 
-        let cache = load_prompt_cache_state_artifact(dir.path(), "session-12345678");
+        let cache = load_prompt_cache_state_artifact(dir.path(), SESSION);
 
         assert!(cache.is_none());
     }
@@ -616,23 +738,76 @@ mod tests {
     #[test]
     fn invalid_prompt_cache_state_artifact_is_ignored_without_panicking() {
         let dir = tempfile::tempdir().unwrap();
-        let path = prompt_cache_state_artifact_path(dir.path(), "session-12345678");
+        let path = prompt_cache_state_artifact_path(dir.path(), SESSION);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, "{not-json").unwrap();
 
-        let cache = load_prompt_cache_state_artifact(dir.path(), "session-12345678");
+        let cache = load_prompt_cache_state_artifact(dir.path(), SESSION);
 
         assert!(cache.is_none());
+    }
+
+    #[test]
+    fn prompt_cache_state_artifact_without_session_id_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = prompt_cache_state_artifact_path(dir.path(), SESSION);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, r#"{"reported_turns": 3}"#).unwrap();
+
+        assert!(load_prompt_cache_state_artifact(dir.path(), SESSION).is_none());
+    }
+
+    #[test]
+    fn prompt_cache_state_artifact_of_another_session_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = prompt_cache_state_artifact_path(dir.path(), SESSION);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            r#"{"session_id": "session-other-session", "reported_turns": 3}"#,
+        )
+        .unwrap();
+
+        assert!(load_prompt_cache_state_artifact(dir.path(), SESSION).is_none());
+    }
+
+    #[test]
+    fn legacy_prompt_cache_state_artifact_migrates_only_when_session_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        let legacy = legacy_prompt_cache_state_artifact_path(dir.path(), SESSION);
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        let new_path = prompt_cache_state_artifact_path(dir.path(), SESSION);
+
+        std::fs::write(
+            &legacy,
+            format!(r#"{{"session_id": "{SESSION}", "reported_turns": 2}}"#),
+        )
+        .unwrap();
+        let cache = load_prompt_cache_state_artifact(dir.path(), SESSION).unwrap();
+        assert_eq!(cache.reported_turns, 2);
+        assert!(new_path.exists(), "验证归属后应迁移到新命名");
+        assert!(!legacy.exists(), "迁移成功后旧文件应删除");
+
+        std::fs::remove_file(&new_path).unwrap();
+        std::fs::write(
+            &legacy,
+            r#"{"session_id": "session-someone-else", "reported_turns": 9}"#,
+        )
+        .unwrap();
+        assert!(load_prompt_cache_state_artifact(dir.path(), SESSION).is_none());
+        assert!(legacy.exists(), "无法验证归属的旧文件不得删除");
     }
 
     #[tokio::test]
     async fn async_prompt_cache_state_artifact_loader_preserves_valid_state() {
         let dir = tempfile::tempdir().unwrap();
-        let path = prompt_cache_state_artifact_path(dir.path(), "session-12345678");
+        let path = prompt_cache_state_artifact_path(dir.path(), SESSION);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(
             path,
-            r#"{
+            format!(
+                r#"{{
+  "session_id": "{SESSION}",
   "pending_cache_edit_refs": 2,
   "pinned_cache_edit_refs": 1,
   "pending_cache_edit_ref_values": ["pending-b", "pending-a"],
@@ -641,11 +816,12 @@ mod tests {
   "last_prompt_cache_break_reason": "unexpected_drop",
   "reported_turns": 4,
   "cache_write_tokens_total": 120
-}"#,
+}}"#
+            ),
         )
         .unwrap();
 
-        let cache = load_prompt_cache_state_artifact_async(dir.path(), "session-12345678")
+        let cache = load_prompt_cache_state_artifact_async(dir.path(), SESSION)
             .await
             .unwrap();
 

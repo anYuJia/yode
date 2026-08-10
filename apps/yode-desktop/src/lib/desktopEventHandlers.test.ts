@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  cancellationWatchdogDecision,
+  CANCELLATION_STATUS_WATCHDOG_MS,
   handleDesktopRuntimeEvent,
   resetDesktopEventFiltersForTest,
   discardPendingDeltas,
-  resetTurnTracksForSession
+  resetTurnTracksForSession,
+  shouldReleaseCurrentTurnForTerminalEvent
 } from "./desktopEventHandlers";
 import { TimelineItem, UsageSnapshot } from "./desktopTypes";
 
@@ -66,7 +69,7 @@ describe("desktop runtime event handling", () => {
     });
   });
 
-  it("ignores events for inactive sessions", () => {
+  it("routes identified events to the matching inactive session", () => {
     const { context } = handlerContext({
       payload: {
         sessionId: "other-session",
@@ -80,8 +83,85 @@ describe("desktop runtime event handling", () => {
 
     handleDesktopRuntimeEvent(context);
 
-    expect(context.setUsageSnapshot).not.toHaveBeenCalled();
-    expect(context.setTimelineItems).not.toHaveBeenCalled();
+    expect(context.setUsageSnapshot).toHaveBeenCalledWith(expect.any(Function), "other-session");
+    expect(context.setTimelineItems).toHaveBeenCalledWith(expect.any(Function), "other-session");
+  });
+
+  it("preserves background-session events without changing the current session snapshot", () => {
+    type SessionState = {
+      currentTurnId: string | null;
+      isProcessing: boolean;
+      pendingUserQuestion: unknown;
+      timelineItems: TimelineItem[];
+      usageSnapshot: UsageSnapshot | null;
+    };
+    const states = new Map<string, SessionState>([
+      ["session-1", {
+        currentTurnId: "turn-1",
+        isProcessing: true,
+        pendingUserQuestion: null,
+        timelineItems: [{ id: "one", kind: "assistant", title: "助手", body: "会话一" }],
+        usageSnapshot: { inputTokens: 4 }
+      }],
+      ["session-2", {
+        currentTurnId: null,
+        isProcessing: false,
+        pendingUserQuestion: null,
+        timelineItems: [],
+        usageSnapshot: null
+      }]
+    ]);
+    const stateFor = (sessionId: string | null | undefined) => states.get(sessionId ?? "session-1")!;
+    const context = {
+      activeSessionId: "session-1",
+      payload: desktopEvent("session-2", "turn-2", 1, "turn_started", {}),
+      getCurrentTurnId: (sessionId: string) => stateFor(sessionId).currentTurnId,
+      sendSystemNotification: vi.fn(),
+      setCurrentTurnId: (turnId: string | null, sessionId?: string | null) => {
+        stateFor(sessionId).currentTurnId = turnId;
+      },
+      setIsProcessing: (isProcessing: boolean, sessionId?: string | null) => {
+        stateFor(sessionId).isProcessing = isProcessing;
+      },
+      setPendingUserQuestion: (question: unknown, sessionId?: string | null) => {
+        stateFor(sessionId).pendingUserQuestion = question;
+      },
+      setTimelineItems: (updater: (items: TimelineItem[]) => TimelineItem[], sessionId?: string | null) => {
+        const state = stateFor(sessionId);
+        state.timelineItems = updater(state.timelineItems);
+      },
+      setUsageSnapshot: (
+        updater: (current: UsageSnapshot | null) => UsageSnapshot | null,
+        sessionId?: string | null
+      ) => {
+        const state = stateFor(sessionId);
+        state.usageSnapshot = updater(state.usageSnapshot);
+      }
+    };
+
+    handleDesktopRuntimeEvent(context);
+    handleDesktopRuntimeEvent({
+      ...context,
+      payload: desktopEvent("session-2", "turn-2", 2, "ask_user", { body: "请选择" })
+    });
+    handleDesktopRuntimeEvent({
+      ...context,
+      payload: desktopEvent("session-2", "turn-2", 3, "usage_update", { inputTokens: 12 })
+    });
+
+    expect(stateFor("session-1")).toMatchObject({
+      currentTurnId: "turn-1",
+      isProcessing: true,
+      usageSnapshot: { inputTokens: 4 },
+      timelineItems: [{ id: "one", body: "会话一" }]
+    });
+    expect(stateFor("session-2")).toMatchObject({
+      currentTurnId: "turn-2",
+      isProcessing: true,
+      pendingUserQuestion: expect.objectContaining({ question: "请选择", turnId: "turn-2" }),
+      usageSnapshot: { inputTokens: 12 }
+    });
+    expect(stateFor("session-2").timelineItems).not.toEqual([]);
   });
 
   it("does not treat incomplete desktop event envelopes as trusted session events", () => {
@@ -124,7 +204,8 @@ describe("desktop runtime event handling", () => {
         turnId: "turn-ask",
         title: "Decision",
         question: "Pick one?"
-      })
+      }),
+      "session-1"
     );
   });
 
@@ -155,7 +236,8 @@ describe("desktop runtime event handling", () => {
     expect(context.setPendingUserQuestion).toHaveBeenCalledWith(
       expect.objectContaining({
         query
-      })
+      }),
+      "session-1"
     );
   });
 
@@ -181,7 +263,8 @@ describe("desktop runtime event handling", () => {
     expect(context.setPendingUserQuestion).toHaveBeenCalledWith(
       expect.objectContaining({
         query: undefined
-      })
+      }),
+      "session-1"
     );
   });
 });
@@ -248,7 +331,104 @@ describe("desktop event isolation", () => {
 
     const items = getTimeline();
     expect(items.some((item) => item.kind === "tool")).toBe(false);
-    expect(context.setIsProcessing).toHaveBeenCalledWith(false);
+    expect(context.setIsProcessing).toHaveBeenCalledWith(false, "session-1");
+  });
+
+  it("keeps cancellation watchdog locked when the backend still reports running after 2.5 seconds", () => {
+    expect(CANCELLATION_STATUS_WATCHDOG_MS).toBe(2500);
+    expect(cancellationWatchdogDecision({
+      currentTurnId: "turn-1",
+      sessionId: "session-1",
+      turnId: "turn-1",
+      runs: [{
+        sessionId: "session-1",
+        turnId: "turn-1",
+        status: "running",
+        updatedAt: "2026-08-08T00:00:00Z"
+      }]
+    })).toBe("wait");
+    expect(cancellationWatchdogDecision({
+      currentTurnId: "turn-1",
+      sessionId: "session-1",
+      turnId: "turn-1",
+      runs: [{
+        sessionId: "session-1",
+        turnId: "turn-1",
+        status: "cancelling",
+        updatedAt: "2026-08-08T00:00:00Z"
+      }]
+    })).toBe("wait");
+  });
+
+  it("releases only the current turn after a terminal event or a confirmed terminal run state", () => {
+    expect(shouldReleaseCurrentTurnForTerminalEvent("turn-1", "turn-1", "cancelling")).toBe(false);
+    expect(shouldReleaseCurrentTurnForTerminalEvent("turn-1", "turn-1", "cancelled")).toBe(true);
+    expect(shouldReleaseCurrentTurnForTerminalEvent("turn-1", "turn-1", "done")).toBe(true);
+    expect(shouldReleaseCurrentTurnForTerminalEvent("turn-1", "turn-2", "done")).toBe(false);
+    expect(cancellationWatchdogDecision({
+      currentTurnId: "turn-1",
+      sessionId: "session-1",
+      turnId: "turn-1",
+      runs: [{
+        sessionId: "session-1",
+        turnId: "turn-1",
+        status: "cancelled",
+        updatedAt: "2026-08-08T00:00:00Z"
+      }]
+    })).toBe("release");
+  });
+
+  it("ignores an old turn watchdog and terminal event after a newer turn begins", () => {
+    expect(cancellationWatchdogDecision({
+      currentTurnId: "turn-new",
+      sessionId: "session-1",
+      turnId: "turn-old",
+      runs: [{
+        sessionId: "session-1",
+        turnId: "turn-old",
+        status: "cancelled",
+        updatedAt: "2026-08-08T00:00:00Z"
+      }]
+    })).toBe("ignore");
+    expect(cancellationWatchdogDecision({
+      currentTurnId: "turn-old",
+      sessionId: "session-1",
+      turnId: "turn-old",
+      runs: [{
+        sessionId: "session-2",
+        turnId: "turn-old",
+        status: "cancelled",
+        updatedAt: "2026-08-08T00:00:00Z"
+      }]
+    })).toBe("wait");
+
+    const { context } = handlerContext({ currentTurnId: "turn-old" });
+    handleDesktopRuntimeEvent({
+      ...context,
+      payload: desktopEvent("session-1", "turn-old", 1, "turn_started", {})
+    });
+    handleDesktopRuntimeEvent({
+      ...context,
+      payload: desktopEvent("session-1", "turn-old", 2, "turn_completed", {})
+    });
+    context.setIsProcessing.mockClear();
+    context.setCurrentTurnId.mockClear();
+
+    handleDesktopRuntimeEvent({
+      ...context,
+      currentTurnId: "turn-new",
+      payload: desktopEvent("session-1", "turn-new", 1, "turn_started", {})
+    });
+    context.setIsProcessing.mockClear();
+    context.setCurrentTurnId.mockClear();
+    handleDesktopRuntimeEvent({
+      ...context,
+      currentTurnId: "turn-new",
+      payload: desktopEvent("session-1", "turn-old", 3, "done", {})
+    });
+
+    expect(context.setIsProcessing).not.toHaveBeenCalledWith(false, "session-1");
+    expect(context.setCurrentTurnId).not.toHaveBeenCalledWith(null, "session-1");
   });
 
   it("keeps events for a different turn id isolated", () => {
@@ -420,6 +600,46 @@ describe("desktop event isolation", () => {
     expect(assistant && "body" in assistant && assistant.body).toBe("turn1内容");
   });
 
+  it("does not let a stale turn_started reclaim lastSeen after its turn finished", () => {
+    const { context, getTimeline } = handlerContext({});
+    handleDesktopRuntimeEvent({
+      ...context,
+      payload: desktopEvent("session-1", "turn-1", 10, "turn_started", {})
+    });
+    handleDesktopRuntimeEvent({
+      ...context,
+      payload: desktopEvent("session-1", "turn-1", 11, "turn_completed", {
+        body: "完成",
+        reasoning: ""
+      })
+    });
+    // 已结束 turn 的低序号 start 必须先被 seq 门禁丢弃，不能重新占用 lastSeen。
+    handleDesktopRuntimeEvent({
+      ...context,
+      payload: desktopEvent("session-1", "turn-1", 9, "turn_started", {})
+    });
+    handleDesktopRuntimeEvent({
+      ...context,
+      payload: desktopEvent("session-1", "turn-2", 1, "turn_started", {})
+    });
+    handleDesktopRuntimeEvent({
+      ...context,
+      payload: desktopEvent("session-1", "turn-2", 2, "tool_started", {
+        id: "turn-2-tool",
+        tool: "bash",
+        title: "调用工具: bash",
+        body: "{}",
+        status: "running"
+      })
+    });
+
+    expect(
+      getTimeline().some(
+        (item) => item.kind === "tool" && item.title === "调用工具: bash"
+      )
+    ).toBe(true);
+  });
+
   it("does not add timeline items for cancelling/cancelled lifecycle events", () => {
     const { context, getTimeline } = handlerContext({});
     handleDesktopRuntimeEvent({
@@ -433,7 +653,7 @@ describe("desktop event isolation", () => {
 
     const items = getTimeline();
     expect(items).toHaveLength(0);
-    expect(context.setIsProcessing).toHaveBeenCalledWith(false);
+    expect(context.setIsProcessing).toHaveBeenCalledWith(false, "session-1");
   });
 
   it("ignores stale turn_completed for a turn that already finished", () => {
@@ -444,7 +664,7 @@ describe("desktop event isolation", () => {
       })
     });
     handleDesktopRuntimeEvent(context);
-    expect(context.setIsProcessing).toHaveBeenCalledWith(false);
+    expect(context.setIsProcessing).toHaveBeenCalledWith(false, "session-1");
   });
 
   it("keeps isProcessing true after cancelling until the backend confirms cancelled", () => {
@@ -461,7 +681,7 @@ describe("desktop event isolation", () => {
       payload: desktopEvent("session-1", "turn-1", 4, "cancelled", {})
     });
     // 只有后端确认停止后才复位
-    expect(context.setIsProcessing).toHaveBeenCalledWith(false);
+    expect(context.setIsProcessing).toHaveBeenCalledWith(false, "session-1");
   });
 
   it("drops batched deltas that belong to a previous session after a session switch", () => {
@@ -500,6 +720,37 @@ describe("desktop event isolation", () => {
     const assistant = items.find((item) => item.kind === "assistant");
     expect(assistant && "body" in assistant && assistant.body).toBe("新会话内容");
     expect(items.join()).not.toContain("旧会话内容");
+  });
+
+  it("keeps another session's batch timer alive when one session is discarded", () => {
+    vi.useFakeTimers();
+    const sessionA = handlerContext({
+      activeSessionId: "session-a",
+      currentTurnId: "turn-a",
+      payload: desktopEvent("session-a", "turn-a", 1, "turn_started", {})
+    });
+    const sessionB = handlerContext({
+      activeSessionId: "session-b",
+      currentTurnId: "turn-b",
+      payload: desktopEvent("session-b", "turn-b", 1, "turn_started", {})
+    });
+
+    handleDesktopRuntimeEvent(sessionA.context);
+    handleDesktopRuntimeEvent(sessionB.context);
+    handleDesktopRuntimeEvent({
+      ...sessionA.context,
+      payload: desktopEvent("session-a", "turn-a", 2, "assistant_text_delta", { body: "A" })
+    });
+    handleDesktopRuntimeEvent({
+      ...sessionB.context,
+      payload: desktopEvent("session-b", "turn-b", 2, "assistant_text_delta", { body: "B" })
+    });
+
+    discardPendingDeltas("session-a");
+    vi.advanceTimersByTime(30);
+
+    expect(sessionA.getTimeline().some((item) => item.kind === "assistant" && item.body === "A")).toBe(false);
+    expect(sessionB.getTimeline().some((item) => item.kind === "assistant" && item.body === "B")).toBe(true);
   });
 
   it("does not accept events from a cleared session after switching back", () => {

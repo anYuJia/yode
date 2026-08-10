@@ -1,4 +1,5 @@
 import { recordFromUnknown } from "./jsonUtils";
+import { storageReadRaw, storageWriteJson, storageWriteString } from "./storageAdapter";
 
 export const LLM_PROVIDERS_STORAGE_KEY = "yode-llm-providers";
 export const LLM_PROVIDERS_CHANGE_EVENT = "yode-llm-providers-change";
@@ -26,22 +27,22 @@ export function lastModelStorageKey(provider: string) {
 }
 
 export function loadStoredProvidersRaw() {
-  return localStorage.getItem(LLM_PROVIDERS_STORAGE_KEY);
+  return storageReadRaw(LLM_PROVIDERS_STORAGE_KEY);
 }
 
 export function saveStoredProviders(providers: unknown[]) {
-  localStorage.setItem(LLM_PROVIDERS_STORAGE_KEY, JSON.stringify(providers));
+  storageWriteJson(LLM_PROVIDERS_STORAGE_KEY, providers);
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(LLM_PROVIDERS_CHANGE_EVENT));
   }
 }
 
 export function loadLastModelForProvider(provider: string) {
-  return localStorage.getItem(lastModelStorageKey(provider));
+  return storageReadRaw(lastModelStorageKey(provider));
 }
 
 export function saveLastModelForProvider(provider: string, model: string) {
-  localStorage.setItem(lastModelStorageKey(provider), model);
+  storageWriteString(lastModelStorageKey(provider), model);
 }
 
 export function parseStoredProviders(raw: string | null): StoredProvider[] {

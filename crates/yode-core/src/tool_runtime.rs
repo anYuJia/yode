@@ -121,14 +121,18 @@ pub fn write_tool_turn_artifact(
         .with_context(|| format!("Failed to create tool artifact dir: {}", dir.display()))?;
 
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let short_session: String = session_id.chars().take(8).collect();
     let path = dir.join(format!(
         "{}-tools-turn-{:04}-{}.md",
-        short_session, artifact.turn_index, timestamp
+        crate::session_artifact::session_artifact_token(session_id),
+        artifact.turn_index,
+        timestamp
     ));
 
-    fs::write(&path, render_tool_turn_artifact(artifact))
-        .with_context(|| format!("Failed to write tool artifact file: {}", path.display()))?;
+    crate::session_artifact::atomic_write_sync(
+        &path,
+        &render_tool_turn_artifact(session_id, artifact),
+    )
+    .with_context(|| format!("Failed to write tool artifact file: {}", path.display()))?;
 
     Ok(path)
 }
@@ -144,22 +148,27 @@ pub async fn write_tool_turn_artifact_async(
         .with_context(|| format!("Failed to create tool artifact dir: {}", dir.display()))?;
 
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-    let short_session: String = session_id.chars().take(8).collect();
     let path = dir.join(format!(
         "{}-tools-turn-{:04}-{}.md",
-        short_session, artifact.turn_index, timestamp
+        crate::session_artifact::session_artifact_token(session_id),
+        artifact.turn_index,
+        timestamp
     ));
 
-    tokio::fs::write(&path, render_tool_turn_artifact(artifact))
-        .await
-        .with_context(|| format!("Failed to write tool artifact file: {}", path.display()))?;
+    crate::session_artifact::atomic_write_async(
+        &path,
+        &render_tool_turn_artifact(session_id, artifact),
+    )
+    .await
+    .with_context(|| format!("Failed to write tool artifact file: {}", path.display()))?;
 
     Ok(path)
 }
 
-pub fn render_tool_turn_artifact(artifact: &ToolTurnArtifact) -> String {
+pub fn render_tool_turn_artifact(session_id: &str, artifact: &ToolTurnArtifact) -> String {
     let mut output = String::new();
     output.push_str("# Tool Turn Artifact\n\n");
+    output.push_str(&format!("- Session: {}\n", session_id));
     output.push_str(&format!("- Turn: {}\n", artifact.turn_index));
     output.push_str(&format!(
         "- Started at: {}\n",
@@ -378,6 +387,39 @@ mod tests {
         assert!(content.contains("Tool Pool"));
         assert!(content.contains("bash"));
         assert!(content.contains("preview"));
+    }
+
+    #[test]
+    fn tool_turn_artifacts_are_isolated_per_session() {
+        let temp = tempdir().unwrap();
+        let artifact = ToolTurnArtifact {
+            turn_index: 3,
+            total_calls: 1,
+            success_count: 1,
+            failed_count: 0,
+            calls: vec![ToolRuntimeCallView {
+                call_id: "call-1".into(),
+                tool_name: "bash".into(),
+                output_preview: "preview".into(),
+                ..ToolRuntimeCallView::default()
+            }],
+            ..ToolTurnArtifact::default()
+        };
+
+        let path_a =
+            write_tool_turn_artifact(temp.path(), "session-aaaa-1111-aaaa", &artifact).unwrap();
+        let path_b =
+            write_tool_turn_artifact(temp.path(), "session-aaaa-2222-bbbb", &artifact).unwrap();
+        assert_ne!(
+            path_a, path_b,
+            "前 8 位相同但完整 ID 不同的会话不得共用路径"
+        );
+        assert!(path_a.exists());
+        assert!(path_b.exists());
+        let content_a = std::fs::read_to_string(path_a).unwrap();
+        let content_b = std::fs::read_to_string(path_b).unwrap();
+        assert!(content_a.contains("session-aaaa-1111-aaaa"));
+        assert!(content_b.contains("session-aaaa-2222-bbbb"));
     }
 
     #[test]

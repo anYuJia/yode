@@ -63,11 +63,12 @@ impl AgentEngine {
     ) {
         if images.is_empty() {
             self.messages.push(Message::user(user_input));
-            self.persist_message("user", Some(user_input), None, None, None);
+            let persisted_id = self.persist_message("user", Some(user_input), None, None, None);
+            self.attach_last_persisted_id(persisted_id);
         } else {
             self.messages
                 .push(Message::user_with_images(user_input, images.clone()));
-            self.persist_message_with_images(
+            let persisted_id = self.persist_message_with_images(
                 "user",
                 Some(user_input),
                 None,
@@ -75,6 +76,7 @@ impl AgentEngine {
                 None,
                 Some(&images),
             );
+            self.attach_last_persisted_id(persisted_id);
         }
     }
 

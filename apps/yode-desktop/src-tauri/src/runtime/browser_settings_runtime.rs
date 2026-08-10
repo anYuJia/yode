@@ -6,7 +6,7 @@ use crate::browser_settings::{
     apply_browser_settings_env, browser_settings_from_desktop_settings, normalize_browser_settings,
     validate_browser_settings,
 };
-use crate::desktop_settings_store::{read_desktop_settings_async, write_desktop_settings_async};
+use crate::desktop_settings_store::{read_desktop_settings_async, update_desktop_settings_async};
 use crate::protocol::{BrowserSettings, DesktopActionResult};
 
 impl DesktopRuntime {
@@ -46,28 +46,28 @@ impl DesktopRuntime {
     ) -> Result<BrowserSettings> {
         validate_browser_settings(&settings)?;
         let normalized = normalize_browser_settings(settings);
-        let mut desktop_settings = read_desktop_settings_async().await?;
-        desktop_settings.insert(
-            "yode-browser-enabled".to_string(),
-            json!(normalized.enabled),
-        );
-        desktop_settings.insert(
-            "yode-browser-annotation-screenshots".to_string(),
-            json!(normalized.annotation_screenshots),
-        );
-        desktop_settings.insert(
-            "yode-browser-approval".to_string(),
-            json!(normalized.approval_policy),
-        );
-        desktop_settings.insert(
-            "yode-browser-blocked-domains".to_string(),
-            json!(normalized.blocked_domains),
-        );
-        desktop_settings.insert(
-            "yode-browser-allowed-domains".to_string(),
-            json!(normalized.allowed_domains),
-        );
-        write_desktop_settings_async(&desktop_settings).await?;
+        let persisted = normalized.clone();
+        update_desktop_settings_async(move |desktop_settings| {
+            desktop_settings.insert("yode-browser-enabled".to_string(), json!(persisted.enabled));
+            desktop_settings.insert(
+                "yode-browser-annotation-screenshots".to_string(),
+                json!(persisted.annotation_screenshots),
+            );
+            desktop_settings.insert(
+                "yode-browser-approval".to_string(),
+                json!(persisted.approval_policy),
+            );
+            desktop_settings.insert(
+                "yode-browser-blocked-domains".to_string(),
+                json!(persisted.blocked_domains),
+            );
+            desktop_settings.insert(
+                "yode-browser-allowed-domains".to_string(),
+                json!(persisted.allowed_domains),
+            );
+            Ok(())
+        })
+        .await?;
         apply_browser_settings_env(&normalized);
         Ok(normalized)
     }

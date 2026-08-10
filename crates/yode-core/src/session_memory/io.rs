@@ -1,23 +1,200 @@
 use super::*;
-use tracing::warn;
+use crate::session_artifact::{
+    atomic_write_async, atomic_write_sync, json_artifact_session_id, legacy_session_short_id,
+    markdown_artifact_session_id, markdown_entry_session_ids, markdown_front_matter_session_id,
+    session_artifact_token, verify_memory_ownership, ArtifactOwnership,
+};
+use tracing::{info, warn};
 
-pub fn session_memory_path(project_root: &Path) -> PathBuf {
+/// 当前会话的压缩记忆文件路径（按完整 session id 隔离）。
+pub fn session_memory_path(project_root: &Path, session_id: &str) -> PathBuf {
+    project_root
+        .join(".yode")
+        .join("memory")
+        .join(format!("session-{}.md", session_artifact_token(session_id)))
+}
+
+/// 当前会话的 live 记忆文件路径（按完整 session id 隔离）。
+pub fn live_session_memory_path(project_root: &Path, session_id: &str) -> PathBuf {
+    project_root.join(".yode").join("memory").join(format!(
+        "session-{}.live.md",
+        session_artifact_token(session_id)
+    ))
+}
+
+fn legacy_session_memory_path(project_root: &Path) -> PathBuf {
     project_root.join(SESSION_MEMORY_RELATIVE_PATH)
 }
 
-pub fn live_session_memory_path(project_root: &Path) -> PathBuf {
+fn legacy_live_session_memory_path(project_root: &Path) -> PathBuf {
     project_root.join(LIVE_SESSION_MEMORY_RELATIVE_PATH)
 }
 
+/// 一次性迁移旧共享 memory 到当前会话：
+/// 仅当旧文件全部条目都能验证归属当前 session（完整 id 或旧版 8 位前缀）时迁移；
+/// 无法验证时不读取、不删除。
+pub fn migrate_legacy_session_memory(project_root: &Path, session_id: &str) -> Result<()> {
+    migrate_legacy_memory_file(
+        session_id,
+        &legacy_session_memory_path(project_root),
+        &session_memory_path(project_root, session_id),
+        "压缩记忆",
+    )?;
+    migrate_legacy_memory_file(
+        session_id,
+        &legacy_live_session_memory_path(project_root),
+        &live_session_memory_path(project_root, session_id),
+        "live 记忆",
+    )
+}
+
+fn migrate_legacy_memory_file(
+    session_id: &str,
+    legacy: &Path,
+    target: &Path,
+    label: &str,
+) -> Result<()> {
+    let content = match fs::read_to_string(legacy) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(err) => {
+            warn!(
+                "无法读取旧共享{}文件 {} 进行迁移: {}",
+                label,
+                legacy.display(),
+                err
+            );
+            return Ok(());
+        }
+    };
+
+    // 按 `\n\n## ` 分割旧共享文件的条目块（与 truncate_memory_file 的分割方式一致），
+    // 逐条目验证归属：仅迁移可验证归属当前 session 的条目；
+    // 无法验证的条目留在旧文件原样保留（不读取、不删除）。
+    let owned_entries = legacy_owned_entry_blocks(&content, session_id);
+    if owned_entries.is_empty() {
+        warn!(
+            "旧共享{}文件 {} 无可验证归属当前 session {} 的条目，跳过迁移（不读取、不删除）",
+            label,
+            legacy.display(),
+            session_id
+        );
+        return Ok(());
+    }
+    let all_owned = legacy_entry_block_count(&content) == owned_entries.len();
+    migrate_legacy_memory_entries(session_id, legacy, target, label, &owned_entries)?;
+    if all_owned {
+        fs::remove_file(legacy).with_context(|| {
+            format!(
+                "旧共享{}迁移完成但删除失败 {}（不影响本次读取）",
+                label,
+                legacy.display()
+            )
+        })?;
+        info!(
+            "已迁移旧共享{}文件 {} 到会话专属文件 {}",
+            label,
+            legacy.display(),
+            target.display()
+        );
+    } else {
+        info!(
+            "已部分迁移旧共享{}文件 {} 中归属当前会话的条目到 {}（其余条目保留在旧文件）",
+            label,
+            legacy.display(),
+            target.display()
+        );
+    }
+    Ok(())
+}
+
+/// 提取旧共享 memory 内容中归属目标 session 的条目块（保持原有顺序）。
+fn legacy_owned_entry_blocks(content: &str, session_id: &str) -> Vec<String> {
+    let short = legacy_session_short_id(session_id);
+    legacy_entry_blocks(content)
+        .into_iter()
+        .filter(|block| {
+            let ids = markdown_entry_session_ids(block);
+            !ids.is_empty()
+                && ids
+                    .iter()
+                    .all(|id| id == session_id || (id.len() <= 8 && id == &short))
+        })
+        .collect()
+}
+
+/// 统计旧共享 memory 内容中的条目块数量。
+fn legacy_entry_block_count(content: &str) -> usize {
+    legacy_entry_blocks(content).len()
+}
+
+/// 按 `\n\n## ` 分割旧共享 memory 内容中的条目块。
+fn legacy_entry_blocks(content: &str) -> Vec<String> {
+    let Some(first_entry_start) = content.find("\n\n## ") else {
+        return Vec::new();
+    };
+    let entries = &content[first_entry_start + 2..];
+    entries
+        .split("\n\n## ")
+        .map(|entry| format!("## {}", entry))
+        .collect()
+}
+
+fn migrate_legacy_memory_entries(
+    session_id: &str,
+    legacy: &Path,
+    target: &Path,
+    label: &str,
+    owned_entries: &[String],
+) -> Result<()> {
+    if target.exists() {
+        info!(
+            "已存在会话专属{}文件 {}，跳过旧共享文件迁移 {}",
+            label,
+            target.display(),
+            legacy.display()
+        );
+        return Ok(());
+    }
+
+    let mut migrated = String::new();
+    let header = if label == "live 记忆" {
+        LIVE_SESSION_MEMORY_HEADER
+    } else {
+        SESSION_MEMORY_HEADER
+    };
+    migrated.push_str(header);
+    migrated.push_str("\n\n- Session: ");
+    migrated.push_str(session_id);
+    migrated.push_str("\n\n");
+    migrated.push_str(&owned_entries.join("\n\n"));
+    migrated.push('\n');
+
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("无法创建会话记忆目录: {}", parent.display()))?;
+    }
+    atomic_write_sync(target, &migrated)
+        .with_context(|| format!("迁移旧共享{}失败，无法写入 {}", label, target.display()))?;
+    Ok(())
+}
+
+/// 读取当前会话可用的压缩记忆摘要（优先 live，其次压缩记忆）。
+/// 只返回验证归属当前 session 的工件；无法验证时拒绝恢复并记录诊断。
 pub fn best_compaction_memory_excerpt(
     project_root: &Path,
+    session_id: &str,
     max_chars: usize,
 ) -> Option<(PathBuf, String)> {
+    migrate_legacy_session_memory(project_root, session_id).unwrap_or_else(|err| {
+        warn!("旧共享记忆迁移失败（继续按新路径读取）: {}", err);
+    });
+
     for path in [
-        live_session_memory_path(project_root),
-        session_memory_path(project_root),
+        live_session_memory_path(project_root, session_id),
+        session_memory_path(project_root, session_id),
     ] {
-        if let Some(excerpt) = load_memory_excerpt(&path, max_chars) {
+        if let Some(excerpt) = load_memory_excerpt(&path, session_id, max_chars) {
             if !excerpt.trim().is_empty() {
                 return Some((path, excerpt));
             }
@@ -27,6 +204,14 @@ pub fn best_compaction_memory_excerpt(
     None
 }
 
+fn session_memory_header_for(session_id: &str) -> String {
+    format!("{SESSION_MEMORY_HEADER}\n\n- Session: {session_id}")
+}
+
+fn live_session_memory_header_for(session_id: &str) -> String {
+    format!("{LIVE_SESSION_MEMORY_HEADER}\n\n- Session: {session_id}")
+}
+
 pub fn persist_compaction_memory(
     project_root: &Path,
     session_id: &str,
@@ -34,7 +219,10 @@ pub fn persist_compaction_memory(
     files_read: &HashMap<String, usize>,
     files_modified: &[String],
 ) -> Result<PathBuf> {
-    let path = session_memory_path(project_root);
+    migrate_legacy_session_memory(project_root, session_id).unwrap_or_else(|err| {
+        warn!("旧共享记忆迁移失败（继续按新路径写入）: {}", err);
+    });
+    let path = session_memory_path(project_root, session_id);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| {
             format!(
@@ -46,12 +234,12 @@ pub fn persist_compaction_memory(
 
     let previous = read_existing_session_memory(&path)?;
     let existing_entries = previous
-        .strip_prefix(SESSION_MEMORY_HEADER)
+        .strip_prefix(&session_memory_header_for(session_id))
         .map(str::trim)
         .unwrap_or_else(|| previous.trim());
 
     let mut content = String::new();
-    content.push_str(SESSION_MEMORY_HEADER);
+    content.push_str(&session_memory_header_for(session_id));
     content.push_str("\n\n");
     content.push_str(&render_entry(
         project_root,
@@ -67,7 +255,7 @@ pub fn persist_compaction_memory(
     }
 
     let content = truncate_memory_file(content);
-    write_string_with_retry(&path, &content)
+    atomic_write_sync(&path, &content)
         .with_context(|| format!("Failed to write session memory file: {}", path.display()))?;
 
     Ok(path)
@@ -80,7 +268,10 @@ pub async fn persist_compaction_memory_async(
     files_read: &HashMap<String, usize>,
     files_modified: &[String],
 ) -> Result<PathBuf> {
-    let path = session_memory_path(project_root);
+    migrate_legacy_session_memory(project_root, session_id).unwrap_or_else(|err| {
+        warn!("旧共享记忆迁移失败（继续按新路径写入）: {}", err);
+    });
+    let path = session_memory_path(project_root, session_id);
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await.with_context(|| {
             format!(
@@ -92,7 +283,7 @@ pub async fn persist_compaction_memory_async(
 
     let previous = read_existing_session_memory_async(&path).await?;
     let existing_entries = previous
-        .strip_prefix(SESSION_MEMORY_HEADER)
+        .strip_prefix(&session_memory_header_for(session_id))
         .map(str::trim)
         .unwrap_or_else(|| previous.trim());
 
@@ -104,7 +295,7 @@ pub async fn persist_compaction_memory_async(
         files_modified,
         existing_entries,
     );
-    write_string_with_retry_async(&path, &content)
+    atomic_write_async(&path, &content)
         .await
         .with_context(|| format!("Failed to write session memory file: {}", path.display()))?;
 
@@ -115,7 +306,7 @@ pub fn persist_live_session_memory(
     project_root: &Path,
     snapshot: &LiveSessionSnapshot,
 ) -> Result<PathBuf> {
-    let path = live_session_memory_path(project_root);
+    let path = live_session_memory_path(project_root, &snapshot.session_id);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| {
             format!(
@@ -126,12 +317,12 @@ pub fn persist_live_session_memory(
     }
 
     let mut content = String::new();
-    content.push_str(LIVE_SESSION_MEMORY_HEADER);
+    content.push_str(&live_session_memory_header_for(&snapshot.session_id));
     content.push_str("\n\n");
     content.push_str(&super::snapshot::render_live_snapshot(snapshot));
 
     let content = truncate_memory_file(content);
-    write_string_with_retry(&path, &content).with_context(|| {
+    atomic_write_sync(&path, &content).with_context(|| {
         format!(
             "Failed to write live session memory file: {}",
             path.display()
@@ -145,7 +336,7 @@ pub async fn persist_live_session_memory_async(
     project_root: &Path,
     snapshot: &LiveSessionSnapshot,
 ) -> Result<PathBuf> {
-    let path = live_session_memory_path(project_root);
+    let path = live_session_memory_path(project_root, &snapshot.session_id);
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await.with_context(|| {
             format!(
@@ -156,14 +347,12 @@ pub async fn persist_live_session_memory_async(
     }
 
     let content = render_live_session_memory_content(snapshot);
-    write_string_with_retry_async(&path, &content)
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to write live session memory file: {}",
-                path.display()
-            )
-        })?;
+    atomic_write_async(&path, &content).await.with_context(|| {
+        format!(
+            "Failed to write live session memory file: {}",
+            path.display()
+        )
+    })?;
 
     Ok(path)
 }
@@ -173,7 +362,7 @@ pub fn persist_live_session_memory_summary(
     snapshot: &LiveSessionSnapshot,
     summary: &str,
 ) -> Result<PathBuf> {
-    let path = live_session_memory_path(project_root);
+    let path = live_session_memory_path(project_root, &snapshot.session_id);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).with_context(|| {
             format!(
@@ -184,7 +373,7 @@ pub fn persist_live_session_memory_summary(
     }
 
     let mut content = String::new();
-    content.push_str(LIVE_SESSION_MEMORY_HEADER);
+    content.push_str(&live_session_memory_header_for(&snapshot.session_id));
     content.push_str("\n\n");
     let generated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let hints = super::schema::live_memory_hints(&generated_at);
@@ -192,14 +381,14 @@ pub fn persist_live_session_memory_summary(
     content.push_str(&format!(
         "## {} session {}\n\n### Session Stats\n\n- Total tool calls this session: {}\n- Current message count: {}\n\n{}\n",
         generated_at,
-        snapshot.session_id.chars().take(8).collect::<String>(),
+        snapshot.session_id,
         snapshot.total_tool_calls,
         snapshot.message_count,
         summary_body
     ));
 
     let content = truncate_memory_file(content);
-    write_string_with_retry(&path, &content).with_context(|| {
+    atomic_write_sync(&path, &content).with_context(|| {
         format!(
             "Failed to write live session memory file: {}",
             path.display()
@@ -214,7 +403,7 @@ pub async fn persist_live_session_memory_summary_async(
     snapshot: &LiveSessionSnapshot,
     summary: &str,
 ) -> Result<PathBuf> {
-    let path = live_session_memory_path(project_root);
+    let path = live_session_memory_path(project_root, &snapshot.session_id);
     if let Some(parent) = path.parent() {
         tokio::fs::create_dir_all(parent).await.with_context(|| {
             format!(
@@ -225,20 +414,19 @@ pub async fn persist_live_session_memory_summary_async(
     }
 
     let content = render_live_session_memory_summary_content(snapshot, summary);
-    write_string_with_retry_async(&path, &content)
-        .await
-        .with_context(|| {
-            format!(
-                "Failed to write live session memory file: {}",
-                path.display()
-            )
-        })?;
+    atomic_write_async(&path, &content).await.with_context(|| {
+        format!(
+            "Failed to write live session memory file: {}",
+            path.display()
+        )
+    })?;
 
     Ok(path)
 }
 
-pub fn clear_live_session_memory(project_root: &Path) -> Result<()> {
-    let path = live_session_memory_path(project_root);
+/// 仅删除当前会话自己的 live 记忆文件（按完整 session id 隔离）。
+pub fn clear_live_session_memory(project_root: &Path, session_id: &str) -> Result<()> {
+    let path = live_session_memory_path(project_root, session_id);
     match fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -256,7 +444,7 @@ fn render_compaction_memory_content(
     existing_entries: &str,
 ) -> String {
     let mut content = String::new();
-    content.push_str(SESSION_MEMORY_HEADER);
+    content.push_str(&session_memory_header_for(session_id));
     content.push_str("\n\n");
     content.push_str(&render_entry(
         project_root,
@@ -276,7 +464,7 @@ fn render_compaction_memory_content(
 
 fn render_live_session_memory_content(snapshot: &LiveSessionSnapshot) -> String {
     let mut content = String::new();
-    content.push_str(LIVE_SESSION_MEMORY_HEADER);
+    content.push_str(&live_session_memory_header_for(&snapshot.session_id));
     content.push_str("\n\n");
     content.push_str(&super::snapshot::render_live_snapshot(snapshot));
     truncate_memory_file(content)
@@ -287,7 +475,7 @@ fn render_live_session_memory_summary_content(
     summary: &str,
 ) -> String {
     let mut content = String::new();
-    content.push_str(LIVE_SESSION_MEMORY_HEADER);
+    content.push_str(&live_session_memory_header_for(&snapshot.session_id));
     content.push_str("\n\n");
     let generated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let hints = super::schema::live_memory_hints(&generated_at);
@@ -295,7 +483,7 @@ fn render_live_session_memory_summary_content(
     content.push_str(&format!(
         "## {} session {}\n\n### Session Stats\n\n- Total tool calls this session: {}\n- Current message count: {}\n\n{}\n",
         generated_at,
-        snapshot.session_id.chars().take(8).collect::<String>(),
+        snapshot.session_id,
         snapshot.total_tool_calls,
         snapshot.message_count,
         summary_body
@@ -310,7 +498,6 @@ fn render_entry(
     files_read: &HashMap<String, usize>,
     files_modified: &[String],
 ) -> String {
-    let short_session_id: String = session_id.chars().take(8).collect();
     let generated_at = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let sections =
         super::schema::structured_sections_from_compaction_summary(report.summary.as_deref());
@@ -318,7 +505,7 @@ fn render_entry(
     let files_read_summary = summarize_read_files(project_root, files_read);
     let files_modified_summary = summarize_modified_files(project_root, files_modified);
     let mut lines = vec![
-        format!("## {} session {}", generated_at, short_session_id),
+        format!("## {} session {}", generated_at, session_id),
         String::new(),
         "- Trigger: auto_compact".to_string(),
         format!("- Removed messages: {}", report.removed),
@@ -440,24 +627,6 @@ fn truncate_memory_file(content: String) -> String {
     truncated
 }
 
-fn write_string_with_retry(path: &Path, content: &str) -> Result<()> {
-    let mut last_err = None;
-    for attempt in 0..MEMORY_WRITE_RETRIES {
-        match fs::write(path, content) {
-            Ok(()) => return Ok(()),
-            Err(err) => {
-                last_err = Some(err);
-                if attempt + 1 < MEMORY_WRITE_RETRIES {
-                    std::thread::sleep(std::time::Duration::from_millis(25 * (attempt as u64 + 1)));
-                }
-            }
-        }
-    }
-    Err(last_err
-        .map(Into::into)
-        .unwrap_or_else(|| anyhow::anyhow!("session memory write failed without an I/O error")))
-}
-
 fn read_existing_session_memory(path: &Path) -> Result<String> {
     match fs::read_to_string(path) {
         Ok(content) => Ok(content),
@@ -469,25 +638,6 @@ fn read_existing_session_memory(path: &Path) -> Result<String> {
             )
         }),
     }
-}
-
-async fn write_string_with_retry_async(path: &Path, content: &str) -> Result<()> {
-    let mut last_err = None;
-    for attempt in 0..MEMORY_WRITE_RETRIES {
-        match tokio::fs::write(path, content).await {
-            Ok(()) => return Ok(()),
-            Err(err) => {
-                last_err = Some(err);
-                if attempt + 1 < MEMORY_WRITE_RETRIES {
-                    tokio::time::sleep(std::time::Duration::from_millis(25 * (attempt as u64 + 1)))
-                        .await;
-                }
-            }
-        }
-    }
-    Err(last_err
-        .map(Into::into)
-        .unwrap_or_else(|| anyhow::anyhow!("session memory write failed without an I/O error")))
 }
 
 async fn read_existing_session_memory_async(path: &Path) -> Result<String> {
@@ -503,7 +653,7 @@ async fn read_existing_session_memory_async(path: &Path) -> Result<String> {
     }
 }
 
-fn load_memory_excerpt(path: &Path, max_chars: usize) -> Option<String> {
+fn load_memory_excerpt(path: &Path, session_id: &str, max_chars: usize) -> Option<String> {
     let content = match fs::read_to_string(path) {
         Ok(content) => content,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
@@ -515,6 +665,17 @@ fn load_memory_excerpt(path: &Path, max_chars: usize) -> Option<String> {
             return None;
         }
     };
+    match verify_memory_ownership(&content, session_id) {
+        ArtifactOwnership::Exact | ArtifactOwnership::LegacyPrefix => {}
+        ArtifactOwnership::Unverifiable => {
+            warn!(
+                "拒绝恢复会话 {} 的记忆摘要 {}：工件归属无法验证（可能属于其他会话或格式损坏）",
+                session_id,
+                path.display()
+            );
+            return None;
+        }
+    }
     let mut lines = Vec::new();
 
     for raw_line in content.lines() {
@@ -522,6 +683,7 @@ fn load_memory_excerpt(path: &Path, max_chars: usize) -> Option<String> {
         if line.is_empty()
             || line == "# Session Memory"
             || line == "# Session Snapshot"
+            || line.starts_with("- Session:")
             || line.starts_with("Yode writes this file automatically")
             || line.starts_with("Yode refreshes this file during the session")
         {
@@ -550,4 +712,412 @@ fn load_memory_excerpt(path: &Path, max_chars: usize) -> Option<String> {
     }
 
     Some(excerpt)
+}
+
+/// 删除某项目目录下已验证归属 session 的工件（会话删除后的磁盘清理）。
+/// 仅删除文件名携带完整 session token 的新工件；绝不触碰旧共享文件或其他会话工件。
+pub fn cleanup_session_artifacts(project_root: &Path, session_id: &str) -> Result<CleanupReport> {
+    let token = session_artifact_token(session_id);
+    let mut report = CleanupReport::default();
+    let dirs: &[(&str, &str)] = &[
+        ("memory", "会话记忆"),
+        ("transcripts", "transcript 工件"),
+        ("status", "状态工件"),
+        ("turns", "turn 工件"),
+        ("tools", "工具工件"),
+        ("context-collapse", "上下文压缩工件"),
+        ("plans", "计划工件"),
+        ("hooks", "hook 工件"),
+        ("remote", "远端协作工件"),
+    ];
+
+    for (subdir, label) in dirs {
+        let dir = project_root.join(".yode").join(subdir);
+        let entries = match fs::read_dir(&dir) {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(err) => {
+                report.errors.push(format!(
+                    "无法读取 {} 目录 {} 进行清理: {}",
+                    label,
+                    dir.display(),
+                    err
+                ));
+                continue;
+            }
+        };
+        for entry in entries {
+            let entry = match entry {
+                Ok(entry) => entry,
+                Err(err) => {
+                    report
+                        .errors
+                        .push(format!("无法枚举 {} 目录条目: {}", dir.display(), err));
+                    continue;
+                }
+            };
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            let belongs_to_session = if *subdir == "memory" {
+                file_name == format!("session-{token}.md")
+                    || file_name == format!("session-{token}.live.md")
+            } else {
+                file_name.starts_with(&format!("{token}-"))
+            };
+            if !belongs_to_session {
+                continue;
+            }
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            match remove_verified_artifact_file(&path, session_id) {
+                Ok(removed) => {
+                    if removed {
+                        report.removed_files += 1;
+                    }
+                }
+                Err(err) => {
+                    report
+                        .errors
+                        .push(format!("无法清理 {}: {}", path.display(), err));
+                }
+            }
+        }
+    }
+
+    if !report.errors.is_empty() {
+        return Err(anyhow::anyhow!(
+            "会话 {} 工件清理部分失败（已删除 {} 个文件）:\n{}",
+            session_id,
+            report.removed_files,
+            report.errors.join("\n")
+        ));
+    }
+    Ok(report)
+}
+
+/// 删除单个工件前做内容级归属校验：内容携带 session_id 时必须匹配目标会话，
+/// 不匹配则拒绝删除并报错；内容不含 session_id 时以文件名 token 为准。
+fn remove_verified_artifact_file(path: &Path, session_id: &str) -> Result<bool> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let content = fs::read_to_string(path).with_context(|| {
+        format!(
+            "无法读取会话工件 {}，无法验证归属，拒绝删除",
+            path.display()
+        )
+    })?;
+    let content_session = json_artifact_session_id(&content)
+        .or_else(|| markdown_artifact_session_id(&content))
+        .or_else(|| markdown_front_matter_session_id(&content));
+    if let Some(owner) = content_session {
+        if owner != session_id {
+            return Err(anyhow::anyhow!(
+                "工件内容归属 session {} 与目标 {} 不一致，拒绝删除",
+                owner,
+                session_id
+            ));
+        }
+    }
+    fs::remove_file(path).with_context(|| {
+        format!(
+            "无法删除会话工件 {}（删除失败，可能需要手动处理）",
+            path.display()
+        )
+    })?;
+    Ok(true)
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct CleanupReport {
+    pub removed_files: usize,
+    pub errors: Vec<String>,
+}
+
+#[cfg(test)]
+mod legacy_migration_tests {
+    use super::*;
+    use crate::session_artifact::legacy_session_short_id;
+
+    fn legacy_compaction_memory_body(session_id: &str) -> String {
+        format!(
+            "{}\n\n## 2026-01-01 12:00:00 session {}\n\n### Goals\n\n- goal\n",
+            SESSION_MEMORY_HEADER,
+            legacy_session_short_id(session_id)
+        )
+    }
+
+    #[test]
+    fn migrates_legacy_shared_memory_when_fully_attributable() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let session = "12345678-aaaa-bbbb";
+        let legacy = root.join(".yode/memory/session.md");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(&legacy, legacy_compaction_memory_body(session)).unwrap();
+
+        migrate_legacy_session_memory(root, session).unwrap();
+
+        assert!(!legacy.exists());
+        let migrated = session_memory_path(root, session);
+        let content = std::fs::read_to_string(&migrated).unwrap();
+        assert!(content.contains(session));
+        assert_eq!(
+            markdown_front_matter_session_id(&content).as_deref(),
+            Some(session)
+        );
+        let excerpt = best_compaction_memory_excerpt(root, session, 2000)
+            .map(|(_, e)| e)
+            .unwrap();
+        assert!(excerpt.contains("### Goals"));
+        assert!(excerpt.contains("- goal"));
+    }
+
+    #[test]
+    fn does_not_migrate_legacy_memory_owned_by_another_session() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let legacy = root.join(".yode/memory/session.md");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(&legacy, legacy_compaction_memory_body("87654321-xxxx-yyyy")).unwrap();
+
+        migrate_legacy_session_memory(root, "12345678-aaaa-bbbb").unwrap();
+
+        assert!(legacy.exists());
+        assert!(!session_memory_path(root, "12345678-aaaa-bbbb").exists());
+        assert!(
+            best_compaction_memory_excerpt(root, "12345678-aaaa-bbbb", 2000).is_none(),
+            "其他会话的旧共享记忆不得被读取"
+        );
+    }
+
+    #[test]
+    fn does_not_migrate_mixed_session_legacy_memory() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let session_a = "12345678-aaaa-bbbb";
+        let legacy = root.join(".yode/memory/session.md");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        let mut body = legacy_compaction_memory_body(session_a);
+        body.push_str("\n\n## 2026-01-02 13:00:00 session 87654321-dddd\n\n### Goals\n\n- other\n");
+        std::fs::write(&legacy, body).unwrap();
+
+        migrate_legacy_session_memory(root, session_a).unwrap();
+
+        assert!(legacy.exists(), "混合会话旧文件不得删除");
+        let migrated = session_memory_path(root, session_a);
+        assert!(migrated.exists(), "归属当前会话的条目应被部分迁移");
+        let content = std::fs::read_to_string(&migrated).unwrap();
+        assert!(content.contains("12345678-aaaa-bbbb"));
+        assert!(content.contains("- goal"));
+        assert!(!content.contains("- other"), "其他会话的条目不得混入");
+        let excerpt = best_compaction_memory_excerpt(root, session_a, 2000)
+            .map(|(_, e)| e)
+            .unwrap();
+        assert!(excerpt.contains("- goal"));
+        assert!(!excerpt.contains("- other"));
+        let legacy_content = std::fs::read_to_string(&legacy).unwrap();
+        assert!(
+            legacy_content.contains("session 87654321-dddd"),
+            "其他会话条目保留在旧文件"
+        );
+    }
+
+    #[test]
+    fn partial_legacy_migration_is_idempotent() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let session_a = "12345678-aaaa-bbbb";
+        let legacy = root.join(".yode/memory/session.md");
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        let mut body = legacy_compaction_memory_body(session_a);
+        body.push_str("\n\n## 2026-01-02 13:00:00 session 87654321-dddd\n\n### Goals\n\n- other\n");
+        std::fs::write(&legacy, body).unwrap();
+
+        migrate_legacy_session_memory(root, session_a).unwrap();
+        let migrated = session_memory_path(root, session_a);
+        let before = std::fs::read_to_string(&migrated).unwrap();
+        migrate_legacy_session_memory(root, session_a).unwrap();
+        let after = std::fs::read_to_string(&migrated).unwrap();
+        assert_eq!(before, after, "重复迁移不得重复写入条目");
+        assert!(legacy.exists());
+    }
+
+    #[test]
+    fn a_b_session_memory_files_are_isolated() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let report = CompressionReport {
+            removed: 2,
+            tool_results_truncated: 0,
+            summary: Some("A summary".to_string()),
+            removed_messages: vec![],
+        };
+        persist_compaction_memory(root, "session-aaaa-1111", &report, &HashMap::new(), &[])
+            .unwrap();
+        let report_b = CompressionReport {
+            removed: 3,
+            tool_results_truncated: 0,
+            summary: Some("B summary".to_string()),
+            removed_messages: vec![],
+        };
+        persist_compaction_memory(root, "session-bbbb-2222", &report_b, &HashMap::new(), &[])
+            .unwrap();
+
+        let path_a = session_memory_path(root, "session-aaaa-1111");
+        let path_b = session_memory_path(root, "session-bbbb-2222");
+        assert_ne!(path_a, path_b);
+        assert!(path_a.exists());
+        assert!(path_b.exists());
+
+        let excerpt_a = best_compaction_memory_excerpt(root, "session-aaaa-1111", 2000).unwrap();
+        assert!(excerpt_a.1.contains("A summary"));
+        assert!(!excerpt_a.1.contains("B summary"));
+        let excerpt_b = best_compaction_memory_excerpt(root, "session-bbbb-2222", 2000).unwrap();
+        assert!(excerpt_b.1.contains("B summary"));
+        assert!(!excerpt_b.1.contains("A summary"));
+    }
+
+    #[test]
+    fn deleting_one_session_never_touches_other_sessions() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let a = "session-aaaa-1111";
+        let b = "session-bbbb-2222";
+        persist_live_session_memory(
+            root,
+            &build_live_snapshot(a, &[Message::user("A")], 1, &[], &[]),
+        )
+        .unwrap();
+        persist_live_session_memory(
+            root,
+            &build_live_snapshot(b, &[Message::user("B")], 1, &[], &[]),
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join(".yode/memory")).unwrap();
+        let legacy = root.join(".yode/memory/session.md");
+        std::fs::write(&legacy, "# Session Memory\n\n- legacy\n").unwrap();
+
+        cleanup_session_artifacts(root, a).unwrap();
+
+        assert!(!live_session_memory_path(root, a).exists());
+        assert!(live_session_memory_path(root, b).exists());
+        assert!(legacy.exists(), "旧共享文件绝不能被会话删除误删");
+    }
+
+    #[test]
+    fn cleanup_rejects_content_mismatch_without_deleting() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let a = "session-aaaa-1111";
+        let b = "session-bbbb-2222";
+        let status_dir = root.join(".yode/status");
+        std::fs::create_dir_all(&status_dir).unwrap();
+        let path = status_dir.join(format!(
+            "{}-post-compact-restore-state.json",
+            session_artifact_token(a)
+        ));
+        std::fs::write(&path, format!(r#"{{"session_id": "{b}", "blocks": []}}"#)).unwrap();
+
+        let err = cleanup_session_artifacts(root, a).expect_err("内容归属不一致应拒绝删除");
+        assert!(path.exists(), "归属不一致的工件不得被删除");
+        assert!(err.to_string().contains("不一致"));
+    }
+
+    #[test]
+    fn cleanup_covers_hooks_and_remote_artifacts() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let a = "session-aaaa-1111";
+        let b = "session-bbbb-2222";
+        let hooks_dir = root.join(".yode/hooks");
+        std::fs::create_dir_all(&hooks_dir).unwrap();
+        let hook_a = hooks_dir.join(format!(
+            "{}-20260101-120000-hook-deferred-state.json",
+            session_artifact_token(a)
+        ));
+        std::fs::write(
+            &hook_a,
+            format!(r#"{{"session_id": "{a}", "kind": "hook_deferred_tool_call"}}"#),
+        )
+        .unwrap();
+        let hook_legacy = hooks_dir.join("20260101-120000-session-hook-deferred.md");
+        std::fs::write(&hook_legacy, "# Hook Deferred Tool Call").unwrap();
+
+        let remote_dir = root.join(".yode/remote");
+        std::fs::create_dir_all(&remote_dir).unwrap();
+        let remote_a = remote_dir.join(format!(
+            "{}-20260101-120000-remote-transport-state.json",
+            session_artifact_token(a)
+        ));
+        std::fs::write(
+            &remote_a,
+            format!(r#"{{"session_id": "{a}", "connection_status": "connected"}}"#),
+        )
+        .unwrap();
+        let remote_b = remote_dir.join(format!(
+            "{}-20260101-120000-remote-control-session.json",
+            session_artifact_token(b)
+        ));
+        std::fs::write(
+            &remote_b,
+            format!(r#"{{"session_id": "{b}", "status": "queued"}}"#),
+        )
+        .unwrap();
+
+        cleanup_session_artifacts(root, a).unwrap();
+
+        assert!(!hook_a.exists(), "会话 A 的 hook 工件应被清理");
+        assert!(hook_legacy.exists(), "旧版 hook 工件不得被误删");
+        assert!(!remote_a.exists(), "会话 A 的 remote 工件应被清理");
+        assert!(remote_b.exists(), "会话 B 的 remote 工件不得被误删");
+    }
+
+    #[test]
+    fn cleanup_keeps_unreadable_artifact() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let session = "session-unreadable-1111";
+        let status_dir = root.join(".yode/status");
+        std::fs::create_dir_all(&status_dir).unwrap();
+        let path = status_dir.join(format!(
+            "{}-post-compact-restore-state.json",
+            session_artifact_token(session)
+        ));
+        // 无效 UTF-8 使 read_to_string 明确失败，不能被静默当作无归属文件删除。
+        std::fs::write(&path, [0xff, 0xfe, 0xfd]).unwrap();
+
+        let err = cleanup_session_artifacts(root, session).expect_err("不可读工件应拒绝删除");
+        assert!(path.exists());
+        assert!(err.to_string().contains("无法读取会话工件"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cleanup_keeps_permission_denied_artifact() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        let session = "session-permission-1111";
+        let status_dir = root.join(".yode/status");
+        std::fs::create_dir_all(&status_dir).unwrap();
+        let path = status_dir.join(format!(
+            "{}-post-compact-restore-state.json",
+            session_artifact_token(session)
+        ));
+        std::fs::write(&path, b"{}\n").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // root 用户可能绕过权限位，无法在该环境稳定注入 EACCES 时跳过。
+        if std::fs::read_to_string(&path).is_ok() {
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+            return;
+        }
+
+        let err = cleanup_session_artifacts(root, session).expect_err("权限异常应拒绝删除");
+        assert!(path.exists());
+        assert!(err.to_string().contains("无法读取会话工件"));
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
 }

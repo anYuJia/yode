@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { X } from "lucide-react";
 import { Bootstrap, SessionSummary } from "../../lib/desktopTypes";
@@ -28,6 +28,42 @@ type ImportAiSessionsResult = {
   skipped: number;
   sessions: SessionSummary[];
 };
+
+const DIALOG_FOCUSABLE_SELECTOR = [
+  "button:not([disabled])",
+  "[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])"
+].join(",");
+
+export function dialogFocusableElements(dialog: HTMLElement) {
+  return Array.from(dialog.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE_SELECTOR));
+}
+
+export function focusFirstDialogControl(dialog: HTMLElement, fallback: HTMLElement | null) {
+  const firstControl = dialogFocusableElements(dialog)[0] || fallback || dialog;
+  firstControl.focus();
+}
+
+export function restoreDialogTriggerFocus(trigger: HTMLElement | null) {
+  trigger?.focus();
+}
+
+export function cycleDialogFocus(dialog: HTMLElement, activeElement: Element | null, reverse: boolean) {
+  const controls = dialogFocusableElements(dialog);
+  if (controls.length === 0) {
+    dialog.focus();
+    return;
+  }
+
+  const currentIndex = activeElement ? controls.indexOf(activeElement as HTMLElement) : -1;
+  const nextIndex = reverse
+    ? currentIndex <= 0 ? controls.length - 1 : currentIndex - 1
+    : currentIndex === controls.length - 1 ? 0 : currentIndex + 1;
+  controls[nextIndex]?.focus();
+}
 
 export function GeneralSettings({
   bootstrap,
@@ -60,6 +96,9 @@ export function GeneralSettings({
   const [licenseNotices, setLicenseNotices] = useState<LicenseNotice[]>([]);
   const [licenseLoading, setLicenseLoading] = useState(false);
   const [importStatus, setImportStatus] = useState("");
+  const licenseTriggerRef = useRef<HTMLButtonElement>(null);
+  const licenseDialogRef = useRef<HTMLDivElement>(null);
+  const licenseCloseRef = useRef<HTMLButtonElement>(null);
 
   const updateGeneralVal = (key: string, value: string | boolean) => {
     saveGeneralSettingValue(key, value);
@@ -114,6 +153,39 @@ export function GeneralSettings({
       setLicenseLoading(false);
     }
   };
+
+  const closeLicenseModal = () => {
+    setLicenseModalOpen(false);
+  };
+
+  useEffect(() => {
+    if (!licenseModalOpen) return;
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const dialog = licenseDialogRef.current;
+      if (dialog) focusFirstDialogControl(dialog, licenseCloseRef.current);
+    });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const dialog = licenseDialogRef.current;
+      if (!dialog) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeLicenseModal();
+        return;
+      }
+      if (event.key === "Tab") {
+        event.preventDefault();
+        cycleDialogFocus(dialog, document.activeElement, event.shiftKey);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener("keydown", handleKeyDown);
+      restoreDialogTriggerFocus(licenseTriggerRef.current);
+    };
+  }, [licenseModalOpen]);
 
   return (
     <>
@@ -480,6 +552,7 @@ export function GeneralSettings({
                     <span className="row-desc">{t("查看所包含依赖项的第三方声明", "Third-party notices for bundled dependencies")}</span>
                   </div>
                   <button
+                    ref={licenseTriggerRef}
                     className="secondary-button"
                     style={{ paddingInline: "14px", height: "28px" }}
                     type="button"
@@ -517,7 +590,7 @@ export function GeneralSettings({
                 <div className="form-row">
                   <div className="row-info">
                     <span className="row-label">{t("追问行为控制", "Follow-up behavior")}</span>
-                    <span className="row-desc">{t("连续追问时直接运行或等待确认", "Queue follow-ups while Yode runs or steer the current run")}</span>
+                    <span className="row-desc">{t("运行中收到追问时，会在当前轮结束后发送", "Follow-ups are sent after the current run finishes")}</span>
                   </div>
                   <div className="segmented-control">
                     <button
@@ -529,16 +602,6 @@ export function GeneralSettings({
                       type="button"
                     >
                       {t("队列式", "Queue")}
-                    </button>
-                    <button
-                      className={`segmented-btn ${followUpBehavior === "steer" ? "active" : ""}`}
-                      onClick={() => {
-                        setFollowUpBehavior("steer");
-                        updateGeneralVal("yode-follow-up-behavior", "steer");
-                      }}
-                      type="button"
-                    >
-                      {t("指引式", "Steer")}
                     </button>
                   </div>
                 </div>
@@ -628,14 +691,23 @@ export function GeneralSettings({
             </div>
           </div>
       {licenseModalOpen && (
-        <div className="settings-modal-backdrop" onClick={() => setLicenseModalOpen(false)}>
-          <div className="settings-modal" onClick={(event) => event.stopPropagation()}>
+        <div className="settings-modal-backdrop" onClick={closeLicenseModal}>
+          <div
+            ref={licenseDialogRef}
+            className="settings-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="license-modal-title"
+            aria-describedby="license-modal-description"
+            tabIndex={-1}
+            onClick={(event) => event.stopPropagation()}
+          >
             <div className="settings-modal-header">
               <div>
-                <h2>{t("开源许可声明", "Open source licenses")}</h2>
-                <p>{t("当前桌面端包含的 Rust 与前端依赖清单", "Bundled Rust and frontend dependency notices")}</p>
+                <h2 id="license-modal-title">{t("开源许可声明", "Open source licenses")}</h2>
+                <p id="license-modal-description">{t("当前桌面端包含的 Rust 与前端依赖清单", "Bundled Rust and frontend dependency notices")}</p>
               </div>
-              <button type="button" className="icon-button" onClick={() => setLicenseModalOpen(false)} aria-label={t("关闭", "Close")}>
+              <button ref={licenseCloseRef} type="button" className="icon-button" onClick={closeLicenseModal} aria-label={t("关闭", "Close")}>
                 <X size={16} />
               </button>
             </div>

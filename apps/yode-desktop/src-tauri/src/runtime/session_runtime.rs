@@ -16,6 +16,7 @@ use super::{
         restore_messages_from_stored, session_workspace_path,
     },
     provider_runtime::normalized_provider_model,
+    turn_runtime::{SessionOperation, SessionOperationSlot},
     DesktopRuntime,
 };
 use crate::hook_settings::build_desktop_hook_manager;
@@ -24,7 +25,7 @@ use crate::protocol::{
     SessionExportResult,
 };
 use crate::session_helpers::{
-    build_local_compaction_summary, render_session_markdown, short_session_id, stored_images,
+    build_local_compaction_summary, export_session_token, render_session_markdown, stored_images,
     stored_message_to_message, stored_metadata,
 };
 
@@ -82,6 +83,7 @@ impl DesktopRuntime {
                     .collect();
                 let metadata = stored_metadata(&message);
                 DesktopMessage {
+                    sort_order: Some(message.sort_order),
                     images,
                     id: message.id,
                     role: message.role,
@@ -97,6 +99,13 @@ impl DesktopRuntime {
     }
 
     pub fn sessions_clear_messages(&self, session_id: String) -> Result<()> {
+        let _slot = SessionOperationSlot::acquire(
+            &self.active_sessions,
+            &session_id,
+            SessionOperation::ClearMessages,
+        )?;
+        // 跨进程锁：与 CLI/其他桌面进程的 turn、压缩、删除互斥
+        let _session_lock = self.db.session_lock(&session_id)?;
         if self.db.get_session(&session_id)?.is_none() {
             anyhow::bail!("session '{}' not found", session_id);
         }
@@ -127,34 +136,51 @@ impl DesktopRuntime {
         &self,
         session_id: String,
     ) -> Result<SessionExportResult> {
-        let session = self
+        let _slot = SessionOperationSlot::acquire(
+            &self.active_sessions,
+            &session_id,
+            SessionOperation::Export,
+        )?;
+        // 跨进程锁：导出与 turn/clear/compact/delete 互斥，
+        // 保证导出的是操作前或操作后的完整一致快照
+        let _session_lock = self.db.session_lock(&session_id)?;
+        let snapshot = self
             .db
-            .get_session(&session_id)?
+            .load_session_snapshot(&session_id)?
             .ok_or_else(|| anyhow::anyhow!("session '{}' not found", session_id))?;
-        let messages = self.db.load_messages(&session_id)?;
-        let root = session
+        let root = snapshot
+            .session
             .project_root
             .as_deref()
             .map(PathBuf::from)
             .filter(|path| path.is_dir())
             .unwrap_or_else(|| self.workspace_path.clone());
         let export_dir = root.join(".yode").join("exports");
-        tokio::fs::create_dir_all(&export_dir).await?;
         let timestamp = Utc::now().format("%Y%m%d-%H%M%S");
-        let path = export_dir.join(format!(
-            "{}-{}.md",
-            short_session_id(&session_id),
-            timestamp
-        ));
-        tokio::fs::write(&path, render_session_markdown(&session, &messages)).await?;
+        let base = format!("{}-{}", export_session_token(&session_id), timestamp);
+        // 唯一命名 + 临时文件原子替换：同一秒连续导出不互相覆盖，
+        // 写入失败不产生半截文件、不触碰已有导出
+        let path = yode_core::session_lock::write_unique_export_file(
+            &export_dir,
+            &base,
+            &render_session_markdown(&snapshot.session, &snapshot.messages),
+        )?;
         Ok(SessionExportResult {
             path: path.display().to_string(),
-            message_count: messages.len(),
+            message_count: snapshot.messages.len(),
         })
     }
 
     pub fn sessions_compact_local(&self, session_id: String) -> Result<SessionCompactResult> {
         const KEEP_LAST_MESSAGES: usize = 16;
+
+        let _slot = SessionOperationSlot::acquire(
+            &self.active_sessions,
+            &session_id,
+            SessionOperation::CompactLocal,
+        )?;
+        // 跨进程锁：与 CLI/其他桌面进程的 turn、clear、delete 互斥
+        let _session_lock = self.db.session_lock(&session_id)?;
 
         let session = self
             .db
@@ -196,6 +222,14 @@ impl DesktopRuntime {
         &self,
         session_id: String,
     ) -> Result<SessionCompactResult> {
+        let _slot = SessionOperationSlot::acquire(
+            &self.active_sessions,
+            &session_id,
+            SessionOperation::CompactEngine,
+        )?;
+        // 跨进程锁：与 CLI/其他桌面进程的 turn、clear、delete 互斥，
+        // 在引擎压缩全过程中持有
+        let _session_lock = self.db.session_lock(&session_id)?;
         let session = self
             .db
             .get_session(&session_id)?
@@ -267,7 +301,40 @@ impl DesktopRuntime {
     }
 
     pub fn sessions_delete(&self, session_id: String) -> Result<()> {
+        let _slot = SessionOperationSlot::acquire(
+            &self.active_sessions,
+            &session_id,
+            SessionOperation::Delete,
+        )?;
+        // 跨进程锁：与 CLI/其他桌面进程的 turn、clear、compact、export 互斥
+        let _session_lock = self.db.session_lock(&session_id)?;
+        let project_root = self
+            .db
+            .get_session(&session_id)?
+            .and_then(|session| session.project_root)
+            .filter(|root| !root.trim().is_empty())
+            .map(PathBuf::from)
+            .filter(|path| path.is_dir())
+            .unwrap_or_else(|| self.workspace_path.clone());
         self.db.delete_session(&session_id)?;
+        // 会话删除成功后清理磁盘工件：仅清理已验证属于该会话的新工件，
+        // 绝不误删其他会话工件或旧共享文件；失败记录可诊断错误但不回滚删除。
+        match yode_core::session_memory::cleanup_session_artifacts(&project_root, &session_id) {
+            Ok(report) => {
+                tracing::info!(
+                    "会话 {} 删除完成，已清理 {} 个磁盘工件",
+                    session_id,
+                    report.removed_files
+                );
+            }
+            Err(err) => {
+                tracing::error!(
+                    "会话 {} 已从数据库删除，但磁盘工件清理失败: {}",
+                    session_id,
+                    err
+                );
+            }
+        }
         Ok(())
     }
 

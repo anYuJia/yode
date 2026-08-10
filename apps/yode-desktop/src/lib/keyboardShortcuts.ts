@@ -1,3 +1,5 @@
+import { storageReadJson, storageReadRaw, storageWriteJson } from "./storageAdapter";
+
 export type ShortcutBinding = {
   id: string;
   cmdZh: string;
@@ -66,13 +68,9 @@ export const DEFAULT_SHORTCUT_BINDINGS: ShortcutBinding[] = [
 ];
 
 export function loadShortcutBindings(): ShortcutBinding[] {
-  try {
-    const raw = localStorage.getItem(KEYBOARD_SHORTCUTS_STORAGE_KEY);
-    if (!raw) return DEFAULT_SHORTCUT_BINDINGS;
-    return shortcutBindingsFromOverrides(JSON.parse(raw));
-  } catch {
-    return DEFAULT_SHORTCUT_BINDINGS;
-  }
+  const raw = storageReadRaw(KEYBOARD_SHORTCUTS_STORAGE_KEY);
+  if (!raw) return DEFAULT_SHORTCUT_BINDINGS;
+  return shortcutBindingsFromOverrides(storageReadJson(KEYBOARD_SHORTCUTS_STORAGE_KEY, null));
 }
 
 export function shortcutBindingOverridesFromBindings(bindings: ShortcutBinding[]): ShortcutBindingOverride[] {
@@ -96,7 +94,7 @@ export function shortcutBindingsFromOverrides(overrides: unknown): ShortcutBindi
 
 export function saveShortcutBindings(bindings: ShortcutBinding[]) {
   const payload = shortcutBindingOverridesFromBindings(bindings);
-  localStorage.setItem(KEYBOARD_SHORTCUTS_STORAGE_KEY, JSON.stringify(payload));
+  storageWriteJson(KEYBOARD_SHORTCUTS_STORAGE_KEY, payload);
   window.dispatchEvent(new Event(KEYBOARD_SHORTCUTS_CHANGE_EVENT));
 }
 

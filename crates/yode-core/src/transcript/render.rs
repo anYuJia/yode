@@ -115,10 +115,6 @@ pub(super) fn render_compaction_transcript(
     output
 }
 
-pub(super) fn short_session_id(session_id: &str) -> String {
-    session_id.chars().take(8).collect()
-}
-
 fn role_label(role: &Role) -> &'static str {
     match role {
         Role::System => "System",

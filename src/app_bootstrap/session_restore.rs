@@ -9,7 +9,7 @@ use yode_core::context::AgentContext;
 use yode_core::db::{Database, StoredMessage};
 use yode_core::permission::{PermissionConfig, PermissionManager, PermissionSourceView};
 use yode_core::session::Session;
-use yode_llm::types::{ContentBlock, Message, Role, ToolCall};
+use yode_llm::types::Message;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct SessionRestoreReport {
@@ -282,43 +282,7 @@ fn restore_messages_full(
 }
 
 fn stored_message_to_message(message: StoredMessage) -> Option<Message> {
-    let role = match message.role.as_str() {
-        "user" => Role::User,
-        "assistant" => Role::Assistant,
-        "tool" => Role::Tool,
-        "system" => Role::System,
-        _ => return None,
-    };
-    let tool_calls: Vec<ToolCall> = message
-        .tool_calls_json
-        .as_deref()
-        .and_then(|json| serde_json::from_str(json).ok())
-        .unwrap_or_default();
-    let mut blocks = Vec::new();
-    if let Some(reasoning) = &message.reasoning {
-        blocks.push(ContentBlock::Thinking {
-            thinking: reasoning.clone(),
-            signature: None,
-        });
-    }
-    if let Some(content) = &message.content {
-        blocks.push(ContentBlock::Text {
-            text: content.clone(),
-        });
-    }
-
-    Some(
-        Message {
-            role,
-            content: message.content,
-            content_blocks: blocks,
-            reasoning: message.reasoning,
-            tool_calls,
-            tool_call_id: message.tool_call_id,
-            images: Vec::new(),
-        }
-        .normalized(),
-    )
+    message.to_message()
 }
 
 #[cfg(test)]

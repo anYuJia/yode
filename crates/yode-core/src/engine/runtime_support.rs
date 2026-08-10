@@ -41,18 +41,51 @@ impl AgentEngine {
 
     fn active_plan_file_path(&self) -> Option<String> {
         let project_root = self.context.working_dir_compat();
-        let short_session = self.context.session_id.chars().take(8).collect::<String>();
+        let session_token =
+            crate::session_artifact::session_artifact_token(&self.context.session_id);
+        let legacy_short =
+            crate::session_artifact::legacy_session_short_id(&self.context.session_id);
         [
             project_root
                 .join(".yode")
                 .join("plans")
-                .join(format!("{}-plan.md", short_session)),
+                .join(format!("{}-plan.md", session_token)),
+            project_root
+                .join(".yode")
+                .join("plans")
+                .join(format!("{}-plan.md", legacy_short)),
             project_root.join(".yode").join("plan.md"),
             project_root.join("PLAN.md"),
         ]
         .into_iter()
-        .find(|path| path.is_file())
+        .find(|path| {
+            path.is_file() && self.plan_file_belongs_to_session(path, &self.context.session_id)
+        })
         .map(|path| path.display().to_string())
+    }
+
+    /// 计划文件归属校验：文件内容携带 `- Session:` 标记时，仅当标记与当前会话一致才使用；
+    /// 无标记的文件视为用户手写计划文件（共享设计），不做拒绝。
+    fn plan_file_belongs_to_session(&self, path: &std::path::Path, session_id: &str) -> bool {
+        match std::fs::read_to_string(path)
+            .ok()
+            .and_then(|content| crate::session_artifact::markdown_artifact_session_id(&content))
+        {
+            Some(owner) => {
+                if owner == session_id {
+                    true
+                } else {
+                    tracing::warn!(
+                        "拒绝使用计划文件 {}：内容归属 session {} 与当前 {} 不一致",
+                        path.display(),
+                        owner,
+                        session_id
+                    );
+                    false
+                }
+            }
+            None => true,
+        }
     }
 
     pub fn runtime_state(&self) -> EngineRuntimeState {
@@ -149,9 +182,12 @@ impl AgentEngine {
             live_session_memory_updating: self
                 .session_memory_update_in_progress
                 .load(Ordering::SeqCst),
-            live_session_memory_path: live_session_memory_path(&self.context.working_dir_compat())
-                .display()
-                .to_string(),
+            live_session_memory_path: live_session_memory_path(
+                &self.context.working_dir_compat(),
+                &self.context.session_id,
+            )
+            .display()
+            .to_string(),
             session_tool_calls_total: self.session_tool_calls_total,
             last_compaction_mode: self.last_compaction_mode.clone(),
             last_compaction_at: self.last_compaction_at.clone(),

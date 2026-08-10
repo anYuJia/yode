@@ -102,8 +102,9 @@
         root.style.setProperty("--accent-muted", accentMuted);
 
         // Sidebar translucent（运行时由 applyTranslucentSidebarSetting 在 .app-shell 上维护）
-        // 对比度过滤：默认值不启用，避免 filter 层副作用
-        if (localStorage.getItem("yode-contrast") !== "48") {
+        // 对比度过滤：默认值不启用，避免 filter 层副作用。
+        // 注意：本脚本运行在 <head> 中，body 可能尚未解析，必须判空。
+        if (localStorage.getItem("yode-contrast") !== "48" && document.body) {
           document.body.classList.add("contrast-adjusted");
         }
       })();

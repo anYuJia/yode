@@ -15,6 +15,7 @@ import {
 import { PROVIDERS_META } from "./settings/ProvidersSettings";
 import { TopbarProviderIcon } from "./Topbar";
 import { ImageAttachment } from "../lib/desktopTypes";
+import { completeSlashCommands } from "../lib/localSlashCommands";
 import {
   LLM_PROVIDERS_CHANGE_EVENT,
   modelsForProviderFromStorage
@@ -22,6 +23,9 @@ import {
 
 const MAX_IMAGE_ATTACHMENTS = 8;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAX_IMAGE_PIXELS = 24_000_000;
+const MAX_TOTAL_IMAGE_BYTES = 24 * 1024 * 1024;
+const MAX_TOTAL_IMAGE_PIXELS = 48_000_000;
 
 interface ComposerProps {
   draft: string;
@@ -74,10 +78,13 @@ export function Composer({
   const [isDraggingImage, setIsDraggingImage] = useState(false);
   const [attachmentNotice, setAttachmentNotice] = useState("");
   const [providerVersion, setProviderVersion] = useState(0);
+  const [slashSuggestions, setSlashSuggestions] = useState<string[]>([]);
+  const [slashHighlight, setSlashHighlight] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isZh = appLang === "zh";
 
@@ -115,6 +122,26 @@ export function Composer({
       icon: <AlertCircle size={15} />
     }
   ];
+
+  /** slash 命令自动补全：由统一 registry 驱动（解析 + 补全 + 帮助共用一份定义）。 */
+  const updateSlashSuggestions = (value: string) => {
+    const trimmed = value.trim();
+    const hasSpace = /\s/.test(trimmed.slice(1));
+    if (trimmed.startsWith("/") && !hasSpace) {
+      const suggestions = completeSlashCommands(trimmed);
+      setSlashSuggestions(suggestions);
+      setSlashHighlight(0);
+    } else {
+      setSlashSuggestions([]);
+    }
+  };
+
+  const applySlashSuggestion = (suggestion: string) => {
+    onDraftChange(`${suggestion} `);
+    setSlashSuggestions([]);
+    setSlashHighlight(0);
+    textareaRef.current?.focus();
+  };
 
   const currentOption = OPTIONS.find(
     (o) => o.key.toLowerCase() === (permissionMode || "default").toLowerCase()
@@ -178,18 +205,44 @@ export function Composer({
       return;
     }
 
-    const next = await Promise.all(acceptedFiles.map(fileToImageAttachment));
-    onImagesChange([...images, ...next]);
-    if (skippedTooLarge > 0 || skippedTooMany > 0) {
+    const existingBytes = images.reduce((sum, image) => sum + (image.size || 0), 0);
+    const existingPixels = images.reduce((sum, image) => sum + (image.width || 0) * (image.height || 0), 0);
+    const next: ImageAttachment[] = [];
+    let totalBytes = existingBytes;
+    let totalPixels = existingPixels;
+    let skippedBudget = 0;
+    for (const file of acceptedFiles) {
+      if (totalBytes + file.size > MAX_TOTAL_IMAGE_BYTES) {
+        skippedBudget += 1;
+        continue;
+      }
+      try {
+        const attachment = await fileToImageAttachment(file);
+        const pixels = (attachment.width || 0) * (attachment.height || 0);
+        if (pixels > MAX_IMAGE_PIXELS || totalPixels + pixels > MAX_TOTAL_IMAGE_PIXELS) {
+          skippedBudget += 1;
+          continue;
+        }
+        next.push(attachment);
+        totalBytes += file.size;
+        totalPixels += pixels;
+      } catch {
+        skippedBudget += 1;
+      }
+    }
+    if (next.length > 0) onImagesChange([...images, ...next]);
+    if (skippedTooLarge > 0 || skippedTooMany > 0 || skippedBudget > 0) {
       setAttachmentNotice(
         isZh
           ? [
               skippedTooLarge > 0 ? `${skippedTooLarge} 张图片超过 10MB，已跳过。` : "",
-              skippedTooMany > 0 ? `最多可添加 ${MAX_IMAGE_ATTACHMENTS} 张图片，超出的已跳过。` : ""
+              skippedTooMany > 0 ? `最多可添加 ${MAX_IMAGE_ATTACHMENTS} 张图片，超出的已跳过。` : "",
+              skippedBudget > 0 ? `${skippedBudget} 张图片超过像素或附件总预算，已跳过。` : ""
             ].filter(Boolean).join(" ")
           : [
               skippedTooLarge > 0 ? `${skippedTooLarge} image(s) exceeded 10MB and were skipped.` : "",
-              skippedTooMany > 0 ? `Only ${MAX_IMAGE_ATTACHMENTS} images can be attached; extra images were skipped.` : ""
+              skippedTooMany > 0 ? `Only ${MAX_IMAGE_ATTACHMENTS} images can be attached; extra images were skipped.` : "",
+              skippedBudget > 0 ? `${skippedBudget} image(s) exceeded the pixel or total attachment budget and were skipped.` : ""
             ].filter(Boolean).join(" ")
       );
     } else {
@@ -253,9 +306,13 @@ export function Composer({
       )}
       <textarea
         aria-label="消息"
+        ref={textareaRef}
         placeholder={isZh ? "输入仓库任务..." : "Enter repository task..."}
         value={draft}
-        onChange={(event) => onDraftChange(event.target.value)}
+        onChange={(event) => {
+          onDraftChange(event.target.value);
+          updateSlashSuggestions(event.target.value);
+        }}
         onPaste={(event) => {
           const files = Array.from(event.clipboardData.files).filter((file) =>
             file.type.startsWith("image/")
@@ -266,6 +323,30 @@ export function Composer({
           }
         }}
         onKeyDown={(event) => {
+          if (slashSuggestions.length > 0) {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setSlashHighlight((current) => (current + 1) % slashSuggestions.length);
+              return;
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setSlashHighlight(
+                (current) => (current - 1 + slashSuggestions.length) % slashSuggestions.length
+              );
+              return;
+            }
+            if (event.key === "Tab" || (event.key === "Enter" && slashSuggestions.length === 1)) {
+              event.preventDefault();
+              applySlashSuggestion(slashSuggestions[slashHighlight] ?? slashSuggestions[0]);
+              return;
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setSlashSuggestions([]);
+              return;
+            }
+          }
           if (event.key === "Enter" && !event.shiftKey) {
             if (requireOptEnter) {
               if (event.altKey) {
@@ -292,6 +373,23 @@ export function Composer({
           }
         }}
       />
+      {slashSuggestions.length > 0 ? (
+        <div className="context-dropdown slash-suggestions" role="listbox" aria-label="命令补全">
+          {slashSuggestions.map((suggestion, index) => (
+            <button
+              key={suggestion}
+              type="button"
+              role="option"
+              aria-selected={index === slashHighlight}
+              className={`context-option ${index === slashHighlight ? "selected" : ""}`}
+              onMouseEnter={() => setSlashHighlight(index)}
+              onClick={() => applySlashSuggestion(suggestion)}
+            >
+              <span>{suggestion}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="composer-toolbar">
         {showBottomPanel ? (
         <div className="composer-tools" style={{ position: "relative" }}>
@@ -578,14 +676,32 @@ function fileToImageAttachment(file: File): Promise<ImageAttachment> {
     reader.onload = () => {
       const dataUrl = String(reader.result ?? "");
       const base64 = dataUrl.includes(",") ? dataUrl.split(",", 2)[1] : dataUrl;
-      resolve({
+      const finish = (width: number, height: number) => resolve({
         id: `${Date.now()}-${crypto.randomUUID?.() ?? Math.random().toString(36).slice(2)}`,
         name: file.name || "image",
         mediaType: file.type || "image/png",
         base64,
         dataUrl,
-        size: file.size
+        size: file.size,
+        width,
+        height
       });
+      const image = new Image();
+      image.onload = () => {
+        const width = image.naturalWidth || image.width;
+        const height = image.naturalHeight || image.height;
+        image.src = "";
+        if (!width || !height) {
+          reject(new Error("无法解析图片尺寸"));
+          return;
+        }
+        finish(width, height);
+      };
+      image.onerror = () => {
+        image.src = "";
+        reject(new Error("无法解析图片尺寸"));
+      };
+      image.src = dataUrl;
     };
     reader.readAsDataURL(file);
   });

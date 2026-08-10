@@ -1,17 +1,21 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::process::Child;
 use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
-use serde_json::json;
 use tauri::AppHandle;
 use tokio::sync::mpsc::UnboundedReceiver;
+use yode_core::db::{Database, TurnEvent, TurnState};
 use yode_core::engine::EngineEvent;
+use yode_runtime::{
+    engine_event_to_runtime_parts, run_status_for_event_kind, DesktopEventEnvelope,
+    DesktopEventKind, DesktopEventPayload,
+};
 use yode_tools::tool::UserQuery;
 
 use super::settings_system::stop_sleep_guard;
 use super::turn_events::emit_desktop_event;
-use super::turn_runtime::update_run_state;
+use super::turn_runtime::{release_turn_occupancy, update_run_state, SessionOperationMap};
 use super::PendingConfirmation;
 use crate::protocol::DesktopEvent;
 use crate::protocol::SessionRunState;
@@ -24,10 +28,92 @@ type AskUserSenderMap = Arc<Mutex<HashMap<TurnKey, tokio::sync::mpsc::UnboundedS
 pub(super) type CancelTokenMap = Arc<Mutex<HashMap<TurnKey, tokio_util::sync::CancellationToken>>>;
 type PendingConfirmationMap = Arc<Mutex<HashMap<TurnKey, PendingConfirmation>>>;
 
+/// 事件信封 → 前端可见事件：经 `DesktopEventEnvelope::new` 统一构造
+/// （强类型 kind + 稳定 schemaVersion），再平铺为线上线型。
+/// payload 落盘前由 DB 层统一脱敏。
+pub(super) fn envelope_to_desktop_event(
+    session_id: &str,
+    turn_id: &str,
+    seq: u64,
+    timestamp: String,
+    kind: DesktopEventKind,
+    payload: serde_json::Value,
+) -> DesktopEvent {
+    DesktopEventEnvelope::new(session_id, turn_id, seq, timestamp, kind, payload).into()
+}
+
+/// 在事件写入的同一临界区内同步持久化 turn 状态（数据库为事实来源，
+/// run_registry 仅作内存热缓存）。事件内容、seq 与生命周期状态在同一个
+/// 事务内落盘；失败只记录诊断，不中断事件流。
+#[allow(clippy::too_many_arguments)]
+fn persist_event(
+    db: &Database,
+    run_registry: &Arc<Mutex<HashMap<String, SessionRunState>>>,
+    session_id: &str,
+    turn_id: &str,
+    seq: u64,
+    timestamp: chrono::DateTime<Utc>,
+    kind: DesktopEventKind,
+    payload: &serde_json::Value,
+) {
+    let detail = (kind == DesktopEventKind::Error)
+        .then(|| {
+            payload
+                .get("body")
+                .and_then(|value| value.as_str())
+                .map(str::to_string)
+        })
+        .flatten();
+    let (state, error_code) = match kind {
+        DesktopEventKind::AskUser => (Some(TurnState::WaitingUser), None),
+        _ => match run_status_for_event_kind(kind) {
+            Some("waiting_approval") => (Some(TurnState::WaitingApproval), None),
+            Some("failed") => (Some(TurnState::Failed), Some("run_failed".to_string())),
+            Some("completed") => (Some(TurnState::Completed), None),
+            Some("cancelled") => (Some(TurnState::Cancelled), None),
+            Some("cancelling") => (Some(TurnState::Cancelling), None),
+            Some("running") => (Some(TurnState::Running), None),
+            _ => (None, None),
+        },
+    };
+    if let Err(err) = db.append_turn_event_with_state(
+        &TurnEvent {
+            session_id: session_id.to_string(),
+            turn_id: turn_id.to_string(),
+            seq: seq as i64,
+            kind: kind.as_str().to_string(),
+            timestamp,
+            payload_json: payload.to_string(),
+        },
+        state,
+        detail.clone(),
+        error_code,
+    ) {
+        tracing::error!(
+            session_id = %session_id,
+            turn_id = %turn_id,
+            kind = %kind.as_str(),
+            error = %err,
+            "Failed to persist turn event"
+        );
+    }
+    if let Some(state) = state {
+        update_run_state(run_registry, session_id, turn_id, state.as_str(), detail);
+    }
+}
+
+/// 终态 turn 的 journal 已完整落盘，可安全触发限量清理（不影响其他运行中 turn）。
+fn prune_after_terminal(db: &Database) {
+    if let Err(err) = db.prune_turn_journals() {
+        tracing::error!("Failed to prune turn journals: {}", err);
+    }
+}
+
 /// Drive the desktop turn event loop until the engine task finishes.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn run_desktop_turn_event_loop(
     app: AppHandle,
+    db: Database,
     session_id: String,
     turn_id: String,
     mut seq: u64,
@@ -40,28 +126,49 @@ pub(super) async fn run_desktop_turn_event_loop(
     pending_confirmations: PendingConfirmationMap,
     sleep_guard: Arc<Mutex<Option<Child>>>,
     cancel_token: tokio_util::sync::CancellationToken,
-    active_sessions: Arc<Mutex<HashSet<String>>>,
+    active_sessions: SessionOperationMap,
     run_registry: Arc<Mutex<HashMap<String, SessionRunState>>>,
 ) {
     let mut cancelled = false;
     loop {
         tokio::select! {
             // 取消：等待引擎真正停止（channel 关闭即 quiesce），期间丢弃所有迟到事件，
-            // 随后释放 in-flight 占位并发出 cancelled 终态。
+            // turn task 完全退出后才会释放 in-flight 占位并发出 cancelled 终态。
             // 占位在 quiesce 之后释放：取消请求期间新 turn 一律被拒绝，
             // 前端收到 cancelled 时旧工具已停止，可安全发起新 turn。
             _ = cancel_token.cancelled() => {
                 cancelled = true;
+                let now = Utc::now();
+                let timestamp = now.to_rfc3339();
+                let payload = DesktopEventPayload::Cancelling(
+                    yode_runtime::CancellingPayload {
+                        title: "正在取消",
+                        body: "正在停止本轮运行。",
+                    }
+                ).as_value();
+                if let Err(err) = db.mark_turn_cancellation_requested(&session_id, &turn_id) {
+                    tracing::error!("Failed to persist cancellation request: {}", err);
+                }
+                persist_event(
+                    &db,
+                    &run_registry,
+                    &session_id,
+                    &turn_id,
+                    seq,
+                    now,
+                    DesktopEventKind::Cancelling,
+                    &payload,
+                );
                 emit_desktop_event(
                     &app,
-                    DesktopEvent {
-                        session_id: session_id.clone(),
-                        turn_id: turn_id.clone(),
+                    envelope_to_desktop_event(
+                        &session_id,
+                        &turn_id,
                         seq,
-                        kind: "cancelling".to_string(),
-                        timestamp: Utc::now().to_rfc3339(),
-                        payload: json!({ "title": "正在取消", "body": "正在停止本轮运行。" }),
-                    },
+                        timestamp,
+                        DesktopEventKind::Cancelling,
+                        payload,
+                    ),
                 );
                 seq += 1;
                 let drain = async {
@@ -74,48 +181,45 @@ pub(super) async fn run_desktop_turn_event_loop(
                 {
                     handle.abort();
                 }
-                if let Ok(mut tokens) = cancel_tokens.lock() {
-                    tokens.remove(&(session_id.clone(), turn_id.clone()));
-                }
-                if let Ok(mut active) = active_sessions.lock() {
-                    active.remove(&session_id);
-                }
-                emit_desktop_event(
-                    &app,
-                    DesktopEvent {
-                        session_id: session_id.clone(),
-                        turn_id: turn_id.clone(),
-                        seq,
-                        kind: "cancelled".to_string(),
-                        timestamp: Utc::now().to_rfc3339(),
-                        payload: json!({ "title": "已取消", "body": "本轮运行已停止。" }),
-                    },
-                );
-                update_run_state(&run_registry, &session_id, &turn_id, "cancelled", None);
                 break;
             }
             Some(query) = ask_user_query_rx.recv() => {
                 let first_question = query.questions.first();
-                let desktop_event = DesktopEvent {
-                    session_id: session_id.clone(),
-                    turn_id: turn_id.clone(),
+                let payload = DesktopEventPayload::AskUser(yode_runtime::AskUserPayload {
+                    id: query.id.clone(),
+                    title: first_question.map(|question| question.header.clone()).unwrap_or_else(|| "需要用户输入".to_string()),
+                    body: first_question.map(|question| question.question.clone()).unwrap_or_else(|| "请在输入框回复。".to_string()),
+                    tool: "ask_user",
+                    meta: "等待用户回答",
+                    query: serde_json::to_value(&query).ok(),
+                })
+                .as_value();
+                persist_event(
+                    &db,
+                    &run_registry,
+                    &session_id,
+                    &turn_id,
                     seq,
-                    kind: "ask_user".to_string(),
-                    timestamp: Utc::now().to_rfc3339(),
-                    payload: json!({
-                        "id": query.id,
-                        "title": first_question.map(|question| question.header.clone()).unwrap_or_else(|| "需要用户输入".to_string()),
-                        "body": first_question.map(|question| question.question.clone()).unwrap_or_else(|| "请在输入框回复。".to_string()),
-                        "query": query
-                    }),
-                };
-                emit_desktop_event(&app, desktop_event);
-                update_run_state(&run_registry, &session_id, &turn_id, "waiting_user", None);
+                    Utc::now(),
+                    DesktopEventKind::AskUser,
+                    &payload,
+                );
+                emit_desktop_event(
+                    &app,
+                    envelope_to_desktop_event(
+                        &session_id,
+                        &turn_id,
+                        seq,
+                        Utc::now().to_rfc3339(),
+                        DesktopEventKind::AskUser,
+                        payload,
+                    ),
+                );
                 seq += 1;
                 continue;
             }
             Some(event) = event_rx.recv() => {
-                let mapped = yode_runtime::engine_event_to_runtime_parts(event);
+                let mapped = engine_event_to_runtime_parts(event);
                 if let Some(pending_confirmation) = mapped.pending_confirmation.as_ref() {
                     if let Ok(mut pending) = pending_confirmations.lock() {
                         pending.insert(
@@ -129,32 +233,29 @@ pub(super) async fn run_desktop_turn_event_loop(
                 }
 
                 let kind = mapped.kind;
-                let payload = mapped.payload;
-
-                let next_status = match kind {
-                    "tool_confirm_required" | "permission" => Some("waiting_approval"),
-                    "error" => Some("failed"),
-                    "turn_completed" | "done" => Some("completed"),
-                    "turn_started" | "tool_started" | "assistant_text_delta" | "assistant_reasoning_delta" => Some("running"),
-                    _ => None,
-                };
-                if let Some(status) = next_status {
-                    let detail = (status == "failed")
-                        .then(|| payload.get("body").and_then(|value| value.as_str()).map(str::to_string))
-                        .flatten();
-                    update_run_state(&run_registry, &session_id, &turn_id, status, detail);
-                }
+                let payload = mapped.payload.as_value();
+                let timestamp = Utc::now();
+                persist_event(
+                    &db,
+                    &run_registry,
+                    &session_id,
+                    &turn_id,
+                    seq,
+                    timestamp,
+                    kind,
+                    &payload,
+                );
 
                 if std::env::var("YODE_ACTION_NARRATIVE_DEBUG").is_ok_and(|value| value == "1")
                     && matches!(
                         kind,
-                        "assistant_text_delta"
-                            | "assistant_reasoning_delta"
-                            | "action_narrative"
-                            | "tool_started"
-                            | "assistant_text_complete"
-                            | "assistant_reasoning_complete"
-                            | "turn_completed"
+                        DesktopEventKind::AssistantTextDelta
+                            | DesktopEventKind::AssistantReasoningDelta
+                            | DesktopEventKind::ActionNarrative
+                            | DesktopEventKind::ToolStarted
+                            | DesktopEventKind::AssistantTextComplete
+                            | DesktopEventKind::AssistantReasoningComplete
+                            | DesktopEventKind::TurnCompleted
                     )
                 {
                     let preview = payload
@@ -168,30 +269,38 @@ pub(super) async fn run_desktop_turn_event_loop(
                         .replace('\n', "\\n");
                     eprintln!(
                         "[action-narrative-debug] turn={} kind={} preview={:?}",
-                        turn_id, kind, preview
+                        turn_id,
+                        kind.as_str(),
+                        preview
                     );
                 }
 
-                let desktop_event = DesktopEvent {
-                    session_id: session_id.clone(),
-                    turn_id: turn_id.clone(),
-                    seq,
-                    kind: kind.to_string(),
-                    timestamp: Utc::now().to_rfc3339(),
-                    payload,
-                };
-
-                emit_desktop_event(&app, desktop_event);
+                emit_desktop_event(
+                    &app,
+                    envelope_to_desktop_event(
+                        &session_id,
+                        &turn_id,
+                        seq,
+                        timestamp.to_rfc3339(),
+                        kind,
+                        payload,
+                    ),
+                );
                 seq += 1;
             }
             else => break,
         }
     }
-    let _ = cancelled;
-
-    if let Err(err) = handle.await {
-        tracing::error!("Desktop turn task join failed: {}", err);
-    }
+    // 即使 drain 超时并调用了 abort，也必须等待 task 的 JoinHandle 真正结束。
+    // 在此之前保留 turn 槽位，防止 clear/delete/compact 或新 turn 与旧任务并发。
+    let no_active_turns = join_turn_then_release_occupancy(
+        handle,
+        &active_sessions,
+        &cancel_tokens,
+        &session_id,
+        &turn_id,
+    )
+    .await;
 
     if let Ok(mut txs) = confirm_txs.lock() {
         txs.remove(&(session_id.clone(), turn_id.clone()));
@@ -199,19 +308,75 @@ pub(super) async fn run_desktop_turn_event_loop(
     if let Ok(mut txs) = ask_user_txs.lock() {
         txs.remove(&(session_id.clone(), turn_id.clone()));
     }
-    // 正常结束路径：释放 in-flight 占位（取消分支已提前释放，此处幂等）
-    if let Ok(mut active) = active_sessions.lock() {
-        active.remove(&session_id);
-    }
-    if let Ok(mut tokens) = cancel_tokens.lock() {
-        let _: Option<tokio_util::sync::CancellationToken> =
-            tokens.remove(&(session_id.clone(), turn_id.clone()));
-        if tokens.is_empty() {
-            drop(tokens);
-            stop_sleep_guard(&sleep_guard);
-        }
+    if no_active_turns {
+        stop_sleep_guard(&sleep_guard);
     }
     if let Ok(mut pending) = pending_confirmations.lock() {
         pending.remove(&(session_id.clone(), turn_id.clone()));
     }
+    if cancelled {
+        let timestamp = Utc::now();
+        let payload = DesktopEventPayload::Cancelled(yode_runtime::CancelledPayload {
+            title: "已取消",
+            body: "本轮运行已停止。",
+        })
+        .as_value();
+        persist_event(
+            &db,
+            &run_registry,
+            &session_id,
+            &turn_id,
+            seq,
+            timestamp,
+            DesktopEventKind::Cancelled,
+            &payload,
+        );
+        emit_desktop_event(
+            &app,
+            envelope_to_desktop_event(
+                &session_id,
+                &turn_id,
+                seq,
+                timestamp.to_rfc3339(),
+                DesktopEventKind::Cancelled,
+                payload,
+            ),
+        );
+        prune_after_terminal(&db);
+    } else {
+        // 事件流自然关闭（无取消）：终态已由 persist_event 落盘，
+        // 这里仅确认 DB 中确实存在终态；不存在时补一个 interrupted 诊断。
+        if let Ok(Some(turn)) = db.get_turn(&session_id, &turn_id) {
+            if !turn.status.is_terminal() {
+                let _ = db.update_turn_state(
+                    &session_id,
+                    &turn_id,
+                    TurnState::Interrupted,
+                    Some("事件流意外终止，未收到终态事件。".to_string()),
+                    Some("stream_closed_without_terminal".to_string()),
+                );
+            }
+        }
+    }
+}
+
+/// 等待 turn task 完全退出后才释放对应的生命周期槽位。
+///
+/// 该函数在取消、错误和正常完成路径中共用，避免 `abort()` 仅提交取消请求时就
+/// 允许同一会话的破坏性操作进入。
+pub(super) async fn join_turn_then_release_occupancy(
+    handle: tokio::task::JoinHandle<()>,
+    active_sessions: &SessionOperationMap,
+    cancel_tokens: &CancelTokenMap,
+    session_id: &str,
+    turn_id: &str,
+) -> bool {
+    if let Err(err) = handle.await {
+        tracing::error!("Desktop turn task join failed: {}", err);
+    }
+    release_turn_occupancy(active_sessions, cancel_tokens, session_id, turn_id);
+    cancel_tokens
+        .lock()
+        .map(|tokens| tokens.is_empty())
+        .unwrap_or(false)
 }

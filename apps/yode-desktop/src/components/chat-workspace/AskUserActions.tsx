@@ -4,6 +4,18 @@ import { Check, CircleHelp, CornerDownLeft, Edit3 } from "lucide-react";
 import type { UserQuery } from "../../lib/askUser";
 export type { UserQuery, UserQuestion, UserQueryOption } from "../../lib/askUser";
 
+/** 统一 AskUser 提交契约：失败（含抛错）必须保留表单状态以便重试。 */
+export async function submitAskUserAnswer(
+  onResolve: (answer: string) => Promise<boolean>,
+  answer: string
+): Promise<boolean> {
+  try {
+    return await onResolve(answer);
+  } catch {
+    return false;
+  }
+}
+
 export function AskUserActions({
   query,
   appLang,
@@ -11,7 +23,7 @@ export function AskUserActions({
 }: {
   query: UserQuery;
   appLang: string;
-  onResolve: (answer: string) => void;
+  onResolve: (answer: string) => Promise<boolean>;
 }) {
   const isZh = appLang === "zh";
   const [questionIndex, setQuestionIndex] = useState(0);
@@ -37,7 +49,7 @@ export function AskUserActions({
     }
   };
 
-  const resolveQuestion = (value: string | string[]) => {
+  const resolveQuestion = async (value: string | string[]) => {
     const key = question.header || question.question;
     const nextAnswers = { ...answers };
     nextAnswers[key] = value;
@@ -50,31 +62,34 @@ export function AskUserActions({
       setManualAnswer("");
     } else {
       setIsSubmitting(true);
-      onResolve(JSON.stringify(nextAnswers));
+      const didResolve = await submitAskUserAnswer(onResolve, JSON.stringify(nextAnswers));
+      if (!didResolve) {
+        setIsSubmitting(false);
+      }
     }
   };
 
-  const submitAnswer = (idx?: number) => {
+  const submitAnswer = async (idx?: number) => {
     if (isSubmitting) return;
     if (!hasOptions) {
       const clean = manualAnswer.trim();
-      if (clean) resolveQuestion(clean);
+      if (clean) await resolveQuestion(clean);
       return;
     }
 
     const targetIdx = idx !== undefined ? idx : selectedIndex;
     if (question.multiSelect) {
       const selectedLabels = checkedIndices.map((i) => question.options[i].label);
-      resolveQuestion(selectedLabels);
+      await resolveQuestion(selectedLabels);
     } else {
       const selectedOption = question.options[targetIdx];
-      if (selectedOption) resolveQuestion(selectedOption.label);
+      if (selectedOption) await resolveQuestion(selectedOption.label);
     }
   };
 
-  const submitManualAnswer = () => {
+  const submitManualAnswer = async () => {
     const clean = manualAnswer.trim();
-    if (clean) resolveQuestion(clean);
+    if (clean) await resolveQuestion(clean);
   };
 
   useEffect(() => {

@@ -112,16 +112,21 @@ async fn read_edit_diff_artifact_from_roots_impl(path: &str, roots: &[PathBuf]) 
             continue;
         }
 
-        let metadata = tokio::fs::metadata(&canonical_target)
-            .await
-            .with_context(|| format!("Failed to inspect {}", canonical_target.display()))?;
-        if metadata.len() > 2 * 1024 * 1024 {
-            anyhow::bail!("diff artifact is too large to display");
-        }
+        let relative_target = match canonical_target.strip_prefix(&canonical_allowed) {
+            Ok(relative) if !relative.as_os_str().is_empty() => relative.to_path_buf(),
+            _ => {
+                last_error = Some(anyhow::anyhow!("diff artifact path points at its root"));
+                continue;
+            }
+        };
 
-        return tokio::fs::read_to_string(&canonical_target)
-            .await
-            .with_context(|| format!("Failed to read {}", canonical_target.display()));
+        // canonicalize 只用于确定允许的根；实际读取必须从该根目录句柄打开，避免
+        // 检查后攻击者替换符号链接导致 TOCTOU 越界读取。
+        return tokio::task::spawn_blocking(move || {
+            read_artifact_beneath(&canonical_allowed, &relative_target)
+        })
+        .await
+        .map_err(|err| anyhow::anyhow!("读取 diff 工件任务失败：{}", err))?;
     }
 
     let searched = if searched.is_empty() {
@@ -142,4 +147,113 @@ async fn read_edit_diff_artifact_from_roots_impl(path: &str, roots: &[PathBuf]) 
         clean,
         searched
     )
+}
+
+#[cfg(unix)]
+fn read_artifact_beneath(root: &Path, relative: &Path) -> Result<String> {
+    use std::ffi::CString;
+    use std::io::Read;
+    use std::os::fd::{FromRawFd, RawFd};
+    use std::os::unix::ffi::OsStrExt;
+
+    let root_bytes = CString::new(root.as_os_str().as_bytes())?;
+    // O_NOFOLLOW 仅允许打开真实目录，后续每一级也同样拒绝符号链接。
+    let mut dir_fd = unsafe {
+        libc::open(
+            root_bytes.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    if dir_fd < 0 {
+        return Err(std::io::Error::last_os_error()).context("无法安全打开 diff 工件根目录");
+    }
+
+    let components = relative.components().collect::<Vec<_>>();
+    if components.is_empty() {
+        unsafe { libc::close(dir_fd) };
+        anyhow::bail!("diff artifact path is empty");
+    }
+    for component in &components[..components.len() - 1] {
+        let name = match component {
+            std::path::Component::Normal(name) => CString::new(name.as_bytes())?,
+            _ => {
+                unsafe { libc::close(dir_fd) };
+                anyhow::bail!("diff artifact path contains unsafe components");
+            }
+        };
+        let next_fd = unsafe {
+            libc::openat(
+                dir_fd,
+                name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+            )
+        };
+        if next_fd < 0 {
+            let err = std::io::Error::last_os_error();
+            unsafe { libc::close(dir_fd) };
+            return Err(err).context("diff artifact path contains a symlink or is inaccessible");
+        }
+        unsafe { libc::close(dir_fd) };
+        dir_fd = next_fd;
+    }
+
+    let leaf = match components.last().unwrap() {
+        std::path::Component::Normal(name) => CString::new(name.as_bytes())?,
+        _ => {
+            unsafe { libc::close(dir_fd) };
+            anyhow::bail!("diff artifact path contains unsafe components");
+        }
+    };
+    let file_fd = unsafe {
+        libc::openat(
+            dir_fd,
+            leaf.as_ptr(),
+            libc::O_RDONLY | libc::O_CLOEXEC | libc::O_NOFOLLOW,
+        )
+    };
+    unsafe { libc::close(dir_fd) };
+    if file_fd < 0 {
+        return Err(std::io::Error::last_os_error()).context("无法安全打开 diff 工件");
+    }
+    let mut file = unsafe { std::fs::File::from_raw_fd(file_fd as RawFd) };
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        anyhow::bail!("diff artifact is not a regular file");
+    }
+    if metadata.len() > 2 * 1024 * 1024 {
+        anyhow::bail!("diff artifact is too large to display");
+    }
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok(contents)
+}
+
+#[cfg(not(unix))]
+fn read_artifact_beneath(root: &Path, relative: &Path) -> Result<String> {
+    use std::io::Read;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let name = match component {
+            Component::Normal(name) => name,
+            _ => anyhow::bail!("diff artifact path contains unsafe components"),
+        };
+        current.push(name);
+        if std::fs::symlink_metadata(&current)?
+            .file_type()
+            .is_symlink()
+        {
+            anyhow::bail!("diff artifact path contains a symlink");
+        }
+    }
+    let mut file = std::fs::File::open(&current)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() {
+        anyhow::bail!("diff artifact is not a regular file");
+    }
+    if metadata.len() > 2 * 1024 * 1024 {
+        anyhow::bail!("diff artifact is too large to display");
+    }
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok(contents)
 }

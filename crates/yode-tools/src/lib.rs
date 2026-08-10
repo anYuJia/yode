@@ -5,6 +5,7 @@ mod path_format;
 pub mod process_env;
 pub mod registry;
 pub mod runtime_tasks;
+pub mod session_artifact;
 pub mod state;
 pub mod tool;
 pub mod validation;

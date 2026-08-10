@@ -1,3 +1,5 @@
+import { storageReadRaw, storageReadString, storageWriteString } from "./storageAdapter";
+
 export type ThemeMode = "light" | "dark" | "system";
 export type ReduceMotionMode = "system" | "on" | "off";
 export type DiffMarkerMode = "color" | "symbols";
@@ -85,13 +87,13 @@ export function clampNumber(value: number, min: number, max: number) {
 }
 
 export function loadStoredNumber(key: string, fallback: number, min = Number.NEGATIVE_INFINITY, max = Number.POSITIVE_INFINITY) {
-  const raw = localStorage.getItem(key);
+  const raw = storageReadRaw(key);
   if (raw === null) return fallback;
   return clampNumber(Number(raw), min, max);
 }
 
 export function storedOption<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
-  const raw = localStorage.getItem(key);
+  const raw = storageReadRaw(key);
   return allowed.includes(raw as T) ? raw as T : fallback;
 }
 
@@ -106,11 +108,11 @@ export function languageFromChangeEvent(event: Event): AppLanguage {
 }
 
 export function loadAppLanguage(): AppLanguage {
-  return normalizeAppLanguage(localStorage.getItem(LANGUAGE_STORAGE_KEY));
+  return normalizeAppLanguage(storageReadRaw(LANGUAGE_STORAGE_KEY));
 }
 
 export function loadPetName() {
-  return localStorage.getItem("yode-pet") || DEFAULT_PET_NAME;
+  return storageReadString("yode-pet", DEFAULT_PET_NAME);
 }
 
 export function petFromChangeEvent(event: Event): string {
@@ -128,7 +130,7 @@ export function dispatchLanguageChange(appLang: AppLanguage) {
 
 export function saveAppLanguage(appLang: string) {
   const nextLang = normalizeAppLanguage(appLang);
-  localStorage.setItem(LANGUAGE_STORAGE_KEY, nextLang);
+  storageWriteString(LANGUAGE_STORAGE_KEY, nextLang);
   applyHtmlLang(nextLang);
   dispatchLanguageChange(nextLang);
   return nextLang;
@@ -207,15 +209,15 @@ export function resolveThemeIsLight(themeMode: ThemeMode) {
 export function loadAppearanceSettings(): AppearanceSettingsState {
   return {
     themeMode: storedOption("yode-theme-mode", ["light", "dark", "system"] as const, "dark"),
-    themeName: localStorage.getItem("yode-theme-name") || "Dracula",
-    accentColor: localStorage.getItem("yode-accent-color") || "#FF79C6",
-    backgroundColor: localStorage.getItem("yode-bg-color") || "#282A36",
-    foregroundColor: localStorage.getItem("yode-fg-color") || "#F8F8F2",
-    uiFont: localStorage.getItem("yode-ui-font") || DEFAULT_UI_FONT,
-    codeFont: localStorage.getItem("yode-code-font") || DEFAULT_CODE_FONT,
-    translucentSidebar: localStorage.getItem("yode-translucent-sidebar") !== "false",
+    themeName: storageReadString("yode-theme-name", "Dracula"),
+    accentColor: storageReadString("yode-accent-color", "#FF79C6"),
+    backgroundColor: storageReadString("yode-bg-color", "#282A36"),
+    foregroundColor: storageReadString("yode-fg-color", "#F8F8F2"),
+    uiFont: storageReadString("yode-ui-font", DEFAULT_UI_FONT),
+    codeFont: storageReadString("yode-code-font", DEFAULT_CODE_FONT),
+    translucentSidebar: storageReadString("yode-translucent-sidebar", "true") !== "false",
     contrast: loadStoredNumber("yode-contrast", 48),
-    usePointerCursors: localStorage.getItem("yode-use-pointers") === "true",
+    usePointerCursors: storageReadString("yode-use-pointers", "false") === "true",
     reduceMotion: storedOption("yode-reduce-motion", ["system", "on", "off"] as const, "system"),
     uiFontSize: loadStoredNumber("yode-ui-font-size", 13, 10, 18),
     codeFontSize: loadStoredNumber("yode-code-font-size", 12, 10, 20),
@@ -226,7 +228,7 @@ export function loadAppearanceSettings(): AppearanceSettingsState {
     terminalFontSize: loadStoredNumber("yode-terminal-font-size", 12, 10, 22),
     inspectorFontSize: loadStoredNumber("yode-inspector-font-size", 12, 10, 18),
     diffMarkers: storedOption("yode-diff-markers", ["color", "symbols"] as const, "color"),
-    fontSmoothing: localStorage.getItem("yode-font-smoothing") !== "false",
+    fontSmoothing: storageReadString("yode-font-smoothing", "true") !== "false",
     pet: loadPetName()
   };
 }
@@ -307,28 +309,28 @@ export function applyTranslucentSidebarSetting(translucentSidebar = loadAppearan
 }
 
 export function saveAppearanceSettings(settings: AppearanceSettingsState) {
-  localStorage.setItem("yode-theme-mode", settings.themeMode);
-  localStorage.setItem("yode-theme-name", settings.themeName);
-  localStorage.setItem("yode-accent-color", settings.accentColor);
-  localStorage.setItem("yode-bg-color", settings.backgroundColor);
-  localStorage.setItem("yode-fg-color", settings.foregroundColor);
-  localStorage.setItem("yode-ui-font", settings.uiFont);
-  localStorage.setItem("yode-code-font", settings.codeFont);
-  localStorage.setItem("yode-translucent-sidebar", String(settings.translucentSidebar));
-  localStorage.setItem("yode-contrast", String(settings.contrast));
-  localStorage.setItem("yode-use-pointers", String(settings.usePointerCursors));
-  localStorage.setItem("yode-reduce-motion", settings.reduceMotion);
-  localStorage.setItem("yode-ui-font-size", String(settings.uiFontSize));
-  localStorage.setItem("yode-code-font-size", String(settings.codeFontSize));
-  localStorage.setItem("yode-app-scale", String(settings.appScale));
-  localStorage.setItem("yode-chat-font-size", String(settings.chatFontSize));
-  localStorage.setItem("yode-sidebar-font-size", String(settings.sidebarFontSize));
-  localStorage.setItem("yode-settings-font-size", String(settings.settingsFontSize));
-  localStorage.setItem("yode-terminal-font-size", String(settings.terminalFontSize));
-  localStorage.setItem("yode-inspector-font-size", String(settings.inspectorFontSize));
-  localStorage.setItem("yode-diff-markers", settings.diffMarkers);
-  localStorage.setItem("yode-font-smoothing", String(settings.fontSmoothing));
-  localStorage.setItem("yode-pet", settings.pet);
+  storageWriteString("yode-theme-mode", settings.themeMode);
+  storageWriteString("yode-theme-name", settings.themeName);
+  storageWriteString("yode-accent-color", settings.accentColor);
+  storageWriteString("yode-bg-color", settings.backgroundColor);
+  storageWriteString("yode-fg-color", settings.foregroundColor);
+  storageWriteString("yode-ui-font", settings.uiFont);
+  storageWriteString("yode-code-font", settings.codeFont);
+  storageWriteString("yode-translucent-sidebar", String(settings.translucentSidebar));
+  storageWriteString("yode-contrast", String(settings.contrast));
+  storageWriteString("yode-use-pointers", String(settings.usePointerCursors));
+  storageWriteString("yode-reduce-motion", settings.reduceMotion);
+  storageWriteString("yode-ui-font-size", String(settings.uiFontSize));
+  storageWriteString("yode-code-font-size", String(settings.codeFontSize));
+  storageWriteString("yode-app-scale", String(settings.appScale));
+  storageWriteString("yode-chat-font-size", String(settings.chatFontSize));
+  storageWriteString("yode-sidebar-font-size", String(settings.sidebarFontSize));
+  storageWriteString("yode-settings-font-size", String(settings.settingsFontSize));
+  storageWriteString("yode-terminal-font-size", String(settings.terminalFontSize));
+  storageWriteString("yode-inspector-font-size", String(settings.inspectorFontSize));
+  storageWriteString("yode-diff-markers", settings.diffMarkers);
+  storageWriteString("yode-font-smoothing", String(settings.fontSmoothing));
+  storageWriteString("yode-pet", settings.pet);
 }
 
 export function applyStoredAppearanceSettings() {

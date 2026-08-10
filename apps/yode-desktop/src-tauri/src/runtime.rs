@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Child;
 use std::sync::{Arc, Mutex};
@@ -53,12 +53,15 @@ use self::mcp_runtime::setup_desktop_tooling;
 use self::provider_runtime::bootstrap_providers;
 use self::settings_runtime::default_general_settings;
 use self::terminal_runtime::{PtySessionState, TerminalSessionState};
+use self::turn_runtime::SessionOperationMap;
 
 pub struct DesktopRuntime {
     config: Mutex<Config>,
-    db: Database,
+    db: Arc<Database>,
     db_path: PathBuf,
     workspace_path: PathBuf,
+    /// 用户级配置文件的唯一持久化目标。生产环境使用真实用户目录；测试可注入临时路径。
+    user_config_path: PathBuf,
     /// 工作区是否处于可信状态（由仓库外 workspace-trust.toml 绑定
     /// canonical path + 配置哈希 + remote 决定）。未信任时不得加载
     /// 插件贡献（MCP/Hooks/Skills/Commands），项目配置也不得生效。
@@ -71,9 +74,9 @@ pub struct DesktopRuntime {
     confirm_txs: ConfirmSenderMap,
     ask_user_txs: AskUserSenderMap,
     cancel_tokens: CancelTokenMap,
-    /// 每会话 in-flight 占位（原子检查+占用），取消后仍保持占用，
-    /// 直到 turn 事件循环真正 quiesce 才释放。
-    active_sessions: Arc<Mutex<HashSet<String>>>,
+    /// 每会话生命周期操作占位（原子检查+占用）。turn 取消后仍保持占用，
+    /// 直到事件循环真正 quiesce 才释放；破坏性会话操作也共用此槽位。
+    active_sessions: SessionOperationMap,
     run_registry: Arc<Mutex<HashMap<String, SessionRunState>>>,
     pending_confirmations: PendingConfirmationMap,
     session_permission_rules: Arc<Mutex<HashMap<String, Vec<PermissionRule>>>>,
@@ -99,14 +102,11 @@ struct PendingConfirmation {
 impl DesktopRuntime {
     pub async fn new() -> Result<Self> {
         let workspace_path = resolve_desktop_workspace_path().await;
+        let user_config_path = default_user_config_path(&workspace_path);
         let workspace_trusted =
             yode_core::workspace_trust::WorkspaceTrustStore::load().is_trusted(&workspace_path);
-        let db_path = dirs::home_dir()
-            .unwrap_or_else(|| workspace_path.clone())
-            .join(".yode")
-            .join("sessions.db");
 
-        let config = match load_desktop_config(&workspace_path).await {
+        let config = match load_desktop_config(&user_config_path).await {
             Ok(config) => config,
             Err(err) => Config::load_from_async(None).await.with_context(|| {
                 format!(
@@ -115,6 +115,9 @@ impl DesktopRuntime {
                 )
             })?,
         };
+        // 会话数据库路径必须遵守配置中的 `[session].db_path`，
+        // 与 CLI（同样调用 Config::session_db_path）指向同一数据库文件。
+        let db_path = desktop_session_db_path(&config);
 
         let provider_registry = Mutex::new(bootstrap_providers(&config));
         let (tool_registry, mcp_resource_provider) =
@@ -142,11 +145,32 @@ impl DesktopRuntime {
             .unwrap_or(yode_core::permission::PermissionMode::Default)
             .to_string();
 
+        let db = Arc::new(Database::open(&db_path)?);
+        // 进程启动：上次运行遗留的 running/starting/waiting_*/cancelling turn
+        // 一律标记为 interrupted，绝不伪装成成功；随后限量清理已终态 journal。
+        // 仅在此处执行一次（不在 Database::open 内），避免后台线程二次打开误伤
+        // 正在运行的新 turn。
+        match db.mark_interrupted_turns("检测到上次运行未正常结束，已标记为中断")
+        {
+            Ok(marked) => {
+                if marked > 0 {
+                    tracing::info!("标记 {} 个上次运行遗留的 turn 为 interrupted", marked);
+                }
+            }
+            Err(err) => {
+                tracing::error!("标记遗留 turn 为 interrupted 失败: {}", err);
+            }
+        }
+        if let Err(err) = db.prune_turn_journals() {
+            tracing::error!("启动时清理 turn journal 失败: {}", err);
+        }
+
         Ok(Self {
             config: Mutex::new(config),
-            db: Database::open(&db_path)?,
+            db,
             db_path,
             workspace_path,
+            user_config_path,
             workspace_trusted: std::sync::atomic::AtomicBool::new(workspace_trusted),
             provider_registry,
             tool_registry: Mutex::new(tool_registry),
@@ -156,7 +180,7 @@ impl DesktopRuntime {
             confirm_txs: Arc::new(Mutex::new(HashMap::new())),
             ask_user_txs: Arc::new(Mutex::new(HashMap::new())),
             cancel_tokens: Arc::new(Mutex::new(HashMap::new())),
-            active_sessions: Arc::new(Mutex::new(HashSet::new())),
+            active_sessions: Arc::new(Mutex::new(HashMap::new())),
             run_registry: Arc::new(Mutex::new(HashMap::new())),
             pending_confirmations: Arc::new(Mutex::new(HashMap::new())),
             session_permission_rules: Arc::new(Mutex::new(HashMap::new())),
@@ -244,19 +268,11 @@ impl DesktopRuntime {
 
         // 非 Bypass 模式先持久化，再更新内存；写入失败时有效模式保持不变。
         if !is_bypass {
-            let config_to_save = {
-                let mut config = self
-                    .config
-                    .lock()
-                    .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+            // 在文件锁内以磁盘最新配置应用窄修改：并发修改其他配置域不会被覆盖。
+            self.update_user_config(move |config| {
                 config.permissions.default_mode = Some(parsed.to_string());
-                config.clone()
-            };
-            crate::runtime::configuration_runtime::save_config_to_path_async(
-                &config_to_save,
-                &self.user_config_path(),
-            )
-            .await?;
+                Ok(())
+            })?;
         }
         {
             let mut active_mode = self
@@ -277,14 +293,38 @@ impl DesktopRuntime {
         })
     }
 
+    /// 运行状态列表：数据库 turn journal 是事实来源；内存热缓存仅补充
+    /// 极少数尚未落盘的状态（如正在写入的首个事件）。
     pub fn runs_list(&self) -> Result<Vec<SessionRunState>> {
         let mut runs = self
+            .db
+            .list_recent_turns(64)?
+            .into_iter()
+            .map(|turn| SessionRunState {
+                session_id: turn.session_id,
+                turn_id: turn.turn_id,
+                status: turn.status.as_str().to_string(),
+                updated_at: turn.updated_at.to_rfc3339(),
+                detail: turn.detail,
+                started_at: Some(turn.started_at.to_rfc3339()),
+                ended_at: turn.ended_at.map(|value| value.to_rfc3339()),
+                last_seq: turn.last_seq,
+                error_code: turn.error_code,
+                cancellation_requested: turn.cancellation_requested,
+            })
+            .collect::<Vec<_>>();
+        let registry = self
             .run_registry
             .lock()
-            .map_err(|_| anyhow::anyhow!("run registry lock poisoned"))?
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
+            .map_err(|_| anyhow::anyhow!("run registry lock poisoned"))?;
+        for entry in registry.values() {
+            let exists = runs
+                .iter()
+                .any(|run| run.session_id == entry.session_id && run.turn_id == entry.turn_id);
+            if !exists {
+                runs.push(entry.clone());
+            }
+        }
         runs.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
         Ok(runs)
     }
@@ -361,10 +401,7 @@ impl DesktopRuntime {
     }
 
     fn user_config_path(&self) -> PathBuf {
-        dirs::home_dir()
-            .unwrap_or_else(|| self.workspace_path.clone())
-            .join(".yode")
-            .join("config.toml")
+        self.user_config_path.clone()
     }
 
     fn project_config_path(&self) -> PathBuf {
@@ -388,6 +425,19 @@ impl DesktopRuntime {
         // UPDATE-001：桌面自更新暂停，等待 Tauri 签名 updater。
         anyhow::bail!("桌面自更新已暂停：请从官方 Release 页面手动下载安装。")
     }
+}
+
+fn default_user_config_path(workspace_path: &std::path::Path) -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_else(|| workspace_path.to_path_buf())
+        .join(".yode")
+        .join("config.toml")
+}
+
+/// 桌面端会话数据库路径：必须与 CLI 一致，遵守配置中的 `[session].db_path`，
+/// 不得硬编码默认路径（否则自定义 db_path 时桌面与 CLI 各用各的库）。
+fn desktop_session_db_path(config: &Config) -> PathBuf {
+    config.session_db_path()
 }
 
 async fn resolve_desktop_workspace_path() -> PathBuf {

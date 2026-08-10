@@ -413,6 +413,7 @@ pub(super) struct TranscriptArtifactRuntimeState {
 
 pub(super) fn latest_transcript_runtime_state(
     project_root: &std::path::Path,
+    session_id: &str,
 ) -> Option<(std::path::PathBuf, TranscriptArtifactRuntimeState)> {
     let dir = project_root.join(".yode").join("transcripts");
     let read_dir = match std::fs::read_dir(&dir) {
@@ -439,28 +440,56 @@ pub(super) fn latest_transcript_runtime_state(
             }
         };
         let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+        if path.extension().and_then(|ext| ext.to_str()) == Some("md")
+            && crate::transcript::transcript_file_candidate(
+                &path.file_name().unwrap_or_default().to_string_lossy(),
+                session_id,
+            )
+        {
             entries.push(path);
         }
     }
     entries.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
-    let path = entries.into_iter().next()?;
-    let content = match std::fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(err) => {
-            warn!(
-                "Failed to read transcript artifact {}: {err}",
-                path.display()
-            );
-            return None;
+    for path in entries {
+        let content = match std::fs::read_to_string(&path) {
+            Ok(content) => content,
+            Err(err) => {
+                warn!(
+                    "Failed to read transcript artifact {}: {err}",
+                    path.display()
+                );
+                continue;
+            }
+        };
+        match verified_transcript_state(&path, &content, session_id) {
+            VerifiedTranscript::Owned {
+                state,
+                legacy_named,
+            } => {
+                let path = if legacy_named {
+                    crate::transcript::migrate_legacy_transcript_file(&path, session_id)
+                } else {
+                    path
+                };
+                return Some((path, *state));
+            }
+            VerifiedTranscript::Rejected(reason) => {
+                warn!(
+                    "拒绝恢复会话 {} 的 transcript 工件 {}：{}",
+                    session_id,
+                    path.display(),
+                    reason
+                );
+            }
         }
-    };
+    }
 
-    Some((path, parse_transcript_runtime_state(&content)))
+    None
 }
 
 pub(in crate::engine) async fn latest_transcript_runtime_state_async(
     project_root: &std::path::Path,
+    session_id: &str,
 ) -> Option<(std::path::PathBuf, TranscriptArtifactRuntimeState)> {
     let dir = project_root.join(".yode").join("transcripts");
     let mut entries = match tokio::fs::read_dir(&dir).await {
@@ -479,7 +508,12 @@ pub(in crate::engine) async fn latest_transcript_runtime_state_async(
         match entries.next_entry().await {
             Ok(Some(entry)) => {
                 let path = entry.path();
-                if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+                if path.extension().and_then(|ext| ext.to_str()) == Some("md")
+                    && crate::transcript::transcript_file_candidate(
+                        &path.file_name().unwrap_or_default().to_string_lossy(),
+                        session_id,
+                    )
+                {
                     paths.push(path);
                 }
             }
@@ -494,19 +528,75 @@ pub(in crate::engine) async fn latest_transcript_runtime_state_async(
         }
     }
     paths.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
-    let path = paths.into_iter().next()?;
-    let content = match tokio::fs::read_to_string(&path).await {
-        Ok(content) => content,
-        Err(err) => {
-            warn!(
-                "Failed to read transcript artifact {}: {err}",
-                path.display()
-            );
-            return None;
+    for path in paths {
+        let content = match tokio::fs::read_to_string(&path).await {
+            Ok(content) => content,
+            Err(err) => {
+                warn!(
+                    "Failed to read transcript artifact {}: {err}",
+                    path.display()
+                );
+                continue;
+            }
+        };
+        match verified_transcript_state(&path, &content, session_id) {
+            VerifiedTranscript::Owned {
+                state,
+                legacy_named,
+            } => {
+                let path = if legacy_named {
+                    crate::transcript::migrate_legacy_transcript_file(&path, session_id)
+                } else {
+                    path
+                };
+                return Some((path, *state));
+            }
+            VerifiedTranscript::Rejected(reason) => {
+                warn!(
+                    "拒绝恢复会话 {} 的 transcript 工件 {}：{}",
+                    session_id,
+                    path.display(),
+                    reason
+                );
+            }
         }
-    };
+    }
 
-    Some((path, parse_transcript_runtime_state(&content)))
+    None
+}
+
+enum VerifiedTranscript {
+    Owned {
+        state: Box<TranscriptArtifactRuntimeState>,
+        legacy_named: bool,
+    },
+    Rejected(String),
+}
+
+fn verified_transcript_state(
+    path: &std::path::Path,
+    content: &str,
+    session_id: &str,
+) -> VerifiedTranscript {
+    let legacy_named = {
+        use crate::session_artifact::legacy_session_short_id;
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().to_string())
+            .unwrap_or_default();
+        file_name.starts_with(&format!("{}-compact-", legacy_session_short_id(session_id)))
+    };
+    let content_session = crate::session_artifact::markdown_artifact_session_id(content);
+    match content_session {
+        Some(owner) if owner == session_id => VerifiedTranscript::Owned {
+            state: Box::new(parse_transcript_runtime_state(content)),
+            legacy_named,
+        },
+        Some(owner) => {
+            VerifiedTranscript::Rejected(format!("内容归属 session {} 与目标不一致", owner))
+        }
+        None => VerifiedTranscript::Rejected("缺少可验证的 Session 标识".to_string()),
+    }
 }
 
 fn parse_transcript_runtime_state(content: &str) -> TranscriptArtifactRuntimeState {

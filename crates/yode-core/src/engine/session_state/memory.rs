@@ -102,10 +102,12 @@ impl AgentEngine {
             .collect::<Vec<_>>();
 
         tokio::spawn(async move {
-            let existing_summary =
-                tokio::fs::read_to_string(live_session_memory_path(&project_root))
-                    .await
-                    .ok();
+            let existing_summary = tokio::fs::read_to_string(live_session_memory_path(
+                &project_root,
+                &snapshot.session_id,
+            ))
+            .await
+            .ok();
             let prompt = render_live_session_memory_prompt(
                 existing_summary.as_deref(),
                 &snapshot,

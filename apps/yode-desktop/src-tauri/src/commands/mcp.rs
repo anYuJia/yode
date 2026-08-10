@@ -10,7 +10,7 @@ pub fn mcp_servers_state(
 #[tauri::command]
 pub async fn mcp_servers_save(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    servers: Vec<protocol::DesktopMcpServer>,
+    servers: Vec<protocol::DesktopMcpServerInput>,
 ) -> Result<protocol::DesktopMcpState, String> {
     runtime
         .mcp_servers_save(servers)
@@ -21,7 +21,7 @@ pub async fn mcp_servers_save(
 #[tauri::command]
 pub fn mcp_server_test(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
-    server: protocol::DesktopMcpServer,
+    server: protocol::DesktopMcpServerInput,
 ) -> Result<protocol::DesktopMcpServerStatus, String> {
     runtime
         .mcp_server_test(server)

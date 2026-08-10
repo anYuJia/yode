@@ -77,11 +77,14 @@ async fn test_autocompact_circuit_breaker_trips_after_repeated_failures() {
 async fn test_autocompact_prefers_session_memory_summary_when_available() {
     let mut engine = make_engine(vec![], vec![]);
     let project_root = engine.context().working_dir_compat();
-    let live_path = crate::session_memory::live_session_memory_path(&project_root);
+    let session_id = engine.context().session_id.clone();
+    let live_path = crate::session_memory::live_session_memory_path(&project_root, &session_id);
     std::fs::create_dir_all(live_path.parent().unwrap()).unwrap();
     std::fs::write(
         &live_path,
-        "# Session Snapshot\n\n## 2026-01-01 session abc123\n\n- Goals: stabilize compact flow\n- Findings: older tool results dominate token usage\n- Decisions: use session memory first\n",
+        format!(
+            "# Session Snapshot\n\n- Session: {session_id}\n\n## 2026-01-01 session {session_id}\n\n- Goals: stabilize compact flow\n- Findings: older tool results dominate token usage\n- Decisions: use session memory first\n"
+        ),
     )
     .unwrap();
 
@@ -258,13 +261,9 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
     engine.last_prompt_cache_prefix_hash = Some("prefix-before-compact".to_string());
     let plan_dir = project_root.join(".yode/plans");
     std::fs::create_dir_all(&plan_dir).unwrap();
-    let short_session = engine
-        .context()
-        .session_id
-        .chars()
-        .take(8)
-        .collect::<String>();
-    let plan_path = plan_dir.join(format!("{}-plan.md", short_session));
+    let session_token =
+        crate::session_artifact::session_artifact_token(&engine.context().session_id);
+    let plan_path = plan_dir.join(format!("{}-plan.md", session_token));
     std::fs::write(&plan_path, "# Active Plan\n\n- Keep compact state.").unwrap();
     assert!(engine.set_runtime_plan_mode(true));
     let task_output = project_root.join(".yode/tasks/task-1.log");
@@ -413,7 +412,7 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
 
     let restore_artifact_path = project_root
         .join(".yode/status")
-        .join(format!("{}-post-compact-restore.md", short_session));
+        .join(format!("{}-post-compact-restore.md", session_token));
     assert!(restore_artifact_path.exists());
     let restore_artifact = std::fs::read_to_string(restore_artifact_path).unwrap();
     assert!(restore_artifact.contains("Post-compact pressure:"));
@@ -425,7 +424,7 @@ async fn test_force_compact_uses_full_post_compact_finalize_path() {
     assert!(restore_artifact.contains("\"removed_count\""));
     let restore_state_path = project_root
         .join(".yode/status")
-        .join(format!("{}-post-compact-restore-state.json", short_session));
+        .join(format!("{}-post-compact-restore-state.json", session_token));
     assert!(restore_state_path.exists());
     let restore_state = std::fs::read_to_string(restore_state_path).unwrap();
     assert!(restore_state.contains("\"restore_budget\""));
@@ -618,16 +617,12 @@ async fn test_post_compact_file_restore_prefers_recent_and_skips_preserved_tail_
     assert!(files_block.content.contains("src/older.rs"));
     assert!(!files_block.content.contains("Excerpt from src/recent.rs"));
 
-    let short_session = engine
-        .context()
-        .session_id
-        .chars()
-        .take(8)
-        .collect::<String>();
+    let session_token =
+        crate::session_artifact::session_artifact_token(&engine.context().session_id);
     let restore_artifact = std::fs::read_to_string(
         project_root
             .join(".yode/status")
-            .join(format!("{}-post-compact-restore.md", short_session)),
+            .join(format!("{}-post-compact-restore.md", session_token)),
     )
     .unwrap();
     assert!(restore_artifact.contains("Skipped excerpts already preserved in tail: src/recent.rs"));

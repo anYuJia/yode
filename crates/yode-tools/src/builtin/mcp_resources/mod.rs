@@ -441,7 +441,7 @@ fn persist_mcp_resource_blob_artifacts(
         return Ok(McpResourceArtifactWrite::default());
     }
 
-    let short_session = short_session_id(session_id);
+    let session_token = crate::session_artifact::session_artifact_token(session_id);
     let timestamp = unix_timestamp_secs();
     let retention = mcp_resource_artifact_retention();
     let dir = working_dir
@@ -469,7 +469,7 @@ fn persist_mcp_resource_blob_artifacts(
     for (index, blob) in blobs.iter().enumerate() {
         let base64_path = dir.join(format!(
             "{}-mcp-resource-{}-{:02}-{}.b64",
-            short_session, slug, index, timestamp
+            session_token, slug, index, timestamp
         ));
         fs::write(&base64_path, &blob.base64)?;
         manifest.push_str(&format!("## Blob {}\n\n", index + 1));
@@ -483,7 +483,7 @@ fn persist_mcp_resource_blob_artifacts(
             Ok(bytes) => {
                 let decoded_path = dir.join(format!(
                     "{}-mcp-resource-{}-{:02}-{}.{}",
-                    short_session,
+                    session_token,
                     slug,
                     index,
                     timestamp,
@@ -503,7 +503,7 @@ fn persist_mcp_resource_blob_artifacts(
 
     let manifest_path = dir.join(format!(
         "{}-mcp-resource-{}-{}.md",
-        short_session, slug, timestamp
+        session_token, slug, timestamp
     ));
     fs::write(&manifest_path, manifest)?;
     paths.push(manifest_path.clone());
@@ -794,10 +794,6 @@ fn base64_value(ch: char) -> Option<u8> {
     }
 }
 
-fn short_session_id(session_id: &str) -> String {
-    session_id.chars().take(8).collect()
-}
-
 fn unix_timestamp_secs() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -838,9 +834,10 @@ pub(crate) fn reset_mcp_resource_cache() {
 mod tests {
     use super::{
         cleanup_mcp_resource_artifacts, decode_base64_standard, mcp_resource_cache_stats,
-        prune_mcp_resource_artifacts, reset_mcp_resource_cache, resource_extension,
-        retention_from_env, CleanupMcpResourceArtifactsTool, ListMcpResourceTemplatesTool,
-        ListMcpResourcesTool, ReadMcpResourceTool,
+        persist_mcp_resource_blob_artifacts, prune_mcp_resource_artifacts,
+        reset_mcp_resource_cache, resource_extension, retention_from_env,
+        CleanupMcpResourceArtifactsTool, ListMcpResourceTemplatesTool, ListMcpResourcesTool,
+        ReadMcpResourceTool,
     };
     use crate::tool::{
         McpResource, McpResourceBlob, McpResourcePolicy, McpResourceProvider, McpResourceRead,
@@ -1220,6 +1217,49 @@ mod tests {
             std::fs::read_dir(&artifact_dir).unwrap().flatten().count(),
             1
         );
+    }
+
+    #[test]
+    fn mcp_resource_artifacts_are_isolated_per_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let blob = McpResourceBlob {
+            uri: "mcp://x".to_string(),
+            mime_type: "image/png".to_string(),
+            base64: "ZmFrZQ==".to_string(),
+            approx_bytes: 4,
+        };
+        let session_a = "session-12345678-aaaa";
+        let session_b = "session-12345678-bbbb";
+        let write_a = persist_mcp_resource_blob_artifacts(
+            "server",
+            "mcp://x",
+            std::slice::from_ref(&blob),
+            dir.path(),
+            session_a,
+        )
+        .unwrap();
+        let write_b = persist_mcp_resource_blob_artifacts(
+            "server",
+            "mcp://x",
+            std::slice::from_ref(&blob),
+            dir.path(),
+            session_b,
+        )
+        .unwrap();
+
+        assert_ne!(
+            write_a.manifest_path, write_b.manifest_path,
+            "前 8 位相同的会话不得共用 MCP 资源工件路径"
+        );
+        let manifest_a = std::fs::read_to_string(write_a.manifest_path.unwrap()).unwrap();
+        let manifest_b = std::fs::read_to_string(write_b.manifest_path.unwrap()).unwrap();
+        assert!(manifest_a.contains(session_a));
+        assert!(manifest_b.contains(session_b));
+        assert!(!manifest_a.contains(session_b));
+        assert!(write_a.paths.iter().all(|path| {
+            let name = path.file_name().unwrap().to_string_lossy().to_string();
+            crate::session_artifact::file_belongs_to_session(&name, session_a)
+        }));
     }
 
     #[tokio::test]

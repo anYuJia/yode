@@ -7,7 +7,7 @@ use serde_json::json;
 use super::DesktopRuntime;
 use crate::desktop_settings_store::{
     desktop_bool_setting, desktop_string_setting, read_desktop_settings_async,
-    write_desktop_settings_async,
+    update_desktop_settings_async,
 };
 use crate::protocol::{DesktopActionResult, PersonalizationState};
 
@@ -19,11 +19,9 @@ impl DesktopRuntime {
     pub async fn personalization_reset_memories(&self) -> Result<DesktopActionResult> {
         let mut removed = 0usize;
         for root in self.memory_roots()? {
-            for path in [
-                yode_core::session_memory::session_memory_path(&root),
-                yode_core::session_memory::live_session_memory_path(&root),
-                root.join("MEMORY.md"),
-            ] {
+            // 会话记忆已按 session 隔离到 .yode/memory/ 目录下，整体目录清理即可覆盖；
+            // 旧共享 session.md / session.live.md 无法验证归属，不在此处单独删除。
+            for path in [root.join("MEMORY.md")] {
                 if tokio::fs::try_exists(&path).await? {
                     tokio::fs::remove_file(&path).await.with_context(|| {
                         format!("Failed to remove memory file: {}", path.display())
@@ -45,10 +43,12 @@ impl DesktopRuntime {
             }
         }
 
-        let mut settings = read_desktop_settings_async().await?;
-        settings.insert("yode-enable-memories".to_string(), json!(false));
-        settings.insert("yode-skip-tool-chats".to_string(), json!(false));
-        write_desktop_settings_async(&settings).await?;
+        update_desktop_settings_async(|settings| {
+            settings.insert("yode-enable-memories".to_string(), json!(false));
+            settings.insert("yode-skip-tool-chats".to_string(), json!(false));
+            Ok(())
+        })
+        .await?;
 
         Ok(DesktopActionResult {
             ok: true,

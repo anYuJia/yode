@@ -485,6 +485,7 @@ mod tests {
     #[test]
     fn anthropic_conversion_uses_stable_tool_result_id_fallback() {
         let tool_message = Message {
+            storage_id: None,
             role: crate::types::Role::Tool,
             content: Some("tool result".to_string()),
             content_blocks: Vec::new(),

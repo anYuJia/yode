@@ -209,10 +209,13 @@ impl Database {
     pub fn delete_session(&self, session_id: &str) -> Result<()> {
         let mut conn = self.lock_connection()?;
         let tx = conn.transaction()?;
+        // turn journal 必须先于 sessions 行删除（turns/turn_events 外键引用 sessions）。
+        // 同一事务内完成：删除失败整体回滚，不留下孤儿行。
         tx.execute(
             "DELETE FROM session_artifacts WHERE session_id = ?1",
             params![session_id],
         )?;
+        self.delete_turn_journal(&tx, session_id)?;
         tx.execute(
             "DELETE FROM messages WHERE session_id = ?1",
             params![session_id],

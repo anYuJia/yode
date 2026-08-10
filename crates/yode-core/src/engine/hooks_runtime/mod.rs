@@ -19,7 +19,8 @@ impl AgentEngine {
                 wake.event, wake.hook_command, wake.message
             );
             self.messages.push(Message::system(&message));
-            self.persist_message("system", Some(&message), None, None, None);
+            let persisted_id = self.persist_message("system", Some(&message), None, None, None);
+            self.attach_last_persisted_id(persisted_id);
         }
     }
 }

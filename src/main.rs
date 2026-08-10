@@ -236,6 +236,18 @@ async fn main() -> Result<()> {
         eprintln!("⚠ 已启用 --yes：非交互模式下将自动批准所有工具确认。");
     }
     startup_profiler.checkpoint("permission_setup");
+    // 跨进程会话生命周期锁（CLI 与桌面端共用同一实现）：
+    // - resume 场景在读取历史前先持锁，避免另一进程（桌面/CLI）的压缩快照重写
+    //   覆盖本进程读到的消息；
+    // - 新会话创建后立即持锁；
+    // - 锁随整个对话（turn/压缩）生命周期持有，同 session 其他进程直接拒绝。
+    let resume_guard = match cli.resume.as_deref() {
+        Some(resume_id) => Some(
+            db.session_lock(resume_id)
+                .with_context(|| format!("无法获取会话 '{}' 的跨进程锁", resume_id))?,
+        ),
+        None => None,
+    };
     let (context, restored_messages, restore_report) = restore_or_create_context(
         &cli,
         &db,
@@ -245,6 +257,12 @@ async fn main() -> Result<()> {
         config.ui.output_style.clone(),
     )?;
     ensure_session_exists(&db, &context)?;
+    let _session_guard = if context.is_resumed {
+        resume_guard.ok_or_else(|| anyhow::anyhow!("内部错误：resume 会话未获取跨进程锁"))?
+    } else {
+        db.session_lock(&context.session_id)
+            .with_context(|| format!("无法获取会话 '{}' 的跨进程锁", context.session_id))?
+    };
     startup_profiler.checkpoint("session_bootstrap");
     info!(
         restore_mode = restore_report.mode,

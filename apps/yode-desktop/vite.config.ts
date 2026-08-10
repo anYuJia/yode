@@ -1,10 +1,24 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
+/// <reference types="vitest" />
+import tailwindcss from "@tailwindcss/vite";
+import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
+  test: {
+    // E2E 由 playwright 负责（test:e2e），vitest 只跑单元测试
+    exclude: [
+      "e2e/**",
+      "**/node_modules/**",
+      "**/dist/**",
+      "**/cypress/**",
+      "**/.{idea,git,cache,output,temp}/**",
+      "**/{karma,rollup,webpack,vite,vitest,jest,ava,babel,nyc,cypress,tsup,build,eslint,prettier}.config.*"
+    ]
+  },
   build: {
     rollupOptions: {
       output: {

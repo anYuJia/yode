@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::HashMap;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -23,7 +23,7 @@ use super::{
     DesktopRuntime,
 };
 use crate::hook_settings::build_desktop_hook_manager;
-use crate::protocol::{DesktopEvent, SendMessageRequest, SessionRunState, TurnAccepted};
+use crate::protocol::{SendMessageRequest, SessionRunState, TurnAccepted};
 use crate::session_helpers::title_from_content_or_images;
 
 impl DesktopRuntime {
@@ -63,7 +63,11 @@ impl DesktopRuntime {
             // （同一把锁内完成检查+插入，两个并发请求不可能同时通过）。
             // 槽位一直保持到 turn 事件循环 quiesce 之后才释放，
             // 取消请求期间新 turn 一律被拒绝，杜绝旧工具与新 turn 并发。
-            let slot = SessionTurnSlot::acquire(&self.active_sessions, session_id)?;
+            let slot = SessionOperationSlot::acquire(
+                &self.active_sessions,
+                session_id,
+                SessionOperation::Turn,
+            )?;
             let mut s = self
                 .db
                 .get_session(session_id)?
@@ -113,9 +117,19 @@ impl DesktopRuntime {
             self.db.create_session(&session)?;
             // 新会话首轮同样占用 in-flight 占位：首轮取消后、旧引擎 quiesce 期间，
             // 新 turn 必须被拒绝（uuid 天然唯一，acquire 必成功）
-            let slot = SessionTurnSlot::acquire(&self.active_sessions, &session.id)?;
+            let slot = SessionOperationSlot::acquire(
+                &self.active_sessions,
+                &session.id,
+                SessionOperation::Turn,
+            )?;
             (session, Some(slot))
         };
+
+        // 跨进程会话锁：CLI 与多个桌面进程共用同一实现。
+        // 同 session 其他进程正在运行时（turn/压缩/清理/删除/导出），
+        // 这里直接返回简体中文错误；锁随整个 turn（含后台事件循环）持有，
+        // Drop 或进程崩溃时由操作系统自动释放。
+        let session_lock_guard = self.db.session_lock(&session.id)?;
 
         self.set_active_session(session.id.clone())?;
         self.db.touch_session(&session.id)?;
@@ -126,6 +140,10 @@ impl DesktopRuntime {
         let emit_turn_id = turn_id.clone();
         // seq 从 0 开始，在每个 turn 内严格单调递增（不使用跨 turn 的固定编号区间）
         let seq_base = 0;
+
+        // 持久化 turn journal：数据库成为可恢复的事实来源，
+        // run_registry 仅作内存热缓存。创建失败拒绝开启 turn。
+        self.db.create_turn(&session_id, &turn_id)?;
 
         let provider = self
             .provider_registry
@@ -227,11 +245,13 @@ impl DesktopRuntime {
             &self.run_registry,
             &session_id,
             &emit_turn_id,
-            "running",
+            "starting",
             None,
         );
 
         std::thread::spawn(move || {
+            // 跨进程会话锁在 turn 完整生命周期（含后台事件循环）内保持持有
+            let _session_lock_guard = session_lock_guard;
             let rt = match tokio::runtime::Runtime::new() {
                 Ok(rt) => rt,
                 Err(err) => {
@@ -260,14 +280,14 @@ impl DesktopRuntime {
                     Ok(db) => db,
                     Err(err) => {
                         tracing::error!("Failed to open database in background thread: {}", err);
-                        let desktop_event = DesktopEvent {
-                            session_id: session_id.clone(),
-                            turn_id: emit_turn_id.clone(),
-                            seq: seq_base,
-                            kind: "error".to_string(),
-                            timestamp: Utc::now().to_rfc3339(),
-                            payload: json!({ "body": err.to_string() }),
-                        };
+                        let desktop_event = super::turn_loop::envelope_to_desktop_event(
+                            &session_id,
+                            &emit_turn_id,
+                            seq_base,
+                            Utc::now().to_rfc3339(),
+                            yode_runtime::DesktopEventKind::Error,
+                            json!({ "body": err.to_string() }),
+                        );
                         emit_desktop_event(&app, desktop_event);
                         // 后台启动失败：释放占位与 token，避免会话被永久判定为运行中
                         release_turn_occupancy(
@@ -295,6 +315,40 @@ impl DesktopRuntime {
                 );
                 engine.set_ask_user_channels(ask_user_query_tx, ask_user_answer_rx);
                 engine.restore_messages_async(restored_messages).await;
+
+                // 事件循环使用独立连接持久化 turn journal（引擎的 Database 已被 move）
+                let loop_db = match Database::open(&db_path_clone) {
+                    Ok(db) => db,
+                    Err(err) => {
+                        tracing::error!(
+                            "Failed to open journal database in background thread: {}",
+                            err
+                        );
+                        let desktop_event = super::turn_loop::envelope_to_desktop_event(
+                            &session_id,
+                            &emit_turn_id,
+                            seq_base,
+                            Utc::now().to_rfc3339(),
+                            yode_runtime::DesktopEventKind::Error,
+                            json!({ "body": err.to_string() }),
+                        );
+                        emit_desktop_event(&app, desktop_event);
+                        release_turn_occupancy(
+                            &active_sessions_clone,
+                            &cancel_tokens_clone,
+                            &session_id,
+                            &emit_turn_id,
+                        );
+                        update_run_state(
+                            &run_registry_clone,
+                            &session_id,
+                            &emit_turn_id,
+                            "failed",
+                            Some(err.to_string()),
+                        );
+                        return;
+                    }
+                };
 
                 let (event_tx, event_rx) = unbounded_channel::<EngineEvent>();
                 let error_event_tx = event_tx.clone();
@@ -324,6 +378,7 @@ impl DesktopRuntime {
 
                 run_desktop_turn_event_loop(
                     app.clone(),
+                    loop_db,
                     session_id.clone(),
                     emit_turn_id.clone(),
                     seq_base,
@@ -348,6 +403,81 @@ impl DesktopRuntime {
             turn_id,
             session: accepted_session,
         })
+    }
+
+    /// 读取某个 turn 在 since_seq 之后的事件（升序），供断线恢复/事件重放。
+    /// payload 已在落盘时脱敏，可直接返回前端。
+    pub fn turn_events_since(
+        &self,
+        session_id: String,
+        turn_id: String,
+        since_seq: i64,
+        limit: Option<usize>,
+    ) -> Result<Vec<crate::protocol::TurnEvent>> {
+        Ok(self
+            .db
+            .list_turn_events_since(&session_id, &turn_id, since_seq, limit)?
+            .into_iter()
+            .map(map_stored_turn_event)
+            .collect())
+    }
+
+    /// 读取某个 turn 最近 N 条事件（升序），供 RunInspector 消费持久化 journal。
+    pub fn turn_recent_events(
+        &self,
+        session_id: String,
+        turn_id: String,
+        limit: usize,
+    ) -> Result<Vec<crate::protocol::TurnEvent>> {
+        let mut events = self
+            .db
+            .list_recent_turn_events(&session_id, &turn_id, limit)?
+            .into_iter()
+            .map(map_stored_turn_event)
+            .collect::<Vec<_>>();
+        events.reverse();
+        Ok(events)
+    }
+
+    /// 会话消息分页：按 sort_order 降序返回最近窗口。
+    pub fn sessions_messages_page(
+        &self,
+        session_id: String,
+        before: Option<i64>,
+        limit: usize,
+    ) -> Result<crate::protocol::SessionMessagesPage> {
+        let limit = limit.clamp(1, 500);
+        let page = self
+            .db
+            .load_messages_window(&session_id, before, limit + 1)?;
+        let has_more = page.len() > limit;
+        let messages = page
+            .into_iter()
+            .take(limit)
+            .map(|message| {
+                let images = crate::session_helpers::stored_images(&message)
+                    .into_iter()
+                    .map(|image| crate::protocol::DesktopImageOutput {
+                        base64: image.base64,
+                        media_type: image.media_type,
+                    })
+                    .collect();
+                let metadata = crate::session_helpers::stored_metadata(&message);
+                crate::protocol::DesktopMessage {
+                    sort_order: Some(message.sort_order),
+                    images,
+                    id: message.id,
+                    role: message.role,
+                    content: message.content,
+                    reasoning: message.reasoning,
+                    tool_calls_json: message.tool_calls_json,
+                    tool_call_id: message.tool_call_id,
+                    metadata,
+                    created_at: message.created_at.to_rfc3339(),
+                }
+            })
+            .collect();
+        Ok(crate::protocol::SessionMessagesPage { messages, has_more })
     }
 
     pub fn permission_respond(
@@ -435,8 +565,8 @@ impl DesktopRuntime {
         Ok(())
     }
 
-    /// 取消入口：先发出 cancelling 事件，由 turn 事件循环在引擎停止后
-    /// 发出 cancelled 终态（Cancelling → 后端确认停止 → Cancelled）。
+    /// 取消入口：先在持久化 journal 中记录取消请求与 cancelling 状态，
+    /// 由 turn 事件循环在引擎停止后发出 cancelled 终态（Cancelling → 后端确认停止 → Cancelled）。
     pub fn turn_cancel_request(
         &self,
         app: AppHandle,
@@ -444,6 +574,16 @@ impl DesktopRuntime {
         turn_id: String,
     ) -> Result<()> {
         let _ = app;
+        let _ = self
+            .db
+            .mark_turn_cancellation_requested(&session_id, &turn_id);
+        let _ = self.db.update_turn_state(
+            &session_id,
+            &turn_id,
+            yode_core::db::TurnState::Cancelling,
+            Some("用户请求取消".to_string()),
+            None,
+        );
         update_run_state(
             &self.run_registry,
             &session_id,
@@ -471,36 +611,75 @@ pub(super) fn update_run_state(
                 status: status.to_string(),
                 updated_at: Utc::now().to_rfc3339(),
                 detail,
+                started_at: None,
+                ended_at: None,
+                last_seq: 0,
+                error_code: None,
+                cancellation_requested: false,
             },
         );
     }
 }
 
-/// 每会话 in-flight 占位：原子检查+占用（同一把锁内完成检查与插入，
-/// 两个并发请求不可能同时通过）。
-/// Drop 时若未 disarm 会自动释放（失败路径兜底）；
-/// 成功路径调用 disarm() 后由 turn 事件循环在 quiesce 后释放。
+/// 所有会话生命周期操作共享的占位类型。
+///
+/// 读取会话和列举等只读操作不领取槽位；会修改会话历史、删除会话或导出
+/// 的操作则必须在开始前领取。这样检查与占用在同一把锁内完成，避免
+/// check-then-act 竞态，同时不同会话仍可并行。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SessionOperation {
+    Turn,
+    ClearMessages,
+    Delete,
+    CompactLocal,
+    CompactEngine,
+    Export,
+}
+
+impl SessionOperation {
+    fn description(self) -> &'static str {
+        match self {
+            Self::Turn => "运行任务",
+            Self::ClearMessages => "清空消息",
+            Self::Delete => "删除会话",
+            Self::CompactLocal => "本地压缩",
+            Self::CompactEngine => "引擎压缩",
+            Self::Export => "导出会话",
+        }
+    }
+}
+
+pub(super) type SessionOperationMap =
+    std::sync::Arc<std::sync::Mutex<HashMap<String, SessionOperation>>>;
+
+/// 每会话生命周期操作占位：原子检查+占用。
+/// Drop 时若未 disarm 会自动释放（失败路径兜底）；成功的 turn 调用
+/// disarm() 后，由 turn 事件循环 quiesce 时统一释放。
 #[derive(Debug)]
-pub(super) struct SessionTurnSlot {
-    active: std::sync::Arc<std::sync::Mutex<HashSet<String>>>,
+pub(super) struct SessionOperationSlot {
+    active: SessionOperationMap,
     session_id: String,
+    operation: SessionOperation,
     armed: bool,
 }
 
-impl SessionTurnSlot {
+impl SessionOperationSlot {
     pub(super) fn acquire(
-        active: &std::sync::Arc<std::sync::Mutex<HashSet<String>>>,
+        active: &SessionOperationMap,
         session_id: &str,
+        operation: SessionOperation,
     ) -> anyhow::Result<Self> {
-        let mut set = active
+        let mut operations = active
             .lock()
             .map_err(|_| anyhow::anyhow!("active session lock poisoned"))?;
-        if !set.insert(session_id.to_string()) {
-            anyhow::bail!("该会话已有进行中的任务，请等待完成或取消后再发送。");
+        if let Some(current) = operations.get(session_id) {
+            anyhow::bail!("该会话正在{}，请等待完成后重试。", current.description());
         }
+        operations.insert(session_id.to_string(), operation);
         Ok(Self {
             active: active.clone(),
             session_id: session_id.to_string(),
+            operation,
             armed: true,
         })
     }
@@ -510,11 +689,13 @@ impl SessionTurnSlot {
     }
 }
 
-impl Drop for SessionTurnSlot {
+impl Drop for SessionOperationSlot {
     fn drop(&mut self) {
         if self.armed {
-            if let Ok(mut set) = self.active.lock() {
-                set.remove(&self.session_id);
+            if let Ok(mut operations) = self.active.lock() {
+                if operations.get(&self.session_id) == Some(&self.operation) {
+                    operations.remove(&self.session_id);
+                }
             }
         }
     }
@@ -524,15 +705,29 @@ impl Drop for SessionTurnSlot {
 /// 由 turn 事件循环收尾、以及后台线程启动失败路径共用，
 /// 保证任何路径都不会让会话被永久判定为运行中。
 pub(super) fn release_turn_occupancy(
-    active_sessions: &std::sync::Arc<std::sync::Mutex<HashSet<String>>>,
+    active_sessions: &SessionOperationMap,
     cancel_tokens: &super::turn_loop::CancelTokenMap,
     session_id: &str,
     turn_id: &str,
 ) {
-    if let Ok(mut active) = active_sessions.lock() {
-        active.remove(session_id);
+    if let Ok(mut operations) = active_sessions.lock() {
+        if operations.get(session_id) == Some(&SessionOperation::Turn) {
+            operations.remove(session_id);
+        }
     }
     if let Ok(mut tokens) = cancel_tokens.lock() {
         tokens.remove(&(session_id.to_string(), turn_id.to_string()));
+    }
+}
+
+fn map_stored_turn_event(event: yode_core::db::TurnEvent) -> crate::protocol::TurnEvent {
+    let payload = serde_json::from_str(&event.payload_json).unwrap_or(serde_json::json!({}));
+    crate::protocol::TurnEvent {
+        session_id: event.session_id,
+        turn_id: event.turn_id,
+        seq: event.seq,
+        kind: event.kind,
+        timestamp: event.timestamp.to_rfc3339(),
+        payload,
     }
 }

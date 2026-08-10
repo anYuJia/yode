@@ -22,7 +22,8 @@ fn test_live_session_memory_refresh_writes_snapshot() {
 
     engine.maybe_refresh_live_session_memory(None);
 
-    let live_path = crate::session_memory::live_session_memory_path(&project_root);
+    let live_path =
+        crate::session_memory::live_session_memory_path(&project_root, &engine.context.session_id);
     let content = std::fs::read_to_string(live_path).unwrap();
     assert!(content.contains("Session Snapshot"));
     assert!(content.contains("persisted message snapshots"));
@@ -62,7 +63,8 @@ fn test_project_memory_disabled_skips_memory_prompt_and_live_snapshot() {
 
     engine.maybe_refresh_live_session_memory(None);
 
-    let live_path = crate::session_memory::live_session_memory_path(&project_root);
+    let live_path =
+        crate::session_memory::live_session_memory_path(&project_root, &engine.context.session_id);
     assert!(!live_path.exists());
 }
 
@@ -93,7 +95,8 @@ fn test_skip_tool_assisted_memory_prevents_live_snapshot() {
 
     engine.maybe_refresh_live_session_memory(None);
 
-    let live_path = crate::session_memory::live_session_memory_path(&project_root);
+    let live_path =
+        crate::session_memory::live_session_memory_path(&project_root, &engine.context.session_id);
     assert!(!live_path.exists());
 }
 
@@ -975,7 +978,8 @@ fn test_session_end_flush_writes_snapshot_without_threshold() {
 
     engine.flush_live_session_memory_on_shutdown();
 
-    let live_path = crate::session_memory::live_session_memory_path(&project_root);
+    let live_path =
+        crate::session_memory::live_session_memory_path(&project_root, &engine.context.session_id);
     let content = std::fs::read_to_string(live_path).unwrap();
     assert!(content.contains("Session Snapshot"));
     assert!(content.contains("Short session"));
@@ -985,18 +989,27 @@ fn test_session_end_flush_writes_snapshot_without_threshold() {
 fn test_restore_messages_rebuilds_artifact_runtime_state() {
     let mut engine = make_engine(vec![], vec![]);
     let project_root = engine.context().working_dir_compat();
+    let session_id = engine.context().session_id.clone();
+    let session_token = crate::session_artifact::session_artifact_token(&session_id);
     let transcript_dir = project_root.join(".yode").join("transcripts");
     std::fs::create_dir_all(&transcript_dir).unwrap();
-    let transcript_path = transcript_dir.join("abc12345-compact-20260101-100000.md");
+    let transcript_path =
+        transcript_dir.join(format!("{session_token}-compact-20260101-100000.md"));
     std::fs::write(
         &transcript_path,
-        "# Compaction Transcript\n\n- Session: abc\n- Mode: manual\n- Timestamp: 2026-01-01 10:00:00\n- Removed messages: 7\n- Tool results truncated: 2\n- Failed tool results: 1\n- Session memory path: .yode/memory/session.md\n\n## Summary Anchor\n\n```text\nRecovered summary\n```\n",
+        format!(
+            "# Compaction Transcript\n\n- Session: {session_id}\n- Mode: manual\n- Timestamp: 2026-01-01 10:00:00\n- Removed messages: 7\n- Tool results truncated: 2\n- Failed tool results: 1\n- Session memory path: .yode/memory/{session_token}-session.md\n\n## Summary Anchor\n\n```text\nRecovered summary\n```\n"
+        ),
     )
     .unwrap();
 
-    let live_path = crate::session_memory::live_session_memory_path(&project_root);
+    let live_path = crate::session_memory::live_session_memory_path(&project_root, &session_id);
     std::fs::create_dir_all(live_path.parent().unwrap()).unwrap();
-    std::fs::write(&live_path, "# Session Snapshot\n\nplaceholder").unwrap();
+    std::fs::write(
+        &live_path,
+        format!("# Session Snapshot\n\n- Session: {session_id}\n\nplaceholder"),
+    )
+    .unwrap();
 
     engine.restore_messages(vec![
         Message::assistant("a1"),
@@ -1044,21 +1057,20 @@ fn test_restore_messages_rehydrates_post_compact_restore_blocks_from_artifact() 
     let project_root = engine.context().working_dir_compat();
     let status_dir = project_root.join(".yode").join("status");
     std::fs::create_dir_all(&status_dir).unwrap();
-    let short_session = engine
-        .context()
-        .session_id
-        .chars()
-        .take(8)
-        .collect::<String>();
-    let state_path = status_dir.join(format!("{}-post-compact-restore-state.json", short_session));
+    let session_id = engine.context().session_id.clone();
+    let session_token = crate::session_artifact::session_artifact_token(&session_id);
+    let state_path = status_dir.join(format!("{}-post-compact-restore-state.json", session_token));
     std::fs::write(
         &state_path,
-        r#"{
+        format!(
+            r#"{{
+          "session_id": "{session_id}",
           "blocks": [
-            { "kind": "runtime", "content": "[Post-compact restore: runtime]\n- Runtime cwd: /tmp", "fingerprint": "a" },
-            { "kind": "files", "content": "[Post-compact restore: files]\n- Recent files read: src/main.rs", "fingerprint": "b" }
+            {{ "kind": "runtime", "content": "[Post-compact restore: runtime]\n- Runtime cwd: /tmp", "fingerprint": "a" }},
+            {{ "kind": "files", "content": "[Post-compact restore: files]\n- Recent files read: src/main.rs", "fingerprint": "b" }}
           ]
-        }"#,
+        }}"#
+        ),
     )
     .unwrap();
 
@@ -1107,16 +1119,14 @@ fn test_restore_messages_rehydrates_prompt_cache_state_from_artifact() {
     let project_root = engine.context().working_dir_compat();
     let status_dir = project_root.join(".yode").join("status");
     std::fs::create_dir_all(&status_dir).unwrap();
-    let short_session = engine
-        .context()
-        .session_id
-        .chars()
-        .take(8)
-        .collect::<String>();
-    let state_path = status_dir.join(format!("{}-prompt-cache-state.json", short_session));
+    let session_id = engine.context().session_id.clone();
+    let session_token = crate::session_artifact::session_artifact_token(&session_id);
+    let state_path = status_dir.join(format!("{}-prompt-cache-state.json", session_token));
     std::fs::write(
         &state_path,
-        r#"{
+        format!(
+            r#"{{
+          "session_id": "{session_id}",
           "reported_turns": 4,
           "cache_write_turns": 2,
           "cache_read_turns": 3,
@@ -1140,11 +1150,12 @@ fn test_restore_messages_rehydrates_prompt_cache_state_from_artifact() {
           "last_prompt_cache_diff_summary": "cache_edit_applied / old->new / cache_edits",
           "last_prompt_cache_break_reason": "none",
           "last_prompt_cache_break_at": "2026-01-02 03:04:05"
-        }"#,
+        }}"#
+        ),
     )
     .unwrap();
 
-    let diff_path = status_dir.join(format!("{}-prompt-cache-diff.md", short_session));
+    let diff_path = status_dir.join(format!("{}-prompt-cache-diff.md", session_token));
     std::fs::write(&diff_path, "# Prompt Cache Diff").unwrap();
 
     engine.restore_messages(vec![
@@ -1202,6 +1213,145 @@ fn test_restore_messages_rehydrates_prompt_cache_state_from_artifact() {
     assert_eq!(
         hints.pinned_deleted_cache_references,
         vec!["tc1".to_string()]
+    );
+}
+
+#[test]
+fn test_restore_never_picks_transcript_of_another_session() {
+    let mut engine = make_engine(vec![], vec![]);
+    let project_root = engine.context().working_dir_compat();
+    let transcript_dir = project_root.join(".yode").join("transcripts");
+    std::fs::create_dir_all(&transcript_dir).unwrap();
+
+    let other_token = crate::session_artifact::session_artifact_token("other-session-9999");
+    std::fs::write(
+        transcript_dir.join(format!("{other_token}-compact-20990101-000000.md")),
+        "# Compaction Transcript\n\n- Session: other-session-9999\n- Mode: manual\n- Timestamp: 2099-01-01 00:00:00\n\n## Summary Anchor\n\n```text\nOTHER SESSION SUMMARY\n```\n",
+    )
+    .unwrap();
+
+    engine.restore_messages(vec![Message::user("resume")]);
+    let runtime = engine.runtime_state();
+
+    assert_eq!(
+        runtime.last_compaction_mode.as_deref(),
+        None,
+        "不得恢复其他会话的最新 transcript"
+    );
+    assert!(!runtime
+        .last_compaction_summary_excerpt
+        .as_deref()
+        .unwrap_or_default()
+        .contains("OTHER SESSION"));
+}
+
+#[tokio::test]
+async fn test_latest_turn_artifact_is_named_with_full_session_token() {
+    let mut engine = make_engine(vec![], vec![]);
+    engine
+        .complete_turn_runtime_artifact(Some(&yode_llm::types::StopReason::EndTurn))
+        .await;
+    let path = engine
+        .last_turn_artifact_path
+        .as_ref()
+        .expect("turn artifact");
+    let file_name = std::path::Path::new(path)
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .to_string();
+    let session_id = engine.context().session_id.clone();
+    assert!(
+        file_name.starts_with(&format!(
+            "{}-latest-turn.json",
+            crate::session_artifact::session_artifact_token(&session_id)
+        )),
+        "turn 工件必须使用完整 session token 命名: {}",
+        file_name
+    );
+    let content = std::fs::read_to_string(path).unwrap();
+    assert!(
+        content.contains(&format!("\"session_id\": \"{session_id}\"")),
+        "turn 工件内容必须携带完整 session id"
+    );
+}
+
+#[test]
+fn test_restore_prefers_latest_transcript_of_current_session_only() {
+    let mut engine = make_engine(vec![], vec![]);
+    let project_root = engine.context().working_dir_compat();
+    let session_id = engine.context().session_id.clone();
+    let session_token = crate::session_artifact::session_artifact_token(&session_id);
+    let transcript_dir = project_root.join(".yode").join("transcripts");
+    std::fs::create_dir_all(&transcript_dir).unwrap();
+    std::fs::write(
+        transcript_dir.join(format!("{session_token}-compact-20260101-090000.md")),
+        format!(
+            "# Compaction Transcript\n\n- Session: {session_id}\n- Mode: manual\n- Timestamp: 2026-01-01 09:00:00\n\n## Summary Anchor\n\n```text\nOLDER SUMMARY\n```\n"
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        transcript_dir.join(format!("{session_token}-compact-20260101-100000.md")),
+        format!(
+            "# Compaction Transcript\n\n- Session: {session_id}\n- Mode: auto\n- Timestamp: 2026-01-01 10:00:00\n\n## Summary Anchor\n\n```text\nNEWER SUMMARY\n```\n"
+        ),
+    )
+    .unwrap();
+
+    engine.restore_messages(vec![Message::user("resume")]);
+    let runtime = engine.runtime_state();
+    assert_eq!(runtime.last_compaction_mode.as_deref(), Some("auto"));
+    assert_eq!(
+        runtime.last_compaction_summary_excerpt.as_deref(),
+        Some("NEWER SUMMARY")
+    );
+}
+
+#[test]
+fn test_plan_file_with_foreign_session_marker_is_ignored() {
+    let engine = make_engine(vec![], vec![]);
+    let project_root = engine.context().working_dir_compat();
+    let session_token =
+        crate::session_artifact::session_artifact_token(&engine.context().session_id);
+    let plan_dir = project_root.join(".yode").join("plans");
+    std::fs::create_dir_all(&plan_dir).unwrap();
+    std::fs::write(
+        plan_dir.join(format!("{session_token}-plan.md")),
+        "# Active Plan\n\n- Session: other-session-9999\n- Keep this plan.",
+    )
+    .unwrap();
+
+    let plan_state = engine.runtime_state().plan;
+    assert!(
+        plan_state
+            .active_plan_file_path
+            .as_deref()
+            .unwrap_or_default()
+            .is_empty(),
+        "携带其他会话标记的计划文件不得被使用"
+    );
+}
+
+#[test]
+fn test_plan_file_with_own_session_marker_is_used() {
+    let engine = make_engine(vec![], vec![]);
+    let project_root = engine.context().working_dir_compat();
+    let session_id = engine.context().session_id.clone();
+    let session_token = crate::session_artifact::session_artifact_token(&session_id);
+    let plan_dir = project_root.join(".yode").join("plans");
+    std::fs::create_dir_all(&plan_dir).unwrap();
+    let plan_path = plan_dir.join(format!("{session_token}-plan.md"));
+    std::fs::write(
+        &plan_path,
+        format!("# Active Plan\n\n- Session: {session_id}\n- Keep this plan."),
+    )
+    .unwrap();
+
+    let plan_state = engine.runtime_state().plan;
+    assert_eq!(
+        plan_state.active_plan_file_path.as_deref(),
+        Some(plan_path.display().to_string().as_str())
     );
 }
 

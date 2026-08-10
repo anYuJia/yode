@@ -15,6 +15,8 @@ pub mod permission;
 pub mod plugin_trust;
 pub mod plugins;
 pub mod session;
+pub mod session_artifact;
+pub mod session_lock;
 pub mod session_memory;
 pub mod setup;
 pub mod skills;

@@ -2,6 +2,7 @@ mod tool_wrapper;
 use self::tool_wrapper::{annotations_from_mcp, wrapper_tool_name};
 
 use std::collections::{BTreeMap, HashMap};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, LazyLock, Mutex};
@@ -169,10 +170,7 @@ impl ClientHandler for YodeMcpClientHandler {
             }
         };
         record_mcp_elicitation_declined(&self.server_name, kind, message, url);
-        std::future::ready(Ok(CreateElicitationResult {
-            action: ElicitationAction::Decline,
-            content: None,
-        }))
+        std::future::ready(Ok(CreateElicitationResult::new(ElicitationAction::Decline)))
     }
 
     fn get_info(&self) -> ClientInfo {
@@ -321,8 +319,6 @@ impl McpClient {
         info!(
             server = %name,
             transport = %config.transport.label(),
-            command = %config.command,
-            url = ?config.url,
             "Connecting to MCP server"
         );
 
@@ -552,13 +548,16 @@ impl McpConnection {
         let peer = self.current_peer().await;
         match peer.list_tools(Default::default()).await {
             Ok(result) => Ok(result),
-            Err(err) => {
+            Err(_) => {
                 warn!(
                     server = %self.server_name,
-                    error = %err,
                     "MCP tool discovery failed; reconnecting server and retrying once"
                 );
-                record_mcp_connect_result(&self.server_name, false, Some(err.to_string()));
+                record_mcp_connect_result(
+                    &self.server_name,
+                    false,
+                    Some("MCP 工具枚举失败".to_string()),
+                );
                 let peer = self.reconnect().await?;
                 Ok(peer.list_tools(Default::default()).await?)
             }
@@ -572,13 +571,16 @@ impl McpConnection {
         let peer = self.current_peer().await;
         match peer.call_tool(request.clone()).await {
             Ok(result) => Ok(result),
-            Err(err) => {
+            Err(_) => {
                 warn!(
                     server = %self.server_name,
-                    error = %err,
                     "MCP tool call failed; reconnecting server and retrying once"
                 );
-                record_mcp_connect_result(&self.server_name, false, Some(err.to_string()));
+                record_mcp_connect_result(
+                    &self.server_name,
+                    false,
+                    Some("MCP 工具调用失败".to_string()),
+                );
                 let peer = self.reconnect().await?;
                 Ok(peer.call_tool(request).await?)
             }
@@ -589,13 +591,16 @@ impl McpConnection {
         let peer = self.current_peer().await;
         match peer.list_resources(Default::default()).await {
             Ok(result) => Ok(result),
-            Err(err) => {
+            Err(_) => {
                 warn!(
                     server = %self.server_name,
-                    error = %err,
                     "MCP resource discovery failed; reconnecting server and retrying once"
                 );
-                record_mcp_connect_result(&self.server_name, false, Some(err.to_string()));
+                record_mcp_connect_result(
+                    &self.server_name,
+                    false,
+                    Some("MCP 资源枚举失败".to_string()),
+                );
                 let peer = self.reconnect().await?;
                 Ok(peer.list_resources(Default::default()).await?)
             }
@@ -606,13 +611,16 @@ impl McpConnection {
         let peer = self.current_peer().await;
         match peer.list_resource_templates(Default::default()).await {
             Ok(result) => Ok(result),
-            Err(err) => {
+            Err(_) => {
                 warn!(
                     server = %self.server_name,
-                    error = %err,
                     "MCP resource template discovery failed; reconnecting server and retrying once"
                 );
-                record_mcp_connect_result(&self.server_name, false, Some(err.to_string()));
+                record_mcp_connect_result(
+                    &self.server_name,
+                    false,
+                    Some("MCP 资源模板枚举失败".to_string()),
+                );
                 let peer = self.reconnect().await?;
                 Ok(peer.list_resource_templates(Default::default()).await?)
             }
@@ -626,13 +634,16 @@ impl McpConnection {
         let peer = self.current_peer().await;
         match peer.read_resource(request.clone()).await {
             Ok(result) => Ok(result),
-            Err(err) => {
+            Err(_) => {
                 warn!(
                     server = %self.server_name,
-                    error = %err,
                     "MCP resource read failed; reconnecting server and retrying once"
                 );
-                record_mcp_connect_result(&self.server_name, false, Some(err.to_string()));
+                record_mcp_connect_result(
+                    &self.server_name,
+                    false,
+                    Some("MCP 资源读取失败".to_string()),
+                );
                 let peer = self.reconnect().await?;
                 Ok(peer.read_resource(request).await?)
             }
@@ -646,10 +657,9 @@ impl McpConnection {
         let mut old_service = std::mem::replace(&mut state.service, new_state.service);
         state.peer = new_peer.clone();
         drop(state);
-        if let Err(err) = old_service.close().await {
+        if old_service.close().await.is_err() {
             warn!(
                 server = %self.server_name,
-                error = %err,
                 "failed to close stale MCP service after reconnect"
             );
         }
@@ -720,7 +730,7 @@ async fn start_stdio_mcp_service(
             service
         }
         Err(err) => {
-            record_mcp_connect_result(name, false, Some(err.to_string()));
+            record_mcp_connect_result(name, false, Some("MCP stdio 服务器连接失败".to_string()));
             return Err(err.into());
         }
     };
@@ -756,7 +766,7 @@ async fn start_streamable_http_mcp_service(
             service
         }
         Err(err) => {
-            record_mcp_connect_result(name, false, Some(err.to_string()));
+            record_mcp_connect_result(name, false, Some("MCP 远程服务器连接失败".to_string()));
             return Err(err.into());
         }
     };
@@ -790,48 +800,72 @@ fn remote_auth_token(name: &str, config: &McpServerConfig) -> Result<Option<Stri
         .and_then(|auth| auth.oauth.as_ref())
         .is_some()
     {
-        return Ok(load_oauth_access_token(name));
+        return load_oauth_access_token(name);
     }
 
     Ok(None)
 }
 
-fn load_oauth_access_token(server: &str) -> Option<String> {
+fn load_oauth_access_token(server: &str) -> Result<Option<String>> {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     load_oauth_access_token_from_home(&home, server)
 }
 
-fn load_oauth_access_token_from_home(home: &Path, server: &str) -> Option<String> {
+fn load_oauth_access_token_from_home(home: &Path, server: &str) -> Result<Option<String>> {
+    let auth_dir = home.join(".yode").join("mcp-auth");
+    if let Ok(metadata) = std::fs::symlink_metadata(&auth_dir) {
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            anyhow::bail!("MCP OAuth 存储目录不是安全目录。 ");
+        }
+    }
     let path = home
         .join(".yode")
         .join("mcp-auth")
         .join(format!("{}.token.json", sanitize_server_name(server)));
-    let content = match std::fs::read_to_string(&path) {
-        Ok(content) => content,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(err) => {
-            warn!(
-                server = %server,
-                path = %path.display(),
-                error = %err,
-                "Failed to read MCP OAuth token file"
-            );
-            return None;
-        }
+    let metadata = match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(anyhow::anyhow!("无法读取 MCP OAuth 凭据文件：{}", err)),
     };
-    let token: StoredMcpOAuthToken = match serde_json::from_str(&content) {
-        Ok(token) => token,
-        Err(err) => {
-            warn!(
-                server = %server,
-                path = %path.display(),
-                error = %err,
-                "Failed to parse MCP OAuth token file"
-            );
-            return None;
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        anyhow::bail!("MCP OAuth 凭据路径不是安全普通文件。 ");
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            anyhow::bail!("MCP OAuth 凭据文件权限过宽。 ");
         }
-    };
-    (!token.access_token.trim().is_empty()).then_some(token.access_token)
+    }
+    let content = read_private_token_file(&path)?;
+    let token: StoredMcpOAuthToken = serde_json::from_str(&content)
+        .map_err(|err| anyhow::anyhow!("MCP OAuth 凭据文件损坏：{}", err))?;
+    Ok((!token.access_token.trim().is_empty()).then_some(token.access_token))
+}
+
+#[cfg(unix)]
+fn read_private_token_file(path: &Path) -> Result<String> {
+    use std::fs::OpenOptions;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
+        .open(path)
+        .map_err(|err| anyhow::anyhow!("无法安全读取 MCP OAuth 凭据文件：{}", err))?;
+    let mut content = String::new();
+    file.read_to_string(&mut content)
+        .map_err(|err| anyhow::anyhow!("无法读取 MCP OAuth 凭据文件：{}", err))?;
+    Ok(content)
+}
+
+#[cfg(not(unix))]
+fn read_private_token_file(path: &Path) -> Result<String> {
+    let mut file = std::fs::File::open(path)
+        .map_err(|err| anyhow::anyhow!("无法安全读取 MCP OAuth 凭据文件：{}", err))?;
+    let mut content = String::new();
+    file.read_to_string(&mut content)
+        .map_err(|err| anyhow::anyhow!("无法读取 MCP OAuth 凭据文件：{}", err))?;
+    Ok(content)
 }
 
 fn mcp_input_schema_to_value(
@@ -1015,8 +1049,13 @@ mod tests {
             .join("github.token.json");
         fs::create_dir_all(token_path.parent().unwrap()).unwrap();
         fs::write(&token_path, r#"{"access_token":"secret-token"}"#).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
 
-        let token = load_oauth_access_token_from_home(tempdir.path(), "github");
+        let token = load_oauth_access_token_from_home(tempdir.path(), "github").unwrap();
         assert_eq!(token.as_deref(), Some("secret-token"));
     }
 
@@ -1024,7 +1063,7 @@ mod tests {
     fn load_oauth_access_token_ignores_missing_or_invalid_session() {
         let tempdir = tempfile::tempdir().unwrap();
         assert_eq!(
-            load_oauth_access_token_from_home(tempdir.path(), "github"),
+            load_oauth_access_token_from_home(tempdir.path(), "github").unwrap(),
             None
         );
 
@@ -1035,11 +1074,32 @@ mod tests {
             .join("github.token.json");
         fs::create_dir_all(token_path.parent().unwrap()).unwrap();
         fs::write(&token_path, r#"{"access_token":"#).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
 
-        assert_eq!(
-            load_oauth_access_token_from_home(tempdir.path(), "github"),
-            None
-        );
+        assert!(load_oauth_access_token_from_home(tempdir.path(), "github").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn load_oauth_access_token_rejects_symlinks_and_broad_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+        let tempdir = tempfile::tempdir().unwrap();
+        let auth_dir = tempdir.path().join(".yode").join("mcp-auth");
+        fs::create_dir_all(&auth_dir).unwrap();
+        let token_path = auth_dir.join("github.token.json");
+        fs::write(&token_path, r#"{"access_token":"secret-token"}"#).unwrap();
+        fs::set_permissions(&token_path, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(load_oauth_access_token_from_home(tempdir.path(), "github").is_err());
+        fs::set_permissions(&token_path, fs::Permissions::from_mode(0o600)).unwrap();
+        let outside = tempdir.path().join("outside.json");
+        fs::write(&outside, r#"{"access_token":"secret-token"}"#).unwrap();
+        fs::remove_file(&token_path).unwrap();
+        std::os::unix::fs::symlink(&outside, &token_path).unwrap();
+        assert!(load_oauth_access_token_from_home(tempdir.path(), "github").is_err());
     }
 
     #[test]

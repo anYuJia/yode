@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useId } from "react";
 import { ChevronDown, Check } from "lucide-react";
 
 export interface CustomSelectOption {
@@ -17,19 +17,51 @@ interface CustomSelectProps {
   style?: React.CSSProperties;
 }
 
+type CustomSelectKeyboardAction =
+  | { type: "highlight"; index: number }
+  | { type: "select"; index: number }
+  | { type: "close" }
+  | { type: "tab" }
+  | { type: "none" };
+
+export function customSelectKeyboardAction(
+  key: string,
+  highlightIndex: number,
+  optionCount: number
+): CustomSelectKeyboardAction {
+  if (key === "Escape") return { type: "close" };
+  if (key === "Tab") return { type: "tab" };
+  if (optionCount === 0) return { type: "none" };
+
+  if (key === "ArrowDown") {
+    return { type: "highlight", index: highlightIndex < 0 ? 0 : Math.min(highlightIndex + 1, optionCount - 1) };
+  }
+  if (key === "ArrowUp") {
+    return { type: "highlight", index: highlightIndex < 0 ? optionCount - 1 : Math.max(highlightIndex - 1, 0) };
+  }
+  if (key === "Home") return { type: "highlight", index: 0 };
+  if (key === "End") return { type: "highlight", index: optionCount - 1 };
+  if ((key === "Enter" || key === " ") && highlightIndex >= 0 && highlightIndex < optionCount) {
+    return { type: "select", index: highlightIndex };
+  }
+  return { type: "none" };
+}
+
 export function CustomSelect({ value, onChange, options, className = "", style }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const listboxId = useId();
 
   const selectedOption = options.find((opt) => opt.value === value) || options[0];
+  const activeOptionId = isOpen && highlightIndex >= 0 ? `${listboxId}-option-${highlightIndex}` : undefined;
 
-  const close = () => {
+  const close = (restoreFocus = true) => {
     setIsOpen(false);
     setHighlightIndex(-1);
-    triggerRef.current?.focus();
+    if (restoreFocus) triggerRef.current?.focus();
   };
 
   useEffect(() => {
@@ -48,39 +80,28 @@ export function CustomSelect({ value, onChange, options, className = "", style }
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) return;
+
+      const action = customSelectKeyboardAction(event.key, highlightIndex, options.length);
+      if (action.type === "close") {
         event.preventDefault();
-        close();
+        close(true);
         return;
       }
-      if (event.key === "ArrowDown") {
+      if (action.type === "tab") {
+        close(false);
+        return;
+      }
+      if (action.type === "highlight") {
         event.preventDefault();
-        setHighlightIndex((index) => {
-          const next = index < 0 ? 0 : Math.min(index + 1, options.length - 1);
-          scrollHighlightIntoView(next);
-          return next;
-        });
+        setHighlightIndex(action.index);
+        scrollHighlightIntoView(action.index);
         return;
       }
-      if (event.key === "ArrowUp") {
+      if (action.type === "select") {
         event.preventDefault();
-        setHighlightIndex((index) => {
-          const next = index < 0 ? options.length - 1 : Math.max(index - 1, 0);
-          scrollHighlightIntoView(next);
-          return next;
-        });
-        return;
-      }
-      if (event.key === "Enter" || event.key === " ") {
-        if (highlightIndex >= 0 && options[highlightIndex]) {
-          event.preventDefault();
-          onChange(options[highlightIndex].value);
-          close();
-        }
-        return;
-      }
-      if (event.key === "Tab") {
-        close();
+        onChange(options[action.index].value);
+        close(true);
         return;
       }
       // 输入字符时跳到首个匹配选项
@@ -119,6 +140,8 @@ export function CustomSelect({ value, onChange, options, className = "", style }
         }}
         aria-haspopup="listbox"
         aria-expanded={isOpen}
+        aria-controls={listboxId}
+        aria-activedescendant={activeOptionId}
         aria-label={selectedOption?.label}
         style={{
           display: "flex",
@@ -175,6 +198,7 @@ export function CustomSelect({ value, onChange, options, className = "", style }
       {isOpen && (
         <div
           ref={listRef}
+          id={listboxId}
           className="custom-select-dropdown"
           role="listbox"
           aria-label="选项列表"
@@ -201,9 +225,11 @@ export function CustomSelect({ value, onChange, options, className = "", style }
               <button
                 key={option.value}
                 type="button"
+                id={`${listboxId}-option-${index}`}
                 data-option-index={index}
                 role="option"
                 aria-selected={isSelected}
+                tabIndex={-1}
                 onClick={() => {
                   onChange(option.value);
                   setIsOpen(false);

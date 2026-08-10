@@ -72,3 +72,63 @@ describe("local slash commands", () => {
     expect(handled).toBe(false);
   });
 });
+
+describe("slash command registry", () => {
+  it("parses command names and args", async () => {
+    const { parseSlashCommand } = await import("./localSlashCommands");
+    expect(parseSlashCommand("/clear")).toEqual({ name: "clear", args: "" });
+    expect(parseSlashCommand("/rename 新标题 with spaces")).toEqual({
+      name: "rename",
+      args: "新标题 with spaces"
+    });
+    expect(parseSlashCommand("/  clear   ")).toEqual({ name: "clear", args: "" });
+    expect(parseSlashCommand("plain text")).toBeNull();
+    expect(parseSlashCommand("/")).toBeNull();
+  });
+
+  it("completes registered commands only", async () => {
+    const { completeSlashCommands, slashCommandRegistry } = await import("./localSlashCommands");
+    expect(completeSlashCommands("/c")).toEqual(["/clear", "/compact", "/cost"]);
+    expect(completeSlashCommands("/per")).toEqual(["/permission"]);
+    expect(completeSlashCommands("/nope")).toEqual([]);
+    expect(completeSlashCommands("plain")).toEqual([]);
+    // 帮助只列已注册命令：registry 中的名字都在补全集合内
+    for (const name of Object.keys(slashCommandRegistry)) {
+      expect(completeSlashCommands(`/${name}`)).toContain(`/${name}`);
+    }
+  });
+
+  it("help lists implemented commands and never mentions unimplemented ones", async () => {
+    const { getSlashCommandHelp, slashCommandRegistry } = await import("./localSlashCommands");
+    const help = getSlashCommandHelp(true);
+    const required = ["/clear", "/compact", "/export", "/new", "/trash", "/cost", "/model", "/permission", "/rename", "/sessions", "/status", "/help"];
+    for (const command of required) {
+      expect(help).toContain(command);
+    }
+    // 未实现的命令（如 /review）不得出现在帮助文案
+    expect(help).not.toContain("/review");
+    // 帮助与 registry 一一对应
+    expect(Object.keys(slashCommandRegistry).length).toBeGreaterThanOrEqual(required.length);
+  });
+
+  it("rejects invalid arguments without changing session state", async () => {
+    const { executeLocalSlashCommand, validateSlashCommand } = await import("./localSlashCommands");
+    const appendResult = vi.fn();
+    const context = commandContext({ appendResult });
+    const handled = await executeLocalSlashCommand("/permission bogus-mode", context);
+    expect(handled).toBe(true);
+    expect(appendResult).toHaveBeenCalledWith("Invalid arguments", expect.stringContaining("Usage"));
+    // 校验器与执行器语义一致
+    expect(validateSlashCommand("/permission bogus-mode", true).ok).toBe(false);
+    expect(validateSlashCommand("/permission auto", true).ok).toBe(true);
+    expect(validateSlashCommand("/rename", true).ok).toBe(false);
+    expect(validateSlashCommand("/rename 标题", true).ok).toBe(true);
+  });
+
+  it("executes the help command through the registry", async () => {
+    const { executeLocalSlashCommand, getSlashCommandHelp } = await import("./localSlashCommands");
+    const appendResult = vi.fn();
+    await executeLocalSlashCommand("/help", commandContext({ appendResult, appLang: "zh" }));
+    expect(appendResult).toHaveBeenCalledWith("桌面命令", getSlashCommandHelp(true));
+  });
+});

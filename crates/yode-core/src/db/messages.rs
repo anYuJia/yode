@@ -1,5 +1,6 @@
 use rusqlite::params;
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use yode_llm::types::{ImageData, Message, Role};
 
 use super::*;
@@ -91,7 +92,7 @@ impl Database {
         };
         let metadata_json = metadata.map(serde_json::to_string).transpose()?;
         conn.execute(
-            "INSERT INTO messages (session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json, metadata_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO messages (session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json, metadata_json, sort_order, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, COALESCE((SELECT MAX(sort_order) + 1 FROM messages WHERE session_id = ?1), 0), ?9)",
             params![session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json.as_deref(), metadata_json.as_deref(), now],
         )?;
         Ok(conn.last_insert_rowid())
@@ -100,7 +101,7 @@ impl Database {
     pub fn load_messages(&self, session_id: &str) -> Result<Vec<StoredMessage>> {
         let conn = self.lock_connection()?;
         let mut stmt = conn.prepare(
-            "SELECT id, session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json, metadata_json, created_at FROM messages WHERE session_id = ?1 ORDER BY id ASC",
+            "SELECT id, session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json, metadata_json, sort_order, created_at FROM messages WHERE session_id = ?1 ORDER BY sort_order ASC, id ASC",
         )?;
 
         let messages = stmt
@@ -115,8 +116,9 @@ impl Database {
                     tool_call_id: row.get(6)?,
                     images_json: row.get(7)?,
                     metadata_json: row.get(8)?,
-                    created_at: parse_rfc3339_strict(row.get::<_, String>(9).unwrap_or_default())
-                        .map_err(|err| rusqlite_corruption(9, err))?,
+                    sort_order: row.get(9)?,
+                    created_at: parse_rfc3339_strict(row.get::<_, String>(10).unwrap_or_default())
+                        .map_err(|err| rusqlite_corruption(10, err))?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -124,48 +126,147 @@ impl Database {
         Ok(messages)
     }
 
-    pub fn replace_messages(&self, session_id: &str, messages: &[Message]) -> Result<()> {
+    /// 分页/窗口读取：按 sort_order 降序读取一个会话最近 `limit` 条消息。
+    /// `before_sort_order` 提供时读取严格更早的窗口（向上翻页）。
+    /// 调用方负责反转以获得正序展示。不允许默认一次性加载无限历史。
+    pub fn load_messages_window(
+        &self,
+        session_id: &str,
+        before_sort_order: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<StoredMessage>> {
+        let limit = limit.max(1);
+        let conn = self.lock_connection()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json, metadata_json, sort_order, created_at
+             FROM messages
+             WHERE session_id = ?1 AND (?2 IS NULL OR sort_order < ?2)
+             ORDER BY sort_order DESC, id DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt
+            .query_map(
+                params![session_id, before_sort_order, limit as i64],
+                |row| {
+                    Ok(StoredMessage {
+                        id: row.get(0)?,
+                        session_id: row.get(1)?,
+                        role: row.get(2)?,
+                        content: row.get(3)?,
+                        reasoning: row.get(4)?,
+                        tool_calls_json: row.get(5)?,
+                        tool_call_id: row.get(6)?,
+                        images_json: row.get(7)?,
+                        metadata_json: row.get(8)?,
+                        sort_order: row.get(9)?,
+                        created_at: parse_rfc3339_strict(
+                            row.get::<_, String>(10).unwrap_or_default(),
+                        )
+                        .map_err(|err| rusqlite_corruption(10, err))?,
+                    })
+                },
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Atomically rewrite a session snapshot while retaining the identity and metadata of
+    /// messages that remain in the conversation. The returned ids correspond to `messages`.
+    pub fn replace_messages(&self, session_id: &str, messages: &[Message]) -> Result<Vec<i64>> {
         let mut conn = self.lock_connection()?;
         let tx = conn.transaction()?;
-        tx.execute(
-            "DELETE FROM messages WHERE session_id = ?1",
-            params![session_id],
-        )?;
-
-        let now = Utc::now().to_rfc3339();
+        let mut existing = HashMap::new();
         {
             let mut stmt = tx.prepare(
-                "INSERT INTO messages (session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json, metadata_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                "SELECT id, session_id, tool_calls_json, images_json FROM messages WHERE session_id = ?1",
             )?;
-
-            for message in messages {
-                let tool_calls_json = if message.tool_calls.is_empty() {
-                    None
-                } else {
-                    Some(serde_json::to_string(&message.tool_calls)?)
-                };
-                let images_json = if message.images.is_empty() {
-                    None
-                } else {
-                    Some(serde_json::to_string(&message.images)?)
-                };
-
-                stmt.execute(params![
-                    session_id,
-                    role_label(&message.role),
-                    message.content.as_deref(),
-                    message.reasoning.as_deref(),
-                    tool_calls_json.as_deref(),
-                    message.tool_call_id.as_deref(),
-                    images_json.as_deref(),
-                    None::<&str>,
-                    now,
-                ])?;
+            let rows = stmt.query_map(params![session_id], |row| {
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                ))
+            })?;
+            for row in rows {
+                let (id, owner, tool_calls_json, images_json) = row?;
+                existing.insert(id, (owner, tool_calls_json, images_json));
             }
         }
 
+        let mut retained_ids = HashSet::new();
+        let mut result_ids = Vec::with_capacity(messages.len());
+        let now = Utc::now().to_rfc3339();
+        for (position, message) in messages.iter().enumerate() {
+            let tool_calls_json = encode_tool_calls(message)?;
+            let images_json = encode_images(message)?;
+            if let Some(id) = message.storage_id {
+                if !retained_ids.insert(id) {
+                    anyhow::bail!("session snapshot contains duplicate message id {id}");
+                }
+                let Some((owner, old_tool_calls, old_images)) = existing.get(&id) else {
+                    anyhow::bail!("message id {id} does not belong to session '{session_id}'");
+                };
+                if owner != session_id {
+                    anyhow::bail!("message id {id} belongs to another session");
+                }
+                let tool_calls_json =
+                    preserve_json_encoding(old_tool_calls.as_deref(), tool_calls_json);
+                let images_json = preserve_json_encoding(old_images.as_deref(), images_json);
+                tx.execute(
+                    "UPDATE messages SET role = ?1, content = ?2, reasoning = ?3, tool_calls_json = ?4, tool_call_id = ?5, images_json = ?6, sort_order = ?7 WHERE id = ?8 AND session_id = ?9",
+                    params![role_label(&message.role), message.content, message.reasoning, tool_calls_json, message.tool_call_id, images_json, position as i64, id, session_id],
+                )?;
+                result_ids.push(id);
+            } else {
+                tx.execute(
+                    "INSERT INTO messages (session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json, metadata_json, sort_order, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, ?8, ?9)",
+                    params![session_id, role_label(&message.role), message.content, message.reasoning, tool_calls_json, message.tool_call_id, images_json, position as i64, now],
+                )?;
+                result_ids.push(tx.last_insert_rowid());
+            }
+        }
+
+        for id in existing.keys().filter(|id| !retained_ids.contains(id)) {
+            tx.execute(
+                "DELETE FROM messages WHERE id = ?1 AND session_id = ?2",
+                params![id, session_id],
+            )?;
+        }
+
         tx.commit()?;
-        Ok(())
+        Ok(result_ids)
+    }
+}
+
+fn encode_tool_calls(message: &Message) -> Result<Option<String>> {
+    (!message.tool_calls.is_empty())
+        .then(|| serde_json::to_string(&message.tool_calls).map_err(Into::into))
+        .transpose()
+}
+
+fn encode_images(message: &Message) -> Result<Option<String>> {
+    (!message.images.is_empty())
+        .then(|| serde_json::to_string(&message.images).map_err(Into::into))
+        .transpose()
+}
+
+/// Keep the exact original JSON when a decoded snapshot did not change its value. If the old
+/// value is malformed, retain it rather than replacing it with an empty fallback.
+fn preserve_json_encoding(old: Option<&str>, new: Option<String>) -> Option<String> {
+    let Some(old) = old else { return new };
+    let Some(new_value) = new.as_deref() else {
+        return serde_json::from_str::<Value>(old)
+            .is_err()
+            .then(|| old.to_string());
+    };
+    match (
+        serde_json::from_str::<Value>(old),
+        serde_json::from_str::<Value>(new_value),
+    ) {
+        (Ok(old), Ok(new)) if old == new => Some(old.to_string()),
+        (Err(_), _) => Some(old.to_string()),
+        _ => new,
     }
 }
 

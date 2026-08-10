@@ -2,7 +2,9 @@ use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 
-use crate::protocol::{DesktopMcpServer, DesktopMcpServerStatus};
+use crate::protocol::{
+    DesktopMcpEnv, DesktopMcpServer, DesktopMcpServerInput, DesktopMcpServerStatus,
+};
 
 pub(super) fn desktop_mcp_servers_from_config(
     config: &yode_core::config::Config,
@@ -17,7 +19,15 @@ pub(super) fn desktop_mcp_servers_from_config(
             command: (!server.command.is_empty()).then(|| server.command.clone()),
             args: server.args.clone(),
             url: server.url.clone(),
-            env: server.env.clone(),
+            env: server
+                .env
+                .iter()
+                .map(|(key, value)| DesktopMcpEnv {
+                    key: key.clone(),
+                    has_value: !value.is_empty(),
+                    source: "配置文件".to_string(),
+                })
+                .collect(),
             disabled: server.disabled,
         })
         .collect::<Vec<_>>();
@@ -26,7 +36,7 @@ pub(super) fn desktop_mcp_servers_from_config(
 }
 
 pub(super) fn desktop_mcp_servers_to_config(
-    servers: &[DesktopMcpServer],
+    servers: &[DesktopMcpServerInput],
     existing: &HashMap<String, yode_core::config::McpServerConfig>,
 ) -> Result<HashMap<String, yode_core::config::McpServerConfig>> {
     let mut map = HashMap::new();
@@ -40,7 +50,7 @@ pub(super) fn desktop_mcp_servers_to_config(
 }
 
 pub(super) fn desktop_mcp_server_to_config(
-    server: &DesktopMcpServer,
+    server: &DesktopMcpServerInput,
     existing: Option<&yode_core::config::McpServerConfig>,
 ) -> Result<yode_core::config::McpServerConfig> {
     Ok(yode_core::config::McpServerConfig {
@@ -48,7 +58,7 @@ pub(super) fn desktop_mcp_server_to_config(
         transport: parse_mcp_transport(&server.transport)?,
         command: server.command.clone().unwrap_or_default(),
         args: server.args.clone(),
-        env: server.env.clone(),
+        env: merge_mcp_env(&server.env, existing.map(|entry| &entry.env))?,
         url: server.url.clone().filter(|url| !url.trim().is_empty()),
         // 前端表单不含 auth 字段，保存时必须保留既有配置中的 auth，
         // 否则每次保存设置都会丢失 MCP OAuth / bearer_token_env。
@@ -56,7 +66,28 @@ pub(super) fn desktop_mcp_server_to_config(
     })
 }
 
-pub(super) fn validate_desktop_mcp_servers(servers: &[DesktopMcpServer]) -> Result<()> {
+fn merge_mcp_env(
+    updates: &HashMap<String, crate::protocol::DesktopMcpEnvInput>,
+    existing: Option<&HashMap<String, String>>,
+) -> Result<HashMap<String, String>> {
+    let mut env = existing.cloned().unwrap_or_default();
+    for (raw_key, update) in updates {
+        let key = raw_key.trim();
+        if key.is_empty() || key.contains('=') || key.contains('\0') {
+            anyhow::bail!("MCP 环境变量名称无效。 ");
+        }
+        if update.clear {
+            env.remove(key);
+        } else if let Some(value) = &update.value {
+            env.insert(key.to_string(), value.clone());
+        } else if !env.contains_key(key) {
+            anyhow::bail!("新 MCP 环境变量 '{}' 必须提供值，或显式确认清除。", key);
+        }
+    }
+    Ok(env)
+}
+
+pub(super) fn validate_desktop_mcp_servers(servers: &[DesktopMcpServerInput]) -> Result<()> {
     let mut names = HashSet::new();
     for server in servers {
         let name = server.name.trim();
@@ -176,17 +207,26 @@ mod tests {
 
     use yode_core::config::{McpAuthConfig, McpServerConfig};
 
-    use super::{desktop_mcp_server_to_config, desktop_mcp_servers_to_config};
-    use crate::protocol::DesktopMcpServer;
+    use super::{
+        desktop_mcp_server_to_config, desktop_mcp_servers_from_config,
+        desktop_mcp_servers_to_config,
+    };
+    use crate::protocol::{DesktopMcpEnvInput, DesktopMcpServerInput};
 
-    fn server_with_auth() -> DesktopMcpServer {
-        DesktopMcpServer {
+    fn server_with_auth() -> DesktopMcpServerInput {
+        DesktopMcpServerInput {
             name: "docs".to_string(),
             transport: "stdio".to_string(),
             command: Some("npx".to_string()),
             args: vec!["-y".to_string(), "mcp-docs".to_string()],
             url: None,
-            env: HashMap::from([("FOO".to_string(), "bar".to_string())]),
+            env: HashMap::from([(
+                "FOO".to_string(),
+                DesktopMcpEnvInput {
+                    value: Some("bar".to_string()),
+                    clear: false,
+                },
+            )]),
             disabled: false,
         }
     }
@@ -249,5 +289,33 @@ mod tests {
     fn mcp_save_without_existing_entry_has_no_auth() {
         let converted = desktop_mcp_server_to_config(&server_with_auth(), None).unwrap();
         assert!(converted.auth.is_none());
+    }
+
+    #[test]
+    fn mcp_state_exposes_only_environment_metadata() {
+        let mut config: yode_core::config::Config =
+            toml::from_str(include_str!("../../../../../config/default.toml")).unwrap();
+        config.mcp.servers.insert(
+            "secret-server".to_string(),
+            McpServerConfig {
+                disabled: false,
+                transport: yode_core::config::McpTransportConfig::Stdio,
+                command: "node".to_string(),
+                args: vec![],
+                env: HashMap::from([("TOKEN".to_string(), "super-secret".to_string())]),
+                url: None,
+                auth: None,
+            },
+        );
+        let state = desktop_mcp_servers_from_config(&config);
+        let server = state
+            .iter()
+            .find(|server| server.name == "secret-server")
+            .unwrap();
+        assert_eq!(server.env.len(), 1);
+        assert_eq!(server.env[0].key, "TOKEN");
+        assert!(server.env[0].has_value);
+        let rendered = serde_json::to_string(server).unwrap();
+        assert!(!rendered.contains("super-secret"));
     }
 }

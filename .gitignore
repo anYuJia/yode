@@ -14,3 +14,6 @@ claude/
 claude-code-rev/
 claude-code-docs/
 crates/yode-tui/remote-control-bundle-*/
+# Playwright E2E artifacts
+test-results/
+playwright-report/

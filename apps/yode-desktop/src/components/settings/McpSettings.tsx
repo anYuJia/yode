@@ -8,8 +8,9 @@ import {
   loadMcpServers,
   loadPersistedMcpServers,
   McpServer,
+  McpServerInput,
+  McpEnvMeta,
   normalizeMcpServers,
-  saveMcpServers,
   savePersistedMcpServers
 } from "../../lib/desktopSettings";
 
@@ -26,6 +27,17 @@ interface McpState {
   configPath: string;
   servers: McpServer[];
   statuses: McpServerStatus[];
+}
+
+type EnvPair = { key: string; value: string; hasValue: boolean; clear: boolean };
+
+function serverToInput(server: McpServer): McpServerInput {
+  return {
+    ...server,
+    env: Object.fromEntries(
+      (server.env || []).map((entry) => [entry.key, { value: undefined, clear: false }])
+    )
+  };
 }
 
 export function McpSettingsSettings({
@@ -48,15 +60,14 @@ export function McpSettingsSettings({
     setServers(nextServers);
     setConfigPath(state.configPath);
     setServerStatuses(Object.fromEntries(state.statuses.map((status) => [status.name, status])));
-    saveMcpServers(nextServers);
   };
 
-  const saveServers = async (newServers: McpServer[]) => {
+  const saveServers = async (newServers: McpServer[], inputs?: McpServerInput[]) => {
     const normalized = normalizeMcpServers(newServers);
     setServers(normalized);
-    saveMcpServers(normalized);
     if (isTauriRuntime()) {
-      const state = await invoke<McpState>("mcp_servers_save", { servers: normalized });
+      const request = inputs ?? normalized.map(serverToInput);
+      const state = await invoke<McpState>("mcp_servers_save", { servers: request });
       applyMcpState(state);
     } else {
       await savePersistedMcpServers(normalized);
@@ -89,7 +100,7 @@ export function McpSettingsSettings({
   const [formCommand, setFormCommand] = useState("");
   const [formArgs, setFormArgs] = useState("");
   const [formUrl, setFormUrl] = useState("");
-  const [formEnv, setFormEnv] = useState<Array<{ key: string; value: string }>>([]);
+  const [formEnv, setFormEnv] = useState<EnvPair[]>([]);
 
   const openAddModal = () => {
     setModalMode("add");
@@ -112,16 +123,25 @@ export function McpSettingsSettings({
     setFormArgs((server.args || []).join(" "));
     setFormUrl(server.url || "");
 
-    const envPairs = Object.entries(server.env || {}).map(([key, value]) => ({ key, value }));
+    const envPairs = (server.env || []).map((entry) => ({
+      key: entry.key,
+      value: "",
+      hasValue: entry.hasValue,
+      clear: false
+    }));
     setFormEnv(envPairs);
     setIsModalOpen(true);
   };
 
   const handleAddEnv = () => {
-    setFormEnv([...formEnv, { key: "", value: "" }]);
+    setFormEnv([...formEnv, { key: "", value: "", hasValue: false, clear: false }]);
   };
 
   const handleRemoveEnv = (index: number) => {
+    const pair = formEnv[index];
+    if (pair?.hasValue && !window.confirm("确定清除该环境变量中的敏感值吗？此操作会修改磁盘配置。")) {
+      return;
+    }
     setFormEnv(formEnv.filter((_, i) => i !== index));
   };
 
@@ -142,12 +162,27 @@ export function McpSettingsSettings({
       return;
     }
 
-    const envObj: Record<string, string> = {};
+    const envObj: Record<string, McpEnvMeta> = {};
+    const envInput: Record<string, { value?: string; clear?: boolean }> = {};
     formEnv.forEach((pair) => {
-      if (pair.key.trim()) {
-        envObj[pair.key.trim()] = pair.value;
+      const key = pair.key.trim();
+      if (key) {
+        envObj[key] = { key, hasValue: pair.hasValue && !pair.clear, source: "配置文件" };
+        envInput[key] = pair.clear
+          ? { clear: true }
+          : pair.value.length > 0
+            ? { value: pair.value }
+            : {};
       }
     });
+    // 从编辑表单移除已有键时也必须走显式清除，避免无意覆盖并发新增的密钥。
+    if (editingServer) {
+      for (const existing of editingServer.env || []) {
+        if (!formEnv.some((pair) => pair.key.trim() === existing.key)) {
+          envInput[existing.key] = { clear: true };
+        }
+      }
+    }
 
     const parsedArgs = parseArgs(formArgs);
 
@@ -155,7 +190,7 @@ export function McpSettingsSettings({
       name: formName.trim(),
       transport: formTransport,
       disabled: editingServer ? editingServer.disabled : false,
-      ...(formTransport === "stdio" ? { command: formCommand.trim(), args: parsedArgs, env: envObj } : {}),
+      ...(formTransport === "stdio" ? { command: formCommand.trim(), args: parsedArgs, env: Object.values(envObj) } : {}),
       ...(formTransport !== "stdio" ? { url: formUrl.trim() } : {})
     };
 
@@ -166,7 +201,12 @@ export function McpSettingsSettings({
       updatedServers = servers.map((s) => (s.name === editingServer?.name ? newServer : s));
     }
 
-    void saveServers(updatedServers)
+    const updatedInputs = updatedServers.map((server) =>
+      server.name === newServer.name
+        ? { ...newServer, env: envInput }
+        : serverToInput(server)
+    );
+    void saveServers(updatedServers, updatedInputs)
       .then(() => {
         setStatusText(t("MCP 服务器配置已保存并重载。", "MCP server configuration saved and reloaded."));
         setIsModalOpen(false);
@@ -195,7 +235,7 @@ export function McpSettingsSettings({
     setStatusText(t(`正在测试 ${server.name}...`, `Testing ${server.name}...`));
     try {
       const status = isTauriRuntime()
-        ? await invoke<McpServerStatus>("mcp_server_test", { server })
+        ? await invoke<McpServerStatus>("mcp_server_test", { server: serverToInput(server) })
         : {
             name: server.name,
             state: server.disabled ? "disabled" : "configured",
@@ -553,8 +593,8 @@ export function McpSettingsSettings({
                             }}
                           />
                           <input
-                            type="text"
-                            placeholder="Value"
+                            type="password"
+                            placeholder={pair.hasValue ? t("已设置，留空保持不变", "Set; leave blank to keep") : t("值", "Value")}
                             value={pair.value}
                             onChange={(e) => handleEnvChange(idx, "value", e.target.value)}
                             style={{

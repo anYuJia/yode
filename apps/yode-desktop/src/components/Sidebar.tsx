@@ -15,6 +15,7 @@ import {
   Settings
 } from "lucide-react";
 import { SessionSummary, ViewMode } from "../lib/desktopTypes";
+import { storageReadJson, storageWriteJson } from "../lib/storageAdapter";
 import {
   PET_CHANGE_EVENT,
   loadAppLanguage,
@@ -55,13 +56,8 @@ export function Sidebar({
   const t = (zhText: string, enText: string) => isZh ? zhText : enText;
 
   const [pinnedSessionIds, setPinnedSessionIds] = useState<string[]>(() => {
-    try {
-      const raw = localStorage.getItem(PINNED_SESSIONS_STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : [];
-      return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
-    } catch {
-      return [];
-    }
+    const parsed = storageReadJson<unknown>(PINNED_SESSIONS_STORAGE_KEY, null);
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
   });
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
@@ -158,11 +154,7 @@ export function Sidebar({
         ? prev.filter((id) => id !== sessionId)
         : [...prev, sessionId];
       // 置顶状态持久化，重启后保持排序
-      try {
-        localStorage.setItem(PINNED_SESSIONS_STORAGE_KEY, JSON.stringify(next));
-      } catch {
-        // 存储不可用时忽略
-      }
+      storageWriteJson(PINNED_SESSIONS_STORAGE_KEY, next);
       return next;
     });
   };

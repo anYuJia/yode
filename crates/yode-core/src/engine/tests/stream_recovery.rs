@@ -114,6 +114,7 @@ async fn completed_stream_tool_calls_execute_normally() {
         }],
         final_response: Some(ChatResponse {
             message: Message {
+                storage_id: None,
                 role: Role::Assistant,
                 content: None,
                 reasoning: None,

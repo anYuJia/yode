@@ -17,6 +17,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
+libc = "0.2"
 rmcp = { workspace = true }
 dirs = { workspace = true }
 

@@ -6,10 +6,10 @@ use serde::Serialize;
 use super::paths::{
     latest_artifact_by_suffix_async, latest_remote_control_state_artifact_async,
     latest_remote_live_session_state_artifact_async, latest_remote_transport_events_artifact_async,
-    latest_remote_transport_state_artifact_async, latest_transcript_artifact_async,
-    load_json_async, now_string, read_remote_event_log_cursor_async, remote_dir,
-    remote_event_log_cursor_from_body, remote_transport_event_log_path, short_session,
-    timestamp_slug,
+    latest_remote_transport_state_artifact_async, latest_session_artifact_by_suffix_async,
+    latest_transcript_artifact_async, load_json_async, now_string,
+    read_remote_event_log_cursor_async, remote_dir, remote_event_log_cursor_from_body,
+    remote_transport_event_log_path, timestamp_slug,
 };
 use super::queue::default_queue_items;
 use super::render::{
@@ -22,6 +22,7 @@ use super::types::{
     RemoteControlArtifactSet, RemoteControlPayload, RemoteLiveSessionArtifactSet,
     RemoteLiveSessionPayload, RemoteQueueItem, RemoteTransportArtifactSet, RemoteTransportPayload,
 };
+use crate::session_artifact::session_artifact_token;
 
 #[derive(Serialize)]
 struct RemoteEventLogEntry {
@@ -43,9 +44,13 @@ pub(super) async fn load_or_create_remote_control_payload_async(
     model: &str,
     goal: &str,
 ) -> RemoteControlPayload {
-    if let Some(payload) = latest_remote_control_state_artifact_async(project_root).await {
+    if let Some(payload) =
+        latest_remote_control_state_artifact_async(project_root, session_id).await
+    {
         if let Ok(payload) = load_json_async::<RemoteControlPayload>(&payload).await {
-            return payload;
+            if payload.session_id == session_id {
+                return payload;
+            }
         }
     }
 
@@ -71,9 +76,13 @@ pub(super) async fn load_or_create_remote_transport_payload_async(
     project_root: &Path,
     session_id: &str,
 ) -> RemoteTransportPayload {
-    if let Some(payload) = latest_remote_transport_state_artifact_async(project_root).await {
+    if let Some(payload) =
+        latest_remote_transport_state_artifact_async(project_root, session_id).await
+    {
         if let Ok(payload) = load_json_async::<RemoteTransportPayload>(&payload).await {
-            return payload;
+            if payload.session_id == session_id {
+                return payload;
+            }
         }
     }
 
@@ -111,9 +120,13 @@ pub(super) async fn load_or_create_remote_live_session_payload_async(
     project_root: &Path,
     session_id: &str,
 ) -> RemoteLiveSessionPayload {
-    if let Some(payload) = latest_remote_live_session_state_artifact_async(project_root).await {
+    if let Some(payload) =
+        latest_remote_live_session_state_artifact_async(project_root, session_id).await
+    {
         if let Ok(payload) = load_json_async::<RemoteLiveSessionPayload>(&payload).await {
-            return payload;
+            if payload.session_id == session_id {
+                return payload;
+            }
         }
     }
 
@@ -137,7 +150,7 @@ pub(super) async fn load_or_create_remote_live_session_payload_async(
         latest_remote_control: None,
         latest_transport_state: None,
         latest_transport_events: None,
-        latest_transcript_path: latest_transcript_artifact_async(project_root).await,
+        latest_transcript_path: latest_transcript_artifact_async(project_root, session_id).await,
         transcript_sync_status: "pending".to_string(),
         last_transcript_sync_at: None,
         transcript_sync_artifact: None,
@@ -171,15 +184,15 @@ pub(super) async fn write_remote_control_payload_async(
     .await
     .map(|path| path.display().to_string());
     let stamp = timestamp_slug();
-    let short_session = short_session(&payload.session_id);
-    let summary_path = dir.join(format!("{}-{}-remote-control.md", stamp, short_session));
+    let session_token = session_artifact_token(&payload.session_id);
+    let summary_path = dir.join(format!("{}-{}-remote-control.md", session_token, stamp));
     let state_path = dir.join(format!(
         "{}-{}-remote-control-session.json",
-        stamp, short_session
+        session_token, stamp
     ));
     let queue_path = dir.join(format!(
         "{}-{}-remote-command-queue.md",
-        stamp, short_session
+        session_token, stamp
     ));
     storage::write_text(&state_path, serde_json::to_string_pretty(payload)?).await?;
     storage::write_text(
@@ -211,23 +224,23 @@ pub(super) async fn write_remote_transport_payload_async(
         _ => "ready".to_string(),
     };
     payload.handshake_summary = remote_transport_handshake_summary(payload);
-    payload.latest_remote_control = latest_artifact_by_suffix_async(&dir, "remote-control.md")
-        .await
-        .map(|path| path.display().to_string());
+    payload.latest_remote_control =
+        latest_session_artifact_by_suffix_async(&dir, "remote-control.md", session_id)
+            .await
+            .map(|path| path.display().to_string());
     payload.latest_remote_execution =
         latest_artifact_by_suffix_async(&dir, "remote-queue-execution.md")
             .await
             .map(|path| path.display().to_string());
-    let event_log_path = remote_transport_event_log_path(project_root, session_id);
-    payload.resume_cursor = read_remote_event_log_cursor_async(&event_log_path)
+    payload.resume_cursor = read_remote_event_log_cursor_async(project_root, session_id)
         .await
         .or(payload.resume_cursor);
     let stamp = timestamp_slug();
-    let short_session = short_session(session_id);
-    let summary_path = dir.join(format!("{}-{}-remote-transport.md", stamp, short_session));
+    let session_token = session_artifact_token(session_id);
+    let summary_path = dir.join(format!("{}-{}-remote-transport.md", session_token, stamp));
     let state_path = dir.join(format!(
         "{}-{}-remote-transport-state.json",
-        stamp, short_session
+        session_token, stamp
     ));
     storage::write_text(&state_path, serde_json::to_string_pretty(payload)?).await?;
     storage::write_text(
@@ -250,18 +263,21 @@ pub(super) async fn write_remote_live_session_payload_async(
     storage::create_dir_all(&dir).await?;
     payload.session_id = session_id.to_string();
     payload.updated_at = now_string();
-    payload.latest_remote_control = latest_artifact_by_suffix_async(&dir, "remote-control.md")
-        .await
-        .map(|path| path.display().to_string());
-    payload.latest_transport_state =
-        latest_artifact_by_suffix_async(&dir, "remote-transport-state.json")
+    payload.latest_remote_control =
+        latest_session_artifact_by_suffix_async(&dir, "remote-control.md", session_id)
             .await
             .map(|path| path.display().to_string());
-    payload.latest_transport_events = latest_remote_transport_events_artifact_async(project_root)
-        .await
-        .map(|path| path.display().to_string());
+    payload.latest_transport_state =
+        latest_session_artifact_by_suffix_async(&dir, "remote-transport-state.json", session_id)
+            .await
+            .map(|path| path.display().to_string());
+    payload.latest_transport_events =
+        latest_remote_transport_events_artifact_async(project_root, session_id)
+            .await
+            .map(|path| path.display().to_string());
     if payload.latest_transcript_path.is_none() {
-        payload.latest_transcript_path = latest_transcript_artifact_async(project_root).await;
+        payload.latest_transcript_path =
+            latest_transcript_artifact_async(project_root, session_id).await;
     }
     if payload.transcript_sync_status.is_empty() {
         payload.transcript_sync_status = if payload.latest_transcript_path.is_some() {
@@ -271,14 +287,14 @@ pub(super) async fn write_remote_live_session_payload_async(
         };
     }
     let stamp = timestamp_slug();
-    let short_session = short_session(session_id);
+    let session_token = session_artifact_token(session_id);
     let summary_path = dir.join(format!(
         "{}-{}-remote-live-session.md",
-        stamp, short_session
+        session_token, stamp
     ));
     let state_path = dir.join(format!(
         "{}-{}-remote-live-session-state.json",
-        stamp, short_session
+        session_token, stamp
     ));
     storage::write_text(&state_path, serde_json::to_string_pretty(payload)?).await?;
     storage::write_text(
@@ -338,7 +354,7 @@ pub(super) async fn write_remote_session_transcript_sync_artifact_async(
     storage::create_dir_all(&dir).await?;
     let path = dir.join(format!(
         "{}-remote-session-transcript-sync.md",
-        short_session(session_id)
+        session_artifact_token(session_id)
     ));
     let body = format!(
         "# Remote Session Transcript Sync\n\n- Session: {}\n- Item: {}\n- Result id: {}\n- Endpoint: {}\n- Transcript: {}\n- Synced at: {}\n",
@@ -365,7 +381,7 @@ pub(super) async fn record_remote_transport_event_async(
     storage::create_dir_all(&dir).await?;
     let path = dir.join(format!(
         "{}-remote-transport-events.md",
-        short_session(session_id)
+        session_artifact_token(session_id)
     ));
     let now = now_string();
     let line = format!(
@@ -385,7 +401,14 @@ pub(super) async fn record_remote_transport_event_async(
         body.push_str(&line);
         storage::write_text(&path, body).await?;
     } else {
-        storage::write_text(&path, format!("# Remote Transport Events\n\n{}", line)).await?;
+        storage::write_text(
+            &path,
+            format!(
+                "# Remote Transport Events\n\n- Session: {}\n\n{}",
+                session_id, line
+            ),
+        )
+        .await?;
     }
     append_remote_event_log_async(RemoteEventLogAppend {
         project_root,

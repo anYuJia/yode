@@ -8,14 +8,13 @@ use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
 
 use super::{
-    configuration_runtime::save_config_to_path_async,
     mcp_config::{
         core_mcp_server_to_runtime, desktop_mcp_server_to_config, desktop_mcp_servers_from_config,
         desktop_mcp_servers_to_config, mcp_statuses_from_servers, validate_desktop_mcp_servers,
     },
     DesktopRuntime,
 };
-use crate::protocol::{DesktopMcpServer, DesktopMcpServerStatus, DesktopMcpState};
+use crate::protocol::{DesktopMcpServerInput, DesktopMcpServerStatus, DesktopMcpState};
 
 impl DesktopRuntime {
     pub fn mcp_servers_state(&self) -> Result<DesktopMcpState> {
@@ -34,27 +33,28 @@ impl DesktopRuntime {
 
     pub async fn mcp_servers_save(
         &self,
-        servers: Vec<DesktopMcpServer>,
+        servers: Vec<DesktopMcpServerInput>,
     ) -> Result<DesktopMcpState> {
         validate_desktop_mcp_servers(&servers)?;
-        let config_to_save = {
-            let mut config = self
-                .config
-                .lock()
-                .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
-            // 基于既有配置合并保存，保留 auth 等前端表单不承载的字段
+        // 在文件锁内基于磁盘最新配置合并保存：保留 auth 等前端表单不承载的字段，
+        // 且不会因并发保存 provider/权限等其他配置域而互相覆盖。
+        self.update_user_config(move |config| {
             let existing = config.mcp.servers.clone();
             config.mcp.servers = desktop_mcp_servers_to_config(&servers, &existing)?;
-            config.clone()
-        };
-        save_config_to_path_async(&config_to_save, &self.user_config_path()).await?;
+            Ok(())
+        })?;
+        // 写入成功后才重载 MCP tooling；失败时 tool_registry 保持原状。
         self.reload_desktop_tooling().await?;
         self.mcp_servers_state()
     }
 
-    pub fn mcp_server_test(&self, server: DesktopMcpServer) -> Result<DesktopMcpServerStatus> {
+    pub fn mcp_server_test(&self, server: DesktopMcpServerInput) -> Result<DesktopMcpServerStatus> {
         validate_desktop_mcp_servers(std::slice::from_ref(&server))?;
-        let config = desktop_mcp_server_to_config(&server, None)?;
+        let existing = self
+            .config
+            .lock()
+            .map_err(|_| anyhow::anyhow!("config lock poisoned"))?;
+        let config = desktop_mcp_server_to_config(&server, existing.mcp.servers.get(&server.name))?;
         let mcp_config = core_mcp_server_to_runtime(&config);
         tauri::async_runtime::block_on(async move {
             if server.disabled {
@@ -72,11 +72,10 @@ impl DesktopRuntime {
                     let tools = client.discover_wrapped_tools().await;
                     let resources = client.list_resources().await;
                     let templates = client.list_resource_templates().await;
-                    if let Err(err) = client.shutdown().await {
+                    if client.shutdown().await.is_err() {
                         tracing::warn!(
                             server = %server.name,
-                            error = %err,
-                            "Failed to shutdown MCP test client"
+                            "MCP 测试客户端关闭失败"
                         );
                     }
                     Ok(mcp_test_status_from_discovery_results(
@@ -92,10 +91,10 @@ impl DesktopRuntime {
                             .map_err(|err| err.to_string()),
                     ))
                 }
-                Err(err) => Ok(DesktopMcpServerStatus {
+                Err(_err) => Ok(DesktopMcpServerStatus {
                     name: server.name,
                     state: "failed".to_string(),
-                    detail: err.to_string(),
+                    detail: "MCP 服务器连接失败，请检查配置和运行日志。".to_string(),
                     tool_count: 0,
                     resource_count: 0,
                     template_count: 0,
@@ -139,22 +138,22 @@ fn mcp_test_status_from_discovery_results(
     let mut failures = Vec::new();
     let tool_count = match tool_count {
         Ok(count) => count,
-        Err(err) => {
-            failures.push(format!("工具枚举失败: {err}"));
+        Err(_) => {
+            failures.push("工具枚举失败".to_string());
             0
         }
     };
     let resource_count = match resource_count {
         Ok(count) => count,
-        Err(err) => {
-            failures.push(format!("资源枚举失败: {err}"));
+        Err(_) => {
+            failures.push("资源枚举失败".to_string());
             0
         }
     };
     let template_count = match template_count {
         Ok(count) => count,
-        Err(err) => {
-            failures.push(format!("资源模板枚举失败: {err}"));
+        Err(_) => {
+            failures.push("资源模板枚举失败".to_string());
             0
         }
     };
@@ -209,17 +208,15 @@ pub(super) async fn setup_desktop_tooling(
                             tool_registry.register(wrapper);
                         }
                     }
-                    Err(err) => tracing::warn!(
+                    Err(_) => tracing::warn!(
                         server = %name,
-                        error = %err,
                         "Failed to discover MCP tools while loading desktop runtime"
                     ),
                 }
                 mcp_clients.push(client);
             }
-            Err(err) => tracing::warn!(
+            Err(_) => tracing::warn!(
                 server = %name,
-                error = %err,
                 "Failed to connect MCP server while loading desktop runtime"
             ),
         }
@@ -285,9 +282,8 @@ mod tests {
         assert_eq!(status.resource_count, 0);
         assert_eq!(status.template_count, 1);
         assert!(status.detail.contains("连接成功，但部分能力枚举失败"));
-        assert!(status
-            .detail
-            .contains("资源枚举失败: resources unavailable"));
+        assert!(status.detail.contains("资源枚举失败"));
+        assert!(!status.detail.contains("resources unavailable"));
     }
 
     #[test]

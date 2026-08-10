@@ -27,8 +27,8 @@ use artifacts::{
 };
 use params::{RemoteQueueDispatchParams, RemoteQueueResultParams, RemoteTransportControlParams};
 use paths::{
-    latest_artifact_by_suffix_async, latest_remote_transport_events_artifact_async,
-    latest_remote_transport_state_artifact_async, latest_transcript_artifact_async, now_string,
+    latest_remote_transport_events_artifact_async, latest_remote_transport_state_artifact_async,
+    latest_session_artifact_by_suffix_async, latest_transcript_artifact_async, now_string,
     remote_dir,
 };
 use queue::{insert_queue_item, resolve_queue_index};
@@ -165,7 +165,7 @@ impl Tool for RemoteQueueDispatchTool {
         let transcript_path = params
             .transcript_path
             .clone()
-            .or(latest_transcript_artifact_async(project_root).await);
+            .or(latest_transcript_artifact_async(project_root, session_id).await);
 
         let task = start_runtime_task(
             ctx.runtime_tasks.as_ref(),
@@ -721,16 +721,21 @@ async fn sync_live_session_with_transport(
             _ => "idle".to_string(),
         }
     };
-    payload.latest_transport_state = latest_remote_transport_state_artifact_async(project_root)
-        .await
-        .map(|path| path.display().to_string());
-    payload.latest_transport_events = latest_remote_transport_events_artifact_async(project_root)
-        .await
-        .map(|path| path.display().to_string());
-    payload.latest_remote_control =
-        latest_artifact_by_suffix_async(&remote_dir(project_root), "remote-control.md")
+    payload.latest_transport_state =
+        latest_remote_transport_state_artifact_async(project_root, session_id)
             .await
             .map(|path| path.display().to_string());
+    payload.latest_transport_events =
+        latest_remote_transport_events_artifact_async(project_root, session_id)
+            .await
+            .map(|path| path.display().to_string());
+    payload.latest_remote_control = latest_session_artifact_by_suffix_async(
+        &remote_dir(project_root),
+        "remote-control.md",
+        session_id,
+    )
+    .await
+    .map(|path| path.display().to_string());
     let endpoint = local_remote_endpoint(
         transport,
         None,
@@ -802,6 +807,7 @@ fn default_remote_endpoint_id() -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::artifacts::load_or_create_remote_transport_payload_async;
     use super::paths::{
         latest_remote_control_state_artifact_async,
         latest_remote_live_session_state_artifact_async,
@@ -836,12 +842,16 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.is_error);
-        assert!(latest_remote_transport_state_artifact_async(dir.path())
-            .await
-            .is_some());
-        assert!(latest_remote_live_session_state_artifact_async(dir.path())
-            .await
-            .is_some());
+        assert!(
+            latest_remote_transport_state_artifact_async(dir.path(), "session-12345678")
+                .await
+                .is_some()
+        );
+        assert!(
+            latest_remote_live_session_state_artifact_async(dir.path(), "session-12345678")
+                .await
+                .is_some()
+        );
     }
 
     #[tokio::test]
@@ -860,9 +870,11 @@ mod tests {
             .await
             .unwrap();
         assert!(!dispatch.is_error);
-        assert!(latest_remote_control_state_artifact_async(dir.path())
-            .await
-            .is_some());
+        assert!(
+            latest_remote_control_state_artifact_async(dir.path(), "session-12345678")
+                .await
+                .is_some()
+        );
 
         let result = RemoteQueueResultTool
             .execute(
@@ -873,16 +885,17 @@ mod tests {
             .unwrap();
         assert!(!result.is_error);
         let live_state = std::fs::read_to_string(
-            latest_remote_live_session_state_artifact_async(dir.path())
+            latest_remote_live_session_state_artifact_async(dir.path(), "session-12345678")
                 .await
                 .unwrap(),
         )
         .unwrap();
         assert!(live_state.contains("\"latest_result_status\": \"completed\""));
 
-        let event_log = latest_remote_transport_event_log_artifact_async(dir.path())
-            .await
-            .unwrap();
+        let event_log =
+            latest_remote_transport_event_log_artifact_async(dir.path(), "session-12345678")
+                .await
+                .unwrap();
         let entries = std::fs::read_to_string(event_log)
             .unwrap()
             .lines()
@@ -896,7 +909,7 @@ mod tests {
         assert_eq!(entries[2]["cursor"], 3);
         assert_eq!(entries[2]["event"], "result_completed");
         let transport_state = std::fs::read_to_string(
-            latest_remote_transport_state_artifact_async(dir.path())
+            latest_remote_transport_state_artifact_async(dir.path(), "session-12345678")
                 .await
                 .unwrap(),
         )
@@ -919,12 +932,16 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("connect remote transport"));
-        assert!(latest_remote_transport_state_artifact_async(dir.path())
-            .await
-            .is_some());
-        assert!(latest_remote_live_session_state_artifact_async(dir.path())
-            .await
-            .is_some());
+        assert!(
+            latest_remote_transport_state_artifact_async(dir.path(), "session-12345678")
+                .await
+                .is_some()
+        );
+        assert!(
+            latest_remote_live_session_state_artifact_async(dir.path(), "session-12345678")
+                .await
+                .is_some()
+        );
     }
 
     #[tokio::test]
@@ -941,11 +958,153 @@ mod tests {
             .unwrap();
         assert!(!result.is_error);
         let state = std::fs::read_to_string(
-            latest_remote_transport_state_artifact_async(dir.path())
+            latest_remote_transport_state_artifact_async(dir.path(), "session-12345678")
                 .await
                 .unwrap(),
         )
         .unwrap();
         assert!(state.contains("\"reconnect_attempts\": 1"));
+    }
+
+    #[tokio::test]
+    async fn remote_payloads_are_isolated_between_sessions_sharing_short_prefix() {
+        let dir = tempdir().unwrap();
+        let session_a = "session-12345678-aaaa";
+        let session_b = "session-12345678-bbbb";
+        let mut ctx_a = test_context(dir.path());
+        ctx_a.session_id = Some(session_a.to_string());
+        let mut ctx_b = test_context(dir.path());
+        ctx_b.session_id = Some(session_b.to_string());
+
+        RemoteTransportControlTool
+            .execute(json!({"action":"connect"}), &ctx_a)
+            .await
+            .unwrap();
+        RemoteTransportControlTool
+            .execute(json!({"action":"connect"}), &ctx_b)
+            .await
+            .unwrap();
+
+        let payload_a =
+            super::artifacts::load_or_create_remote_transport_payload_async(dir.path(), session_a)
+                .await;
+        let payload_b =
+            super::artifacts::load_or_create_remote_transport_payload_async(dir.path(), session_b)
+                .await;
+        assert_eq!(payload_a.session_id, session_a);
+        assert_eq!(payload_b.session_id, session_b);
+        assert_ne!(
+            payload_a.connection_id, payload_b.connection_id,
+            "会话 A/B 不得互相恢复对方的远端状态"
+        );
+
+        let log_a =
+            super::paths::latest_remote_transport_event_log_artifact_async(dir.path(), session_a)
+                .await
+                .unwrap();
+        let log_b =
+            super::paths::latest_remote_transport_event_log_artifact_async(dir.path(), session_b)
+                .await
+                .unwrap();
+        assert_ne!(log_a, log_b, "前 8 位相同的会话不得共用事件日志");
+        let body_a = std::fs::read_to_string(log_a).unwrap();
+        let body_b = std::fs::read_to_string(log_b).unwrap();
+        assert!(body_a.contains(&format!("\"session_id\":\"{session_a}\"")));
+        assert!(!body_a.contains(&format!("\"session_id\":\"{session_b}\"")));
+        assert!(body_b.contains(&format!("\"session_id\":\"{session_b}\"")));
+    }
+
+    #[tokio::test]
+    async fn legacy_remote_state_artifact_migrates_only_for_matching_session() {
+        let dir = tempdir().unwrap();
+        let session = "session-12345678-aaaa";
+        let short = crate::session_artifact::legacy_session_short_id(session);
+        let remote_dir = dir.path().join(".yode/remote");
+
+        let mut payload = load_or_create_remote_transport_payload_async(dir.path(), session).await;
+        payload.connection_status = "connected".to_string();
+        payload.connection_id = Some(format!("transport-{}", uuid::Uuid::new_v4()));
+        let artifacts = super::artifacts::write_remote_transport_payload_async(
+            dir.path(),
+            session,
+            &mut payload,
+        )
+        .await
+        .unwrap();
+        let new_path = artifacts.state_path;
+        assert!(
+            new_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .contains(session),
+            "新工件应携带完整 session token"
+        );
+        // 模拟旧版工件：把文件改成旧版短 ID 命名（内容不变，仍携带完整 session id）
+        let legacy = remote_dir.join(format!(
+            "{}-{}",
+            short,
+            new_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .trim_start_matches(&format!("{session}-"))
+        ));
+        std::fs::rename(&new_path, &legacy).unwrap();
+
+        let restored = load_or_create_remote_transport_payload_async(dir.path(), session).await;
+        assert_eq!(restored.session_id, session);
+        assert_eq!(restored.connection_status, "connected");
+        assert!(!legacy.exists(), "验证归属后旧版短 ID 工件应迁移到新命名");
+        let names = std::fs::read_dir(&remote_dir)
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().to_string())
+            .collect::<Vec<_>>();
+        assert!(
+            names.iter().any(|name| {
+                crate::session_artifact::file_mentions_session_token(name, session)
+                    && name.ends_with("remote-transport-state.json")
+            }),
+            "迁移后的工件应携带完整 session token"
+        );
+    }
+
+    /// 断言迁移只发生在内容归属匹配时：不匹配的旧工件不得被读取或改名。
+    #[tokio::test]
+    async fn legacy_remote_artifact_of_another_session_is_never_loaded() {
+        let dir = tempdir().unwrap();
+        let session = "session-12345678-aaaa";
+        let other_session = "session-87654321-zzzz";
+        let short = crate::session_artifact::legacy_session_short_id(other_session);
+        let remote_dir = dir.path().join(".yode/remote");
+
+        let mut payload =
+            load_or_create_remote_transport_payload_async(dir.path(), other_session).await;
+        payload.connection_status = "connected".to_string();
+        payload.connection_id = Some(format!("transport-{}", uuid::Uuid::new_v4()));
+        let artifacts = super::artifacts::write_remote_transport_payload_async(
+            dir.path(),
+            other_session,
+            &mut payload,
+        )
+        .await
+        .unwrap();
+        let new_path = artifacts.state_path;
+        let legacy = remote_dir.join(format!(
+            "{}-{}",
+            short,
+            new_path
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .trim_start_matches(&format!("{other_session}-"))
+        ));
+        std::fs::rename(&new_path, &legacy).unwrap();
+
+        let restored = load_or_create_remote_transport_payload_async(dir.path(), session).await;
+        assert_eq!(restored.session_id, session);
+        assert_ne!(restored.connection_status, "connected");
+        assert!(legacy.exists(), "其他会话的旧工件不得被删除或改名");
     }
 }
