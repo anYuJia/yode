@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CancellationWatchdogRegistry, WatchdogFactory } from "./cancellationWatchdogRegistry";
 import { RunState } from "./desktopTypes";
 
-function run(sessionId: string, turnId: string, status: string): RunState {
+function run(sessionId: string, turnId: string, status: RunState["status"]): RunState {
   return { sessionId, turnId, status, updatedAt: "2026-08-08T00:00:00Z" };
 }
 

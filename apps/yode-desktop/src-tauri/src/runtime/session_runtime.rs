@@ -83,6 +83,7 @@ impl DesktopRuntime {
                     .collect();
                 let metadata = stored_metadata(&message);
                 DesktopMessage {
+                    sort_order: Some(message.sort_order),
                     images,
                     id: message.id,
                     role: message.role,

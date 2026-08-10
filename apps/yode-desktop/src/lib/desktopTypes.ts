@@ -1,5 +1,103 @@
 import type { UserQuery } from "./askUser";
 
+/** Turn 状态的明确有限集合：与后端 TurnState 枚举一一对应。 */
+export const RUN_STATUSES = [
+  "starting",
+  "running",
+  "waiting_approval",
+  "waiting_user",
+  "cancelling",
+  "completed",
+  "cancelled",
+  "failed",
+  "interrupted"
+] as const;
+
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+export const TERMINAL_RUN_STATUSES: ReadonlySet<RunStatus> = new Set([
+  "completed",
+  "cancelled",
+  "failed",
+  "interrupted"
+]);
+
+export function isRunStatus(value: unknown): value is RunStatus {
+  return typeof value === "string" && (RUN_STATUSES as readonly string[]).includes(value);
+}
+
+/** 事件 kind 的有限集合（与后端 DesktopEventKind 一致）。 */
+export const DESKTOP_EVENT_KINDS = [
+  "turn_started",
+  "usage_update",
+  "assistant_text_delta",
+  "action_narrative",
+  "assistant_text_complete",
+  "assistant_reasoning_delta",
+  "assistant_reasoning_complete",
+  "tool_started",
+  "tool_confirm_required",
+  "tool_progress",
+  "tool_result",
+  "turn_completed",
+  "error",
+  "retrying",
+  "ask_user",
+  "done",
+  "cancelling",
+  "cancelled",
+  "subagent_started",
+  "subagent_completed",
+  "plan_mode_entered",
+  "plan_approval_required",
+  "plan_mode_exited",
+  "context_compaction_started",
+  "context_compressed",
+  "cost_update",
+  "budget_exceeded",
+  "suggestion_ready",
+  "session_memory_updated",
+  "update_available",
+  "update_downloading",
+  "update_downloaded"
+] as const;
+
+export type DesktopEventKind = (typeof DESKTOP_EVENT_KINDS)[number];
+
+export const TERMINAL_TURN_EVENT_KINDS: ReadonlySet<string> = new Set([
+  "cancelled",
+  "done",
+  "turn_completed",
+  "error"
+]);
+
+/** RunState：后端持久化 turn journal 的桌面投影。status 使用封闭枚举。 */
+export type RunState =
+  | {
+      sessionId: string;
+      turnId: string;
+      status: "starting" | "running" | "waiting_approval" | "waiting_user" | "cancelling";
+      updatedAt: string;
+      detail?: string | null;
+      startedAt?: string | null;
+      endedAt?: string | null;
+      lastSeq?: number;
+      errorCode?: string | null;
+      cancellationRequested?: boolean;
+    }
+  | {
+      sessionId: string;
+      turnId: string;
+      status: "completed" | "cancelled" | "failed" | "interrupted";
+      updatedAt: string;
+      detail?: string | null;
+      startedAt?: string | null;
+      endedAt?: string | null;
+      lastSeq?: number;
+      errorCode?: string | null;
+      cancellationRequested?: boolean;
+    };
+
 export type Bootstrap = {
   appVersion: string;
   workspacePath: string;
@@ -12,14 +110,6 @@ export type Bootstrap = {
   effectivePermissionMode: string;
   sessions: SessionSummary[];
   runs: RunState[];
-};
-
-export type RunState = {
-  sessionId: string;
-  turnId: string;
-  status: string;
-  updatedAt: string;
-  detail?: string | null;
 };
 
 export type DefaultLlm = {
@@ -141,7 +231,60 @@ export type TimelineItem =
       createdAt?: number;
     };
 
-export type DesktopEvent = {
+/**
+ * DesktopEventEnvelope：统一事件信封（schemaVersion + sessionId + turnId + seq +
+ * timestamp + kind + payload）。payload 按 kind 分化的强类型结构；
+ * 未知字段允许扩展，错误类型由 validateDesktopEventEnvelope 拒绝。
+ */
+export type DesktopEventEnvelope = {
+  schemaVersion?: number;
+  sessionId: string;
+  turnId: string;
+  seq: number;
+  timestamp: string;
+  kind: DesktopEventKind;
+  payload: TurnEventPayload;
+};
+
+export type DesktopEvent = DesktopEventEnvelope;
+
+/** 事件 payload：按 kind 分化的 tagged union。 */
+export type TurnEventPayload =
+  | { title?: string; body?: string }
+  | { id?: string; tool?: string; title?: string; body?: string; status?: string; meta?: string }
+  | {
+      body?: string;
+      status?: string;
+      inputTokens?: number;
+      outputTokens?: number;
+      totalTokens?: number;
+      estimatedCost?: number;
+      cacheWriteTokens?: number;
+      cacheReadTokens?: number;
+      model?: string;
+      stopReason?: string;
+      hasToolCalls?: boolean;
+      toolCallCount?: number;
+      reasoning?: string;
+      attempt?: number;
+      maxAttempts?: number;
+      delaySecs?: number;
+      percent?: number;
+      errorType?: string;
+      recoverable?: boolean;
+      suggestion?: string;
+      metadata?: unknown;
+      mode?: string;
+      removed?: number;
+      toolResultsTruncated?: number;
+      sessionMemoryPath?: string;
+      transcriptPath?: string;
+      generatedSummary?: boolean;
+      query?: UserQuery;
+    };
+
+/** 后端持久化 turn 事件（重放/恢复用）。payload 已脱敏。 */
+export type TurnEventRecord = {
   sessionId: string;
   turnId: string;
   seq: number;
@@ -150,8 +293,15 @@ export type DesktopEvent = {
   payload: Record<string, unknown>;
 };
 
+export type SessionMessagesPage = {
+  messages: DesktopMessage[];
+  hasMore: boolean;
+};
+
 export type DesktopMessage = {
   id: number;
+  /** 会话内消息顺序（分页游标）；旧版响应可能缺失。 */
+  sortOrder?: number;
   role: string;
   content?: string | null;
   reasoning?: string | null;

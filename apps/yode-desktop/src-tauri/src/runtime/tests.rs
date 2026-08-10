@@ -30,7 +30,7 @@ fn test_runtime(name: &str) -> (DesktopRuntime, PathBuf) {
     let db_path = dir.join("sessions.db");
     let runtime = DesktopRuntime {
         config: Mutex::new(config),
-        db: Database::open(&db_path).unwrap(),
+        db: Arc::new(Database::open(&db_path).unwrap()),
         db_path,
         workspace_path: dir.clone(),
         user_config_path: dir.join(".yode").join("config.toml"),
@@ -1188,5 +1188,239 @@ async fn desktop_uses_config_session_db_path_like_cli() {
         desktop_path, custom_db,
         "必须遵守配置中的 [session].db_path"
     );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn runs_list_serves_persisted_turn_journal_as_authoritative_source() {
+    use yode_core::db::TurnState;
+
+    // 进程 A 的运行时：创建会话与 turn journal（含事件与状态流转）
+    let (runtime_a, dir) = test_runtime("runs-journal");
+    let session = runtime_a
+        .sessions_create(CreateSessionRequest {
+            title: Some("journal run".to_string()),
+            project_root: None,
+            provider: None,
+            model: None,
+        })
+        .unwrap();
+    runtime_a
+        .db
+        .create_turn(&session.id, "turn-journal-1")
+        .unwrap();
+    runtime_a
+        .db
+        .update_turn_state(
+            &session.id,
+            "turn-journal-1",
+            TurnState::Running,
+            None,
+            None,
+        )
+        .unwrap();
+    runtime_a
+        .db
+        .append_turn_event(&yode_core::db::TurnEvent {
+            session_id: session.id.clone(),
+            turn_id: "turn-journal-1".to_string(),
+            seq: 0,
+            kind: "turn_started".to_string(),
+            timestamp: chrono::Utc::now(),
+            payload_json: r#"{"body":"ok"}"#.to_string(),
+        })
+        .unwrap();
+    runtime_a
+        .db
+        .update_turn_state(
+            &session.id,
+            "turn-journal-1",
+            TurnState::Completed,
+            None,
+            None,
+        )
+        .unwrap();
+
+    // 进程 B（模拟新进程）用同一数据库文件：runs_list 直接读持久化 journal
+    let (mut runtime_b, _dir_b) = test_runtime("runs-journal-b");
+    let shared_path = runtime_a.db_path.clone();
+    runtime_b.db = Arc::new(Database::open(&shared_path).unwrap());
+    runtime_b.db_path = shared_path;
+    drop(runtime_a);
+
+    let runs = runtime_b.runs_list().unwrap();
+    let run = runs
+        .iter()
+        .find(|run| run.turn_id == "turn-journal-1")
+        .expect("持久化 turn 必须出现在 runs_list");
+    assert_eq!(run.status, "completed");
+    assert_eq!(run.session_id, session.id);
+    assert_eq!(run.last_seq, 0);
+    assert!(run.started_at.is_some());
+    assert!(run.ended_at.is_some());
+    // 事件可重放
+    let events = runtime_b
+        .turn_events_since(session.id.clone(), "turn-journal-1".to_string(), -1, None)
+        .unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].kind, "turn_started");
+    assert_eq!(events[0].payload["body"], "ok");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn sessions_messages_page_windows_and_reports_has_more() {
+    let (runtime, dir) = test_runtime("messages-page");
+    let session = runtime
+        .sessions_create(CreateSessionRequest {
+            title: Some("page me".to_string()),
+            project_root: None,
+            provider: None,
+            model: None,
+        })
+        .unwrap();
+    for index in 0..25 {
+        runtime
+            .db
+            .save_message(
+                &session.id,
+                if index % 2 == 0 { "user" } else { "assistant" },
+                Some(&format!("page message {index:02}")),
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+    }
+
+    let first = runtime
+        .sessions_messages_page(session.id.clone(), None, 10)
+        .unwrap();
+    assert_eq!(first.messages.len(), 10);
+    assert!(first.has_more);
+    assert_eq!(
+        first.messages[0].content.as_deref(),
+        Some("page message 24")
+    );
+
+    // 前端向上翻页：以已加载窗口最旧消息的 sort_order 作为 before
+    let first_window = runtime
+        .db
+        .load_messages_window(&session.id, None, 10)
+        .unwrap();
+    let before = first_window
+        .last()
+        .map(|message| message.sort_order)
+        .unwrap();
+    let second = runtime
+        .sessions_messages_page(session.id.clone(), Some(before), 10)
+        .unwrap();
+    assert_eq!(second.messages.len(), 10);
+    assert!(second.has_more);
+    assert_eq!(
+        second.messages.last().and_then(|m| m.content.clone()),
+        Some("page message 05".to_string())
+    );
+    let oldest_before = runtime
+        .db
+        .load_messages_window(&session.id, Some(before), 10)
+        .unwrap()
+        .last()
+        .map(|message| message.sort_order)
+        .unwrap();
+    let last_page = runtime
+        .sessions_messages_page(session.id.clone(), Some(oldest_before), 10)
+        .unwrap();
+    assert_eq!(last_page.messages.len(), 5);
+    assert!(!last_page.has_more);
+    assert_eq!(
+        last_page.messages.last().and_then(|m| m.content.clone()),
+        Some("page message 00".to_string())
+    );
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn turn_events_since_returns_redacted_payloads_safely() {
+    use yode_core::db::TurnEvent;
+
+    let (runtime, dir) = test_runtime("turn-events-redact");
+    let session = runtime
+        .sessions_create(CreateSessionRequest {
+            title: Some("redact replay".to_string()),
+            project_root: None,
+            provider: None,
+            model: None,
+        })
+        .unwrap();
+    runtime.db.create_turn(&session.id, "turn-redact").unwrap();
+    let secret_payload = serde_json::json!({
+        "title": "工具调用",
+        "body": "运行命令",
+        "apiKey": "sk-live-secret1234567890",
+        "authorization": "Bearer eyJhbGciOiJIUzI1NiJ9.xyz"
+    });
+    runtime
+        .db
+        .append_turn_event(&TurnEvent {
+            session_id: session.id.clone(),
+            turn_id: "turn-redact".to_string(),
+            seq: 0,
+            kind: "tool_started".to_string(),
+            timestamp: chrono::Utc::now(),
+            payload_json: secret_payload.to_string(),
+        })
+        .unwrap();
+
+    // 通过 runtime 的 turn_events_since 重放：脱敏后的 payload 不泄漏密钥
+    let events = runtime
+        .turn_events_since(session.id.clone(), "turn-redact".to_string(), -1, None)
+        .unwrap();
+    assert_eq!(events.len(), 1);
+    let payload = events[0].payload.to_string();
+    assert!(payload.contains("[REDACTED]"));
+    assert!(!payload.contains("sk-live-secret1234567890"));
+    assert!(!payload.contains("eyJhbGciOiJIUzI1NiJ9"));
+    assert!(events[0].session_id == session.id);
+    assert!(events[0].turn_id == "turn-redact");
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn turn_recent_events_returns_newest_window_in_ascending_order() {
+    use yode_core::db::TurnEvent;
+
+    let (runtime, dir) = test_runtime("turn-recent-events");
+    let session = runtime
+        .sessions_create(CreateSessionRequest {
+            title: Some("recent events".to_string()),
+            project_root: None,
+            provider: None,
+            model: None,
+        })
+        .unwrap();
+    runtime.db.create_turn(&session.id, "turn-recent").unwrap();
+    for seq in 0..5 {
+        runtime
+            .db
+            .append_turn_event(&TurnEvent {
+                session_id: session.id.clone(),
+                turn_id: "turn-recent".to_string(),
+                seq,
+                kind: "assistant_text_delta".to_string(),
+                timestamp: chrono::Utc::now(),
+                payload_json: serde_json::json!({ "body": format!("chunk-{seq}") }).to_string(),
+            })
+            .unwrap();
+    }
+
+    let recent = runtime
+        .turn_recent_events(session.id.clone(), "turn-recent".to_string(), 3)
+        .unwrap();
+    // 升序返回最近 3 条：chunk-2、chunk-3、chunk-4
+    assert_eq!(recent.len(), 3);
+    assert_eq!(recent[0].seq, 2);
+    assert_eq!(recent[2].seq, 4);
+    assert_eq!(recent[2].payload["body"], "chunk-4");
     let _ = std::fs::remove_dir_all(dir);
 }

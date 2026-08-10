@@ -2,7 +2,9 @@ pub mod desktop_events;
 pub mod provider_bootstrap;
 
 pub use desktop_events::{
-    engine_event_to_desktop_parts, engine_event_to_runtime_parts, DesktopEventParts,
+    engine_event_to_desktop_parts, engine_event_to_runtime_parts, run_status_for_event_kind,
+    AskUserPayload, BudgetExceededPayload, CancelledPayload, CancellingPayload,
+    DesktopEventEnvelope, DesktopEventKind, DesktopEventParts, DesktopEventPayload,
     PendingConfirmationParts, RuntimeEventParts,
 };
 pub use provider_bootstrap::{

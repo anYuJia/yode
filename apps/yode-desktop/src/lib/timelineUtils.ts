@@ -1493,3 +1493,16 @@ export function messagesToTimelineItems(messages: DesktopMessage[]): TimelineIte
 
   return items;
 }
+
+/**
+ * 历史分页前置合并：把更早窗口的时间线项前置到现有时间线。
+ * 幂等去重（按 item.id），不丢失消息顺序；返回原数组引用时不产生新数组。
+ */
+export function mergeOlderTimelineItems(
+  items: TimelineItem[],
+  older: TimelineItem[]
+): TimelineItem[] {
+  const existing = new Set(items.map((item) => item.id));
+  const fresh = older.filter((item) => !existing.has(item.id));
+  return fresh.length === 0 ? items : [...fresh, ...items];
+}

@@ -141,6 +141,10 @@ impl DesktopRuntime {
         // seq 从 0 开始，在每个 turn 内严格单调递增（不使用跨 turn 的固定编号区间）
         let seq_base = 0;
 
+        // 持久化 turn journal：数据库成为可恢复的事实来源，
+        // run_registry 仅作内存热缓存。创建失败拒绝开启 turn。
+        self.db.create_turn(&session_id, &turn_id)?;
+
         let provider = self
             .provider_registry
             .lock()
@@ -241,7 +245,7 @@ impl DesktopRuntime {
             &self.run_registry,
             &session_id,
             &emit_turn_id,
-            "running",
+            "starting",
             None,
         );
 
@@ -277,6 +281,7 @@ impl DesktopRuntime {
                     Err(err) => {
                         tracing::error!("Failed to open database in background thread: {}", err);
                         let desktop_event = DesktopEvent {
+                            schema_version: 1,
                             session_id: session_id.clone(),
                             turn_id: emit_turn_id.clone(),
                             seq: seq_base,
@@ -312,6 +317,41 @@ impl DesktopRuntime {
                 engine.set_ask_user_channels(ask_user_query_tx, ask_user_answer_rx);
                 engine.restore_messages_async(restored_messages).await;
 
+                // 事件循环使用独立连接持久化 turn journal（引擎的 Database 已被 move）
+                let loop_db = match Database::open(&db_path_clone) {
+                    Ok(db) => db,
+                    Err(err) => {
+                        tracing::error!(
+                            "Failed to open journal database in background thread: {}",
+                            err
+                        );
+                        let desktop_event = DesktopEvent {
+                            schema_version: 1,
+                            session_id: session_id.clone(),
+                            turn_id: emit_turn_id.clone(),
+                            seq: seq_base,
+                            kind: "error".to_string(),
+                            timestamp: Utc::now().to_rfc3339(),
+                            payload: json!({ "body": err.to_string() }),
+                        };
+                        emit_desktop_event(&app, desktop_event);
+                        release_turn_occupancy(
+                            &active_sessions_clone,
+                            &cancel_tokens_clone,
+                            &session_id,
+                            &emit_turn_id,
+                        );
+                        update_run_state(
+                            &run_registry_clone,
+                            &session_id,
+                            &emit_turn_id,
+                            "failed",
+                            Some(err.to_string()),
+                        );
+                        return;
+                    }
+                };
+
                 let (event_tx, event_rx) = unbounded_channel::<EngineEvent>();
                 let error_event_tx = event_tx.clone();
                 let handle = tokio::spawn(async move {
@@ -340,6 +380,7 @@ impl DesktopRuntime {
 
                 run_desktop_turn_event_loop(
                     app.clone(),
+                    loop_db,
                     session_id.clone(),
                     emit_turn_id.clone(),
                     seq_base,
@@ -364,6 +405,81 @@ impl DesktopRuntime {
             turn_id,
             session: accepted_session,
         })
+    }
+
+    /// 读取某个 turn 在 since_seq 之后的事件（升序），供断线恢复/事件重放。
+    /// payload 已在落盘时脱敏，可直接返回前端。
+    pub fn turn_events_since(
+        &self,
+        session_id: String,
+        turn_id: String,
+        since_seq: i64,
+        limit: Option<usize>,
+    ) -> Result<Vec<crate::protocol::TurnEvent>> {
+        Ok(self
+            .db
+            .list_turn_events_since(&session_id, &turn_id, since_seq, limit)?
+            .into_iter()
+            .map(map_stored_turn_event)
+            .collect())
+    }
+
+    /// 读取某个 turn 最近 N 条事件（升序），供 RunInspector 消费持久化 journal。
+    pub fn turn_recent_events(
+        &self,
+        session_id: String,
+        turn_id: String,
+        limit: usize,
+    ) -> Result<Vec<crate::protocol::TurnEvent>> {
+        let mut events = self
+            .db
+            .list_recent_turn_events(&session_id, &turn_id, limit)?
+            .into_iter()
+            .map(map_stored_turn_event)
+            .collect::<Vec<_>>();
+        events.reverse();
+        Ok(events)
+    }
+
+    /// 会话消息分页：按 sort_order 降序返回最近窗口。
+    pub fn sessions_messages_page(
+        &self,
+        session_id: String,
+        before: Option<i64>,
+        limit: usize,
+    ) -> Result<crate::protocol::SessionMessagesPage> {
+        let limit = limit.clamp(1, 500);
+        let page = self
+            .db
+            .load_messages_window(&session_id, before, limit + 1)?;
+        let has_more = page.len() > limit;
+        let messages = page
+            .into_iter()
+            .take(limit)
+            .map(|message| {
+                let images = crate::session_helpers::stored_images(&message)
+                    .into_iter()
+                    .map(|image| crate::protocol::DesktopImageOutput {
+                        base64: image.base64,
+                        media_type: image.media_type,
+                    })
+                    .collect();
+                let metadata = crate::session_helpers::stored_metadata(&message);
+                crate::protocol::DesktopMessage {
+                    sort_order: Some(message.sort_order),
+                    images,
+                    id: message.id,
+                    role: message.role,
+                    content: message.content,
+                    reasoning: message.reasoning,
+                    tool_calls_json: message.tool_calls_json,
+                    tool_call_id: message.tool_call_id,
+                    metadata,
+                    created_at: message.created_at.to_rfc3339(),
+                }
+            })
+            .collect();
+        Ok(crate::protocol::SessionMessagesPage { messages, has_more })
     }
 
     pub fn permission_respond(
@@ -451,8 +567,8 @@ impl DesktopRuntime {
         Ok(())
     }
 
-    /// 取消入口：先发出 cancelling 事件，由 turn 事件循环在引擎停止后
-    /// 发出 cancelled 终态（Cancelling → 后端确认停止 → Cancelled）。
+    /// 取消入口：先在持久化 journal 中记录取消请求与 cancelling 状态，
+    /// 由 turn 事件循环在引擎停止后发出 cancelled 终态（Cancelling → 后端确认停止 → Cancelled）。
     pub fn turn_cancel_request(
         &self,
         app: AppHandle,
@@ -460,6 +576,16 @@ impl DesktopRuntime {
         turn_id: String,
     ) -> Result<()> {
         let _ = app;
+        let _ = self
+            .db
+            .mark_turn_cancellation_requested(&session_id, &turn_id);
+        let _ = self.db.update_turn_state(
+            &session_id,
+            &turn_id,
+            yode_core::db::TurnState::Cancelling,
+            Some("用户请求取消".to_string()),
+            None,
+        );
         update_run_state(
             &self.run_registry,
             &session_id,
@@ -487,6 +613,11 @@ pub(super) fn update_run_state(
                 status: status.to_string(),
                 updated_at: Utc::now().to_rfc3339(),
                 detail,
+                started_at: None,
+                ended_at: None,
+                last_seq: 0,
+                error_code: None,
+                cancellation_requested: false,
             },
         );
     }
@@ -588,5 +719,17 @@ pub(super) fn release_turn_occupancy(
     }
     if let Ok(mut tokens) = cancel_tokens.lock() {
         tokens.remove(&(session_id.to_string(), turn_id.to_string()));
+    }
+}
+
+fn map_stored_turn_event(event: yode_core::db::TurnEvent) -> crate::protocol::TurnEvent {
+    let payload = serde_json::from_str(&event.payload_json).unwrap_or(serde_json::json!({}));
+    crate::protocol::TurnEvent {
+        session_id: event.session_id,
+        turn_id: event.turn_id,
+        seq: event.seq,
+        kind: event.kind,
+        timestamp: event.timestamp.to_rfc3339(),
+        payload,
     }
 }

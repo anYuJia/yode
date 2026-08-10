@@ -2,6 +2,7 @@ import { applyDesktopEventToTimelineItems } from "./timelineUtils";
 import { isUserQuery } from "./askUser";
 import type { UserQuery } from "./askUser";
 import {
+  DESKTOP_EVENT_KINDS,
   DesktopEvent,
   PendingUserQuestion,
   RunState,
@@ -9,6 +10,7 @@ import {
   UsageSnapshot
 } from "./desktopTypes";
 import { recordFromUnknown } from "./jsonUtils";
+import { validateDesktopEventEnvelope } from "./desktopEventValidation";
 
 type NotificationPolicy = "completion" | "permission" | "question";
 
@@ -197,6 +199,14 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
   const envelope = desktopEventEnvelope(context.payload, context.eventKind);
   const targetSessionId = envelope.sessionId ?? context.activeSessionId;
 
+  // 强类型门禁：未知 kind 安全保留到诊断日志，不得渲染进时间线。
+  if (envelope.kind && !(DESKTOP_EVENT_KINDS as readonly string[]).includes(envelope.kind)) {
+    console.warn(
+      `[desktop-event] 未知事件 kind="${envelope.kind}"（session=${envelope.sessionId ?? "-"} turn=${envelope.turnId ?? "-"}），已保留到诊断日志并丢弃渲染`
+    );
+    return;
+  }
+
   // 完整的 DesktopEvent 信封：按 turn 隔离并过滤重复/乱序/取消后迟到事件
   if (envelope.desktopEvent && envelope.sessionId && envelope.turnId) {
     const { seq, kind } = envelope.desktopEvent;
@@ -371,6 +381,20 @@ export function handleDesktopRuntimeEvent(context: DesktopEventHandlerContext) {
 }
 
 function desktopEventEnvelope(payload: unknown, eventKind?: string): DesktopEventEnvelope {
+  // 新协议优先：完整信封（schemaVersion 可选）通过运行时校验后走强类型字段。
+  const validated = validateDesktopEventEnvelope(payload);
+  if (validated.ok) {
+    const event = validated.value;
+    return {
+      desktopEvent: event as unknown as DesktopEvent,
+      kind: event.kind,
+      payloadRecord: recordFromUnknown(event.payload) ?? {},
+      rawPayload: payload,
+      sessionId: event.sessionId,
+      turnId: event.turnId
+    };
+  }
+  // 旧协议回退：老版本（无 schemaVersion / 字段不全）仍按形状提取，保持向后兼容。
   const raw = recordFromUnknown(payload) ?? {};
   const desktopEvent = isDesktopEvent(raw) ? raw : undefined;
   const nestedPayload = recordFromUnknown(desktopEvent?.payload ?? raw.payload) ?? {};

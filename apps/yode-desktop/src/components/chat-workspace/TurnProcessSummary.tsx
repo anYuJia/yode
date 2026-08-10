@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { CircleDot, Check, ChevronDown } from "lucide-react";
 import { formatDurationZh } from "../../lib/timelineUtils";
 
-export function TurnProcessSummary({ turnId, isActive, isWaitingForUser, isExpanded, onToggle, durationSeconds, processCount, appLang }: {
+export const TurnProcessSummary = React.memo(function TurnProcessSummary({ turnId, isActive, isWaitingForUser, isExpanded, onToggle, durationSeconds, processCount, appLang }: {
   turnId: string;
   isActive: boolean;
   isWaitingForUser?: boolean;
@@ -76,4 +76,4 @@ export function TurnProcessSummary({ turnId, isActive, isWaitingForUser, isExpan
       <ChevronDown size={13} className="turn-process-summary-chevron" />
     </button>
   );
-}
+});

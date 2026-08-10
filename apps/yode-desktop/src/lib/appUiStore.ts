@@ -5,6 +5,7 @@ import type {
   Bootstrap,
   ImageAttachment,
   PendingUserQuestion,
+  RunState,
   SessionSummary,
   TimelineItem,
   UsageSnapshot,
@@ -36,10 +37,42 @@ import {
   SELECTED_PROJECT_ROOT_STORAGE_KEY,
   STANDALONE_PROJECT_SENTINEL
 } from "./projectStorage";
+import {
+  runStorageMigrations,
+  storageReadString,
+  storageWriteJson,
+  storageWriteString,
+  type StorageMigration
+} from "./storageAdapter";
 
 export const ACTIVE_SETTINGS_TAB_STORAGE_KEY = "yode-active-tab";
 export const DEFAULT_SETTINGS_TAB = "常规";
 export const KEYBOARD_SHORTCUTS_SETTINGS_TAB = "键盘快捷键";
+
+/**
+ * 历史键值迁移：旧版本把未选中项目写成字符串 "null"/"undefined"，
+ * 新版本统一使用 STANDALONE_PROJECT_SENTINEL；空串设置标签回退默认值。
+ * 模块加载时执行一次（幂等，已迁移的 key 不再重复处理）。
+ */
+const UI_STORAGE_MIGRATIONS: StorageMigration[] = [
+  {
+    key: SELECTED_PROJECT_ROOT_STORAGE_KEY,
+    migrate: (raw) => {
+      if (raw === "null" || raw === "undefined") {
+        return STANDALONE_PROJECT_SENTINEL;
+      }
+      return undefined;
+    }
+  },
+  {
+    key: ACTIVE_SETTINGS_TAB_STORAGE_KEY,
+    migrate: (raw) => (raw === "" ? DEFAULT_SETTINGS_TAB : undefined)
+  }
+];
+
+if (typeof localStorage !== "undefined") {
+  runStorageMigrations(UI_STORAGE_MIGRATIONS);
+}
 
 type StateUpdater<T> = T | ((current: T) => T);
 
@@ -58,6 +91,23 @@ export type SessionUiState = {
   pendingUserQuestion: PendingUserQuestion | null;
   timelineItems: TimelineItem[];
   usageSnapshot: UsageSnapshot | null;
+  /** 历史消息分页：是否还有更早消息、加载中/失败标记。 */
+  hasMoreHistory: boolean;
+  historyLoading: boolean;
+  historyError: boolean;
+  /** 已加载窗口中最旧消息的 sort_order 游标；无更早消息时为 null。 */
+  historyCursor: number | null;
+};
+
+/**
+ * 断线恢复状态机：idle → loading → done/error。
+ * error 时保留当前锁定状态，并提供 retryReplay 可重试路径。
+ */
+export type ReplayState = {
+  status: "idle" | "loading" | "done" | "error";
+  error?: string;
+  /** 重试代数：调用 retryReplay 递增，触发重放监听者重新执行。 */
+  retryGeneration: number;
 };
 
 const DRAFT_SESSION_KEY = "__draft__";
@@ -84,7 +134,11 @@ function emptySessionUiState(): SessionUiState {
     messageQueue: [],
     pendingUserQuestion: null,
     timelineItems: [],
-    usageSnapshot: null
+    usageSnapshot: null,
+    hasMoreHistory: false,
+    historyLoading: false,
+    historyError: false,
+    historyCursor: null
   };
 }
 
@@ -105,6 +159,10 @@ type AppUiState = {
   permissionMode: string;
   projectOrder: string[];
   projectRoots: string[];
+  /** 后端持久化 turn journal 的桌面投影（bootstrap.runs 与轮询刷新共用）。 */
+  runs: RunState[];
+  /** 断线恢复：事件重放状态。error 时保留锁定状态并可重试。 */
+  replayState: ReplayState;
   selectedProjectRoot: string | null | undefined;
   sessionUiStates: Record<string, SessionUiState>;
   sessionItems: SessionSummary[];
@@ -122,6 +180,7 @@ type AppUiState = {
   promoteDraftToSession: (sessionId: string) => void;
   reloadProjectStorage: () => void;
   refreshGeneralSettings: (options?: { apply?: boolean }) => void;
+  retryReplay: () => void;
   setActiveSessionId: (sessionId: string | null) => void;
   setAppLang: (lang: string) => void;
   setBootstrap: (bootstrap: StateUpdater<Bootstrap>) => void;
@@ -129,6 +188,10 @@ type AppUiState = {
   setCurrentTurnId: (turnId: StateUpdater<string | null>, sessionId?: string | null) => void;
   setDraft: (draft: string, sessionId?: string | null) => void;
   setDraggingPane: (pane: PaneKind | null) => void;
+  setHistoryLoading: (loading: boolean, sessionId?: string | null) => void;
+  setHasMoreHistory: (hasMore: boolean, sessionId?: string | null) => void;
+  setHistoryError: (error: boolean, sessionId?: string | null) => void;
+  setHistoryCursor: (cursor: number | null, sessionId?: string | null) => void;
   setInspectorOpen: (open: boolean) => void;
   setInspectorWidth: (width: number) => void;
   setIsProcessing: (isProcessing: boolean, sessionId?: string | null) => void;
@@ -137,6 +200,8 @@ type AppUiState = {
   setPermissionMode: (mode: string) => void;
   setProjectOrder: (order: StateUpdater<string[]>) => void;
   setProjectRoots: (roots: StateUpdater<string[]>) => void;
+  setReplayState: (state: StateUpdater<ReplayState>) => void;
+  setRuns: (runs: StateUpdater<RunState[]>) => void;
   setSelectedProjectRoot: (root: StateUpdater<string | null | undefined>) => void;
   setSessionItems: (sessions: StateUpdater<SessionSummary[]>) => void;
   setSettingsSidebarWidth: (width: number) => void;
@@ -154,16 +219,16 @@ type AppUiState = {
 };
 
 function storedViewMode(): ViewMode {
-  const raw = localStorage.getItem("yode-view-mode");
+  const raw = storageReadString("yode-view-mode", "chat");
   return raw === "settings" ? "settings" : "chat";
 }
 
 export function loadActiveSettingsTab() {
-  return localStorage.getItem(ACTIVE_SETTINGS_TAB_STORAGE_KEY) || DEFAULT_SETTINGS_TAB;
+  return storageReadString(ACTIVE_SETTINGS_TAB_STORAGE_KEY, DEFAULT_SETTINGS_TAB);
 }
 
 export function saveActiveSettingsTab(tab: string) {
-  localStorage.setItem(ACTIVE_SETTINGS_TAB_STORAGE_KEY, tab);
+  storageWriteString(ACTIVE_SETTINGS_TAB_STORAGE_KEY, tab);
   return tab;
 }
 
@@ -194,6 +259,8 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   permissionMode: "default",
   projectOrder: loadStoredProjectOrder(),
   projectRoots: loadStoredProjectRoots(),
+  runs: [],
+  replayState: { status: "idle", retryGeneration: 0 },
   selectedProjectRoot: loadStoredSelectedProjectRoot(),
   sessionUiStates: {},
   sessionItems: [],
@@ -236,6 +303,14 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     projectRoots: loadStoredProjectRoots(),
     selectedProjectRoot: loadStoredSelectedProjectRoot(),
   }),
+  retryReplay: () => set((state) => ({
+    replayState: {
+      ...state.replayState,
+      status: "idle",
+      error: undefined,
+      retryGeneration: state.replayState.retryGeneration + 1
+    }
+  })),
   refreshGeneralSettings: (options) => {
     set({ generalSettings: loadGeneralSettings() });
     if (options?.apply !== false) {
@@ -275,12 +350,24 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
   setDraft: (draft, sessionId) =>
     get().updateSessionUiState(sessionId, (current) => ({ ...current, draft })),
   setDraggingPane: (draggingPane) => set({ draggingPane }),
+  setHistoryLoading: (historyLoading, sessionId) => {
+    get().updateSessionUiState(sessionId, (current) => ({ ...current, historyLoading }));
+  },
+  setHasMoreHistory: (hasMoreHistory, sessionId) => {
+    get().updateSessionUiState(sessionId, (current) => ({ ...current, hasMoreHistory }));
+  },
+  setHistoryError: (historyError, sessionId) => {
+    get().updateSessionUiState(sessionId, (current) => ({ ...current, historyError }));
+  },
+  setHistoryCursor: (historyCursor, sessionId) => {
+    get().updateSessionUiState(sessionId, (current) => ({ ...current, historyCursor }));
+  },
   setInspectorOpen: (inspectorOpen) => set({ inspectorOpen }),
   setInspectorWidth: (inspectorWidth) => {
     // 拖动过程中不写 localStorage（由 pointerup 时一次性落盘），
     // 避免每个 pointermove 都同步写盘
     if (!get().draggingPane) {
-      localStorage.setItem(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
+      storageWriteString(INSPECTOR_WIDTH_STORAGE_KEY, String(inspectorWidth));
     }
     set({ inspectorWidth });
   },
@@ -300,20 +387,28 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     }));
   },
   setPermissionMode: (permissionMode) => set({ permissionMode }),
+  setReplayState: (updater) => {
+    const replayState = resolveUpdater(updater, get().replayState);
+    set({ replayState });
+  },
+  setRuns: (updater) => {
+    const runs = resolveUpdater(updater, get().runs);
+    set({ runs });
+  },
   setProjectOrder: (updater) => {
     const projectOrder = resolveUpdater(updater, get().projectOrder);
-    localStorage.setItem(PROJECT_ORDER_STORAGE_KEY, JSON.stringify(projectOrder));
+    storageWriteJson(PROJECT_ORDER_STORAGE_KEY, projectOrder);
     set({ projectOrder });
   },
   setProjectRoots: (updater) => {
     const projectRoots = resolveUpdater(updater, get().projectRoots);
-    localStorage.setItem(PROJECT_ROOTS_STORAGE_KEY, JSON.stringify(projectRoots));
+    storageWriteJson(PROJECT_ROOTS_STORAGE_KEY, projectRoots);
     set({ projectRoots });
   },
   setSelectedProjectRoot: (updater) => {
     const selectedProjectRoot = resolveUpdater(updater, get().selectedProjectRoot);
     if (selectedProjectRoot !== undefined) {
-      localStorage.setItem(
+      storageWriteString(
         SELECTED_PROJECT_ROOT_STORAGE_KEY,
         selectedProjectRoot === null ? STANDALONE_PROJECT_SENTINEL : selectedProjectRoot
       );
@@ -325,19 +420,19 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     set({ sessionItems });
   },
   setSettingsSidebarWidth: (settingsSidebarWidth) => {
-    localStorage.setItem(SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY, String(settingsSidebarWidth));
+    storageWriteString(SETTINGS_SIDEBAR_WIDTH_STORAGE_KEY, String(settingsSidebarWidth));
     set({ settingsSidebarWidth });
   },
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   setSidebarWidth: (sidebarWidth) => {
     if (!get().draggingPane) {
-      localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
+      storageWriteString(SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
     }
     set({ sidebarWidth });
   },
   setTerminalHeight: (terminalHeight) => {
     if (!get().draggingPane) {
-      localStorage.setItem(TERMINAL_HEIGHT_STORAGE_KEY, String(terminalHeight));
+      storageWriteString(TERMINAL_HEIGHT_STORAGE_KEY, String(terminalHeight));
     }
     set({ terminalHeight });
   },
@@ -372,7 +467,7 @@ export const useAppUiStore = create<AppUiState>((set, get) => ({
     };
   }),
   setViewMode: (viewMode) => {
-    localStorage.setItem("yode-view-mode", viewMode);
+    storageWriteString("yode-view-mode", viewMode);
     set({ viewMode });
   }
 }));

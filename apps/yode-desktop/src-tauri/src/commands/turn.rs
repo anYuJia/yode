@@ -61,3 +61,28 @@ pub async fn permission_mode_set(
         .await
         .map_err(|err| err.to_string())
 }
+
+#[tauri::command]
+pub fn turn_events_since(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+    turn_id: String,
+    since_seq: i64,
+    limit: Option<usize>,
+) -> Result<Vec<protocol::TurnEvent>, String> {
+    runtime
+        .turn_events_since(session_id, turn_id, since_seq, limit)
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
+pub fn turn_recent_events(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+    turn_id: String,
+    limit: usize,
+) -> Result<Vec<protocol::TurnEvent>, String> {
+    runtime
+        .turn_recent_events(session_id, turn_id, limit)
+        .map_err(|err| err.to_string())
+}

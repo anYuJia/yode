@@ -28,6 +28,18 @@ pub fn sessions_messages(
 }
 
 #[tauri::command]
+pub fn sessions_messages_page(
+    runtime: tauri::State<'_, runtime::DesktopRuntime>,
+    session_id: String,
+    before: Option<i64>,
+    limit: Option<usize>,
+) -> Result<protocol::SessionMessagesPage, String> {
+    runtime
+        .sessions_messages_page(session_id, before, limit.unwrap_or(100))
+        .map_err(|err| err.to_string())
+}
+
+#[tauri::command]
 pub fn sessions_clear_messages(
     runtime: tauri::State<'_, runtime::DesktopRuntime>,
     session_id: String,

@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   Archive,
@@ -55,12 +54,25 @@ import {
   fallbackBootstrap,
   SessionSummary,
   TimelineItem,
-  TurnAccepted,
   ImageAttachment,
   RunState,
   UsageSnapshot,
   ViewMode
 } from "./lib/desktopTypes";
+import {
+  appGetBootstrap,
+  askUserRespond,
+  configGetProviders,
+  permissionModeSet,
+  projectFolderPick,
+  runsList,
+  sessionsMessagesPage,
+  sessionsUpdateLlm,
+  turnCancel,
+  turnSendMessage
+} from "./lib/desktopIpc";
+import { replayTurnEvents } from "./lib/desktopEventReplay";
+import { TERMINAL_RUN_STATUSES } from "./lib/desktopTypes";
 import { SettingsShell } from "./components/SettingsShell";
 import { TerminalDrawer } from "./components/TerminalDrawer";
 import { PROVIDERS_META } from "./components/settings/ProvidersSettings";
@@ -69,6 +81,7 @@ import { Topbar } from "./components/Topbar";
 import { ChatWorkspace } from "./components/ChatWorkspace";
 import {
   messagesToTimelineItems,
+  mergeOlderTimelineItems,
   upsertActiveSession,
   deriveSessionTitle,
   projectLabelFromPath,
@@ -151,7 +164,7 @@ function refreshProviderCache() {
   if (!("__TAURI_INTERNALS__" in window)) {
     return;
   }
-  invoke<unknown[]>("config_get_providers")
+  configGetProviders()
     .then((providers) => {
       if (Array.isArray(providers)) {
         saveStoredProviders(providers);
@@ -279,6 +292,16 @@ export function App() {
   const getSessionUiState = useAppUiStore((state) => state.getSessionUiState);
   const removeSessionUiState = useAppUiStore((state) => state.removeSessionUiState);
   const promoteDraftToSession = useAppUiStore((state) => state.promoteDraftToSession);
+  const setRuns = useAppUiStore((state) => state.setRuns);
+  const runs = useAppUiStore((state) => state.runs);
+  const setReplayState = useAppUiStore((state) => state.setReplayState);
+  const replayState = useAppUiStore((state) => state.replayState);
+  const retryReplay = useAppUiStore((state) => state.retryReplay);
+  const retryReplayGeneration = useAppUiStore((state) => state.replayState.retryGeneration);
+  const setHistoryLoading = useAppUiStore((state) => state.setHistoryLoading);
+  const setHasMoreHistory = useAppUiStore((state) => state.setHasMoreHistory);
+  const setHistoryError = useAppUiStore((state) => state.setHistoryError);
+  const setHistoryCursor = useAppUiStore((state) => state.setHistoryCursor);
   const activeSessionIdRef = useRef<string | null>(null);
   const draftRequestSequenceRef = useRef(0);
   const windowFocusedRef = useRef(true);
@@ -332,7 +355,7 @@ export function App() {
         turnId,
         // 会话 + turn 双重隔离：只有该会话的当前 turn 仍是被取消的 turn 才会继续
         isStillCurrent: () => getSessionUiState(sessionId).currentTurnId === turnId,
-        fetchRuns: () => invoke<RunState[]>("runs_list"),
+        fetchRuns: () => runsList(),
         onReleased: () => {
           // 轮询确认终态：先清理 registry 登记，再解锁 UI
           onConfirmedTerminal();
@@ -511,7 +534,7 @@ export function App() {
   const handlePermissionModeChange = (mode: string) => {
     setPermissionMode(mode);
     setBootstrap(prev => ({ ...prev, permissionMode: mode }));
-    invoke("permission_mode_set", { mode }).catch(console.error);
+    permissionModeSet({ mode }).catch(console.error);
   };
 
   const handleUpdateProvider = async (provider: string) => {
@@ -524,11 +547,7 @@ export function App() {
         )
       );
       try {
-        await invoke("sessions_update_llm", {
-          sessionId: activeSessionId,
-          provider,
-          model: defaultModel
-        });
+        await sessionsUpdateLlm(activeSessionId, provider, defaultModel);
       } catch (err) {
         console.error(err);
       }
@@ -547,11 +566,7 @@ export function App() {
         )
       );
       try {
-        await invoke("sessions_update_llm", {
-          sessionId: activeSessionId,
-          provider: currentProvider,
-          model
-        });
+        await sessionsUpdateLlm(activeSessionId, currentProvider, model);
       } catch (err) {
         console.error(err);
       }
@@ -617,49 +632,149 @@ export function App() {
     applyTranslucentSidebarSetting();
   }, [viewMode]);
 
-  const loadBootstrap = () => {
-    refreshProviderCache();
-    invoke<Bootstrap>("app_get_bootstrap")
-      .then((nextBootstrap) => {
-        setBootstrap(nextBootstrap);
-        setPermissionMode(nextBootstrap.permissionMode);
-        setSelectedProjectRoot((current) =>
-          current === undefined || current === fallbackBootstrap.workspacePath
-            ? nextBootstrap.workspacePath
-            : current
-        );
+  // 历史分页：已加载窗口中最旧消息的 sort_order 游标（后端窗口为降序，
+  // 最后一个元素即最旧消息）；无游标（空窗口/无字段）时视为没有更早消息。
+  const oldestSortOrderOf = (messages: DesktopMessage[]): number | null => {
+    const orders = messages
+      .map((message) => message.sortOrder)
+      .filter((value): value is number => typeof value === "number");
+    return orders.length > 0 ? Math.min(...orders) : null;
+  };
 
-        const activeSessions = visibleSessions(nextBootstrap.sessions);
-        const activeSessionId = activeSessions.find((session) => session.active)?.id ?? null;
+  /** 首次打开/切换会话：只加载最近窗口，不默认一次性加载无限历史。 */
+  const loadSessionHistoryWindow = useCallback(async (sessionId: string) => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    const sessionUiState = getSessionUiState(sessionId);
+    if (
+      sessionUiState.timelineItems.length > 0 ||
+      sessionUiState.isProcessing ||
+      sessionUiState.pendingUserQuestion
+    ) {
+      return;
+    }
+    setHistoryLoading(true, sessionId);
+    setHistoryError(false, sessionId);
+    try {
+      const page = await sessionsMessagesPage(sessionId, null, 100);
+      // 会话守卫：切换后迟到的回包不得覆盖新会话
+      if (activeSessionIdRef.current !== sessionId) return;
+      const current = getSessionUiState(sessionId);
+      if (
+        current.timelineItems.length > 0 ||
+        current.isProcessing ||
+        current.pendingUserQuestion
+      ) {
+        return;
+      }
+      // 后端按 sort_order 降序返回；时间线需要升序（旧 → 新）
+      setTimelineItems(messagesToTimelineItems([...page.messages].reverse()), sessionId);
+      setHasMoreHistory(page.hasMore, sessionId);
+      setHistoryCursor(oldestSortOrderOf(page.messages), sessionId);
+    } catch (err) {
+      console.error(err);
+      if (activeSessionIdRef.current === sessionId) {
+        setHistoryError(true, sessionId);
+      }
+    } finally {
+      setHistoryLoading(false, sessionId);
+    }
+  }, [getSessionUiState, setHistoryLoading, setHistoryError, setHasMoreHistory, setHistoryCursor, setTimelineItems]);
 
-        setSessionItems(activeSessions);
-        setProjectRoots((current) =>
-          dedupeProjectRoots([
-            ...current,
-            ...activeSessions.map((session) => session.projectRoot),
-          ])
-        );
-        activeSessionIdRef.current = activeSessionId;
-        setActiveSessionId(activeSessionId);
-        if (activeSessionId && "__TAURI_INTERNALS__" in window) {
-          invoke<DesktopMessage[]>("sessions_messages", {
-            sessionId: activeSessionId,
-            session_id: activeSessionId
-          })
-            .then((messages) => {
-              const sessionUiState = getSessionUiState(activeSessionId);
-              if (
-                activeSessionIdRef.current !== activeSessionId ||
-                sessionUiState.timelineItems.length > 0 ||
-                sessionUiState.isProcessing ||
-                sessionUiState.pendingUserQuestion
-              ) return;
-              setTimelineItems(messagesToTimelineItems(messages));
-            })
-            .catch(console.error);
+  /** 向上翻页：以当前窗口最旧消息为游标加载更早窗口，并前置合并（幂等去重）。 */
+  const loadOlderHistory = async (sessionId: string) => {
+    const sessionUiState = getSessionUiState(sessionId);
+    if (
+      sessionUiState.historyLoading ||
+      !sessionUiState.hasMoreHistory ||
+      sessionUiState.historyCursor === null
+    ) {
+      return;
+    }
+    setHistoryLoading(true, sessionId);
+    setHistoryError(false, sessionId);
+    try {
+      const page = await sessionsMessagesPage(sessionId, sessionUiState.historyCursor, 100);
+      if (activeSessionIdRef.current !== sessionId) return;
+      const older = messagesToTimelineItems([...page.messages].reverse());
+      setTimelineItems((items) => mergeOlderTimelineItems(items, older), sessionId);
+      setHasMoreHistory(page.hasMore, sessionId);
+      setHistoryCursor(oldestSortOrderOf(page.messages), sessionId);
+    } catch (err) {
+      console.error(err);
+      if (activeSessionIdRef.current === sessionId) {
+        setHistoryError(true, sessionId);
+      }
+    } finally {
+      setHistoryLoading(false, sessionId);
+    }
+  };
+
+  /** 事件分发上下文：实时监听与断线重放共用同一条事件管道。 */
+  const buildEventDispatchContext = useCallback(
+    () => ({
+      activeSessionId: activeSessionIdRef.current,
+      currentTurnId: currentTurnIdRef.current,
+      getCurrentTurnId: (sessionId: string) => getSessionUiState(sessionId).currentTurnId,
+      sendSystemNotification,
+      setCurrentTurnId,
+      setIsProcessing,
+      setPendingUserQuestion,
+      setTimelineItems,
+      setUsageSnapshot
+    }),
+    [getSessionUiState, sendSystemNotification, setCurrentTurnId, setIsProcessing, setPendingUserQuestion, setTimelineItems, setUsageSnapshot]
+  );
+
+  /**
+   * 断线恢复：把未终态 turn 的事件从持久化 journal 重放进事件管道。
+   * 恢复期先锁定对应会话（isProcessing + currentTurnId），防止用户
+   * 在重放完成前发送新 turn；失败保留锁定状态，由 retryReplay 重试。
+   */
+  const runReplayPhase = useCallback(
+    async (runs: RunState[]) => {
+      const nonTerminalRuns = runs.filter((run) => !TERMINAL_RUN_STATUSES.has(run.status));
+      // 锁定：重放期间不得发送新 turn（cancelling 状态由 watchdog 对账释放）
+      for (const run of nonTerminalRuns) {
+        if (!run.turnId) continue;
+        setIsProcessing(true, run.sessionId);
+        setCurrentTurnId(run.turnId, run.sessionId);
+      }
+      setReplayState({ status: "loading", retryGeneration: 0 });
+      const outcome = await replayTurnEvents({
+        runs,
+        dispatch: (payload) => {
+          handleDesktopRuntimeEvent({ ...buildEventDispatchContext(), payload });
+          const terminal = isTerminalTurnEvent(payload);
+          if (terminal) {
+            cancellationWatchdogRegistryRef.current.stop(terminal.sessionId, terminal.turnId);
+          }
         }
-      })
-      .catch(() => {
+      });
+      if (outcome.ok) {
+        setReplayState({ status: "done", retryGeneration: 0 });
+        // 重放完成：有遗留 cancelling 状态的会话恢复取消对账轮询
+        for (const run of nonTerminalRuns) {
+          if (run.status !== "cancelling") continue;
+          cancellationWatchdogRegistryRef.current
+            .resume(run.sessionId, run.turnId, createCancellationWatchdog)
+            ?.start();
+        }
+      } else {
+        setReplayState({ status: "error", error: outcome.error, retryGeneration: 0 });
+      }
+    },
+    [buildEventDispatchContext, createCancellationWatchdog, setIsProcessing, setCurrentTurnId, setReplayState]
+  );
+
+  /** 初始化序列：注册事件监听 → bootstrap → 运行状态 → 事件重放 → 放行新 turn。 */
+  const initializeDesktopRuntime = useCallback(
+    async (disposeListener: () => void) => {
+      refreshProviderCache();
+      let nextBootstrap: Bootstrap;
+      try {
+        nextBootstrap = await appGetBootstrap();
+      } catch (err) {
+        console.error(err);
         setBootstrap(fallbackBootstrap);
         if (!("__TAURI_INTERNALS__" in window)) {
           setSessionItems([]);
@@ -670,21 +785,144 @@ export function App() {
           );
           setTimelineItems([]);
         }
-      });
-  };
+        disposeListener();
+        return;
+      }
+      setBootstrap(nextBootstrap);
+      setPermissionMode(nextBootstrap.permissionMode);
+      setSelectedProjectRoot((current) =>
+        current === undefined || current === fallbackBootstrap.workspacePath
+          ? nextBootstrap.workspacePath
+          : current
+      );
+
+      const activeSessions = visibleSessions(nextBootstrap.sessions);
+      const activeSessionId = activeSessions.find((session) => session.active)?.id ?? null;
+
+      setSessionItems(activeSessions);
+      setProjectRoots((current) =>
+        dedupeProjectRoots([
+          ...current,
+          ...activeSessions.map((session) => session.projectRoot),
+        ])
+      );
+      activeSessionIdRef.current = activeSessionId;
+      setActiveSessionId(activeSessionId);
+
+      // 运行状态：数据库 turn journal 是事实来源
+      let runs: RunState[];
+      try {
+        runs = await runsList();
+      } catch (err) {
+        console.error(err);
+        setReplayState({
+          status: "error",
+          error: `获取运行状态失败: ${String(err)}`,
+          retryGeneration: 0
+        });
+        disposeListener();
+        return;
+      }
+      setRuns(runs);
+
+      // 事件重放：未终态 turn 按 lastSeq 恢复；完成后才允许用户发送新 turn
+      await runReplayPhase(runs);
+
+      // 无未终态运行的会话：直接加载最近消息窗口
+      if (activeSessionId) {
+        const activeRun = runs.find((run) => run.sessionId === activeSessionId);
+        if (!activeRun || TERMINAL_RUN_STATUSES.has(activeRun.status)) {
+          void loadSessionHistoryWindow(activeSessionId);
+        }
+      }
+    },
+    [runReplayPhase, loadSessionHistoryWindow, setRuns, setReplayState, setBootstrap, setPermissionMode, setSelectedProjectRoot, setSessionItems, setProjectRoots, setActiveSessionId, setTimelineItems]
+  );
 
   useEffect(() => {
-    loadBootstrap();
-  }, []);
+    if (!("__TAURI_INTERNALS__" in window)) {
+      setBootstrap(fallbackBootstrap);
+      setSessionItems([]);
+      activeSessionIdRef.current = null;
+      setActiveSessionId(null);
+      setSelectedProjectRoot((current) =>
+        current === undefined ? fallbackBootstrap.workspacePath : current
+      );
+      setTimelineItems([]);
+      return;
+    }
+
+    let active = true;
+    let disposeFn: (() => void) | undefined;
+
+    // 1. 先注册事件监听；就绪后才允许 bootstrap/重放/发送
+    listen<DesktopEvent>("desktop-event", (event) => {
+      if (!active) return;
+      handleDesktopRuntimeEvent({
+        ...buildEventDispatchContext(),
+        payload: event.payload
+      });
+      // 同一 turn 的后端终态事件到达：立即停止取消轮询并清理登记，
+      // 避免重复解锁或空转。
+      const terminal = isTerminalTurnEvent(event.payload);
+      if (terminal) {
+        cancellationWatchdogRegistryRef.current.stop(terminal.sessionId, terminal.turnId);
+      }
+    })
+      .then((dispose) => {
+        if (!active) {
+          dispose();
+          return;
+        }
+        disposeFn = dispose;
+        // 2. bootstrap → 运行状态 → 重放（监听已就绪，重放事件不会丢失）
+        void initializeDesktopRuntime(() => {
+          if (disposeFn) {
+            disposeFn();
+            disposeFn = undefined;
+          }
+        });
+      })
+      .catch((err) => {
+        console.error(err);
+        void initializeDesktopRuntime(() => {});
+      });
+
+    return () => {
+      active = false;
+      if (disposeFn) {
+        disposeFn();
+      }
+      // 组件卸载：清理全部取消轮询定时器与登记
+      cancellationWatchdogRegistryRef.current.stopAll();
+    };
+  }, [buildEventDispatchContext, initializeDesktopRuntime, getSessionUiState, sendSystemNotification, createCancellationWatchdog]);
+
+  // 重放失败后的重试路径：保留当前锁定状态，仅重新执行重放阶段
+  useEffect(() => {
+    const replayState = useAppUiStore.getState().replayState;
+    if (replayState.status !== "idle" || replayState.retryGeneration === 0) return;
+    const runs = useAppUiStore.getState().runs;
+    void runReplayPhase(runs).then(() => {
+      const activeRun = runs.find((run) => run.sessionId === activeSessionIdRef.current);
+      if (!activeRun || TERMINAL_RUN_STATUSES.has(activeRun.status)) {
+        if (activeSessionIdRef.current) {
+          void loadSessionHistoryWindow(activeSessionIdRef.current);
+        }
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [retryReplayGeneration, runReplayPhase]);
 
   useEffect(() => {
     const handleUnarchive = () => {
-      loadBootstrap();
+      // 会话归档/导入后刷新：重新走 bootstrap（监听已注册，无需重放）
+      void initializeDesktopRuntime(() => {});
     };
     const handleDefaultLlmChange = (event: Event) => {
       const detail = detailFromDefaultLlmChangeEvent(event);
       if (!detail) {
-        loadBootstrap();
+        void initializeDesktopRuntime(() => {});
         return;
       }
       setBootstrap((current) => ({
@@ -696,7 +934,7 @@ export function App() {
     const handlePermanentDelete = (event: Event) => {
       const detail = detailFromSessionIdEvent(event);
       if (!detail) {
-        loadBootstrap();
+        void initializeDesktopRuntime(() => {});
         return;
       }
       deletedSessionIdsRef.current.add(detail.sessionId);
@@ -730,54 +968,6 @@ export function App() {
       deletedSessionIdsRef.current.delete(sessionId);
     }
   }, [sessionUiStates, getSessionUiState, removeSessionUiState]);
-
-  useEffect(() => {
-    if (!("__TAURI_INTERNALS__" in window)) {
-      return;
-    }
-
-    let active = true;
-    let disposeFn: (() => void) | undefined;
-
-    listen<DesktopEvent>("desktop-event", (event) => {
-      if (!active) return;
-      handleDesktopRuntimeEvent({
-        activeSessionId: activeSessionIdRef.current,
-        currentTurnId: currentTurnIdRef.current,
-        getCurrentTurnId: (sessionId) => getSessionUiState(sessionId).currentTurnId,
-        payload: event.payload,
-        sendSystemNotification,
-        setCurrentTurnId,
-        setIsProcessing,
-        setPendingUserQuestion,
-        setTimelineItems,
-        setUsageSnapshot
-      });
-      // 同一 turn 的后端终态事件到达：立即停止取消轮询并清理登记，
-      // 避免重复解锁或空转。
-      const terminal = isTerminalTurnEvent(event.payload);
-      if (terminal) {
-        cancellationWatchdogRegistryRef.current.stop(terminal.sessionId, terminal.turnId);
-      }
-    })
-      .then((dispose) => {
-        if (!active) {
-          dispose();
-        } else {
-          disposeFn = dispose;
-        }
-      })
-      .catch(console.error);
-
-    return () => {
-      active = false;
-      if (disposeFn) {
-        disposeFn();
-      }
-      // 组件卸载：清理全部取消轮询定时器与登记
-      cancellationWatchdogRegistryRef.current.stopAll();
-    };
-  }, [getSessionUiState, sendSystemNotification, createCancellationWatchdog]);
 
   const activeSession = useMemo(
     () =>
@@ -869,7 +1059,7 @@ export function App() {
   }
 
   async function handleAddProject() {
-    const pickedRoot = await invoke<string | null>("project_folder_pick").catch((err) => {
+    const pickedRoot = await projectFolderPick().catch((err) => {
       console.error(err);
       return null;
     });
@@ -885,13 +1075,7 @@ export function App() {
     const question = pendingUserQuestion;
 
     try {
-      await invoke("ask_user_respond", {
-        sessionId: question.sessionId,
-        session_id: question.sessionId,
-        turnId: question.turnId,
-        turn_id: question.turnId,
-        answer: answer
-      });
+      await askUserRespond(question.sessionId, question.turnId, answer);
       setTimelineItems(
         (items) => [
           ...items,
@@ -1045,25 +1229,23 @@ export function App() {
     );
 
     try {
-      const res = await invoke<TurnAccepted>("turn_send_message", {
-        request: {
-          sessionId: sessionIdAtSend,
-          content,
-          images: imagesAtSend.map(imageToRequestPayload),
-          projectRoot: sessionIdAtSend ? undefined : projectRootAtSend,
-          standalone: sessionIdAtSend ? undefined : projectRootAtSend === null,
-          title: sessionIdAtSend
-            ? undefined
-            : isDetachedReview
-              ? "代码审查"
-              : content
-              ? deriveSessionTitle(content)
-              : imagesAtSend.length > 1
-                ? `${imagesAtSend.length} 张图片`
-                : "图片",
-          provider: currentProvider,
-          model: currentModel
-        }
+      const res = await turnSendMessage({
+        sessionId: sessionIdAtSend ?? undefined,
+        content,
+        images: imagesAtSend.map(imageToRequestPayload),
+        projectRoot: sessionIdAtSend ? undefined : (projectRootAtSend ?? undefined),
+        standalone: sessionIdAtSend ? undefined : projectRootAtSend === null,
+        title: sessionIdAtSend
+          ? undefined
+          : isDetachedReview
+            ? "代码审查"
+            : content
+            ? deriveSessionTitle(content)
+            : imagesAtSend.length > 1
+              ? `${imagesAtSend.length} 张图片`
+              : "图片",
+        provider: currentProvider,
+        model: currentModel
       });
       if (stateSessionIdAtSend === null) {
         promoteDraftToSession(res.sessionId);
@@ -1136,17 +1318,15 @@ export function App() {
         queuedSessionId
       );
 
-      void invoke<TurnAccepted>("turn_send_message", {
-        request: {
-          sessionId: queuedSessionId,
-          content: nextContent,
-          images: nextMessage.images.map(imageToRequestPayload),
-          projectRoot: undefined,
-          standalone: undefined,
-          title: undefined,
-          provider: undefined,
-          model: undefined
-        }
+      void turnSendMessage({
+        sessionId: queuedSessionId,
+        content: nextContent,
+        images: nextMessage.images.map(imageToRequestPayload),
+        projectRoot: undefined,
+        standalone: undefined,
+        title: undefined,
+        provider: undefined,
+        model: undefined
       }).then((res) => {
         queuedDispatchesRef.current.delete(queuedSessionId);
         if (deletedSessionIdsRef.current.has(queuedSessionId)) {
@@ -1194,10 +1374,7 @@ export function App() {
     };
 
     try {
-      await invoke("turn_cancel", {
-        sessionId: cancelledSessionId,
-        turnId: cancelledTurnId
-      });
+      await turnCancel(cancelledSessionId, cancelledTurnId);
     } catch (err) {
       console.error(err);
       if (!isCancelledTurnStillCurrent()) return;
@@ -1225,34 +1402,8 @@ export function App() {
       cachedSessionUiState.pendingUserQuestion
     ) return;
 
-    if (!("__TAURI_INTERNALS__" in window)) return;
-
-    try {
-      const messages = await invoke<DesktopMessage[]>("sessions_messages", {
-        sessionId,
-        session_id: sessionId
-      });
-      const sessionUiState = getSessionUiState(sessionId);
-      if (
-        activeSessionIdRef.current !== sessionId ||
-        sessionUiState.timelineItems.length > 0 ||
-        sessionUiState.isProcessing ||
-        sessionUiState.pendingUserQuestion
-      ) return;
-      setTimelineItems(messagesToTimelineItems(messages));
-    } catch (err) {
-      if (activeSessionIdRef.current !== sessionId) return;
-      console.error(err);
-      setTimelineItems([
-        {
-          id: `history-error-${Date.now()}`,
-          kind: "assistant",
-          title: "错误",
-          body: "加载历史对话失败。",
-          meta: "stream complete"
-        }
-      ]);
-    }
+    // 首次打开只加载最近窗口（分页），向上滚动再加载更早消息
+    await loadSessionHistoryWindow(sessionId);
   }
 
   const handleSetViewMode = (mode: ViewMode) => {
@@ -1470,6 +1621,22 @@ export function App() {
           showContextUsage={generalSettings.contextUsage}
           requireOptEnter={generalSettings.requireOptEnter}
           usageSnapshot={usageSnapshot}
+          hasMoreHistory={getSessionUiState(activeSessionId).hasMoreHistory}
+          historyLoading={getSessionUiState(activeSessionId).historyLoading}
+          historyError={getSessionUiState(activeSessionId).historyError}
+          onLoadOlderHistory={() => {
+            if (!activeSessionId) return;
+            const sessionUiState = getSessionUiState(activeSessionId);
+            if (sessionUiState.historyError && sessionUiState.timelineItems.length === 0) {
+              void loadSessionHistoryWindow(activeSessionId);
+            } else {
+              void loadOlderHistory(activeSessionId);
+            }
+          }}
+          replayError={replayState.status === "error" ? replayState.error : undefined}
+          onRetryReplay={retryReplay}
+          currentRun={activeSessionId ? (runs.find((run) => run.sessionId === activeSessionId) ?? null) : null}
+          replayState={replayState}
         />
         <TerminalDrawer
           isOpen={terminalOpen}

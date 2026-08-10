@@ -3481,6 +3481,35 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   animation: dropdown-slide-down 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* 历史分页加载骨架：固定占位，避免加载期间布局跳动 */
+.timeline-skeleton {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.skeleton-line {
+  height: 12px;
+  border-radius: 6px;
+  background: color-mix(in oklch, var(--line-soft), transparent 30%);
+  animation: skeleton-pulse 1.4s ease-in-out infinite;
+}
+.skeleton-line-wide {
+  width: 70%;
+}
+.skeleton-line-short {
+  width: 40%;
+}
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 @keyframes dropdown-slide-up {
   from {
     opacity: 0;
@@ -3507,6 +3536,23 @@ code, pre, textarea, .terminal-body, .theme-preview-code {
   height: 1px;
   margin: 4px 2px;
   background: color-mix(in oklch, var(--line-soft), transparent 20%);
+}
+
+/* slash 命令自动补全：跟随 textarea 上沿弹出 */
+.slash-suggestions {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 30;
+  padding: 4px;
+}
+.slash-suggestions .context-option {
+  grid-template-columns: minmax(0, 1fr);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
 }
 
 .context-option {

@@ -2,6 +2,15 @@ import { invoke } from "@tauri-apps/api/core";
 
 import { DesktopMessage, SessionSummary, TimelineItem, UsageSnapshot } from "./desktopTypes";
 import { messagesToTimelineItems, upsertActiveSession } from "./timelineUtils";
+import {
+  sessionsClearMessages,
+  sessionsCompactEngine,
+  sessionsDelete,
+  sessionsExportMarkdown,
+  sessionsMessages,
+  sessionsRename,
+  permissionModeSet
+} from "./desktopIpc";
 
 type SessionExportResult = {
   path: string;
@@ -37,6 +46,65 @@ export type LocalSlashCommandContext = {
   setTimelineItems: (updater: TimelineItem[] | ((items: TimelineItem[]) => TimelineItem[])) => void;
   setUsageSnapshot: (snapshot: UsageSnapshot | null) => void;
 };
+
+// ─── 统一 slash command registry ───────────────────────────────────────────
+// 解析、自动补全、帮助文案、参数校验全部由同一个 registry 驱动，
+// 未实现/未注册的命令不会出现在帮助文案中。
+
+export type SlashCommandDefinition = {
+  name: string;
+  /** 帮助文案（zh/en）。 */
+  description: (isZh: boolean) => string;
+  /** 用法提示；无参数命令为 undefined。 */
+  usage?: (isZh: boolean) => string;
+  /** 参数校验：返回错误文案表示非法；返回 null 表示合法。 */
+  validate?: (args: string, isZh: boolean) => string | null;
+  execute: (args: string, context: LocalSlashCommandContext) => boolean | Promise<boolean>;
+};
+
+export function parseSlashCommand(content: string): { name: string; args: string } | null {
+  if (!content.startsWith("/")) return null;
+  const trimmed = content.slice(1).trim();
+  const [rawName] = trimmed.split(/\s+/, 1);
+  if (!rawName) return null;
+  const args = trimmed.slice(rawName.length).trim();
+  return { name: rawName.toLowerCase(), args };
+}
+
+/** 自动补全：返回与输入前缀匹配的已注册命令名列表。 */
+export function completeSlashCommands(input: string): string[] {
+  const parsed = parseSlashCommand(input);
+  if (!parsed) return [];
+  const prefix = parsed.name;
+  if (!prefix) return [];
+  return Object.keys(slashCommandRegistry)
+    .filter((name) => name.startsWith(prefix))
+    .sort()
+    .map((name) => `/${name}`);
+}
+
+/** 帮助文案：只列出已注册（已实现）的命令。 */
+export function getSlashCommandHelp(isZh: boolean): string {
+  const lines = Object.values(slashCommandRegistry).map((command) => {
+    const description = command.description(isZh);
+    const usage = command.usage?.(isZh);
+    return usage ? `${usage} - ${description}` : `/${command.name} - ${description}`;
+  });
+  return lines.join("\n");
+}
+
+export function validateSlashCommand(
+  content: string,
+  isZh: boolean
+): { ok: boolean; error?: string } {
+  const parsed = parseSlashCommand(content);
+  if (!parsed) return { ok: true };
+  const command = slashCommandRegistry[parsed.name];
+  if (!command) return { ok: true };
+  if (!command.validate) return { ok: true };
+  const error = command.validate(parsed.args, isZh);
+  return error ? { ok: false, error } : { ok: true };
+}
 
 export function formatUsageSnapshot(snapshot: UsageSnapshot | null, appLang: string) {
   const isZh = appLang === "zh";
@@ -76,24 +144,21 @@ export function formatCurrentModelLabel(provider: string, model: string, appLang
   return appLang === "zh" ? "未连接桌面运行时" : "Desktop runtime unavailable";
 }
 
-export async function executeLocalSlashCommand(
-  content: string,
-  context: LocalSlashCommandContext
-) {
-  if (!content.startsWith("/")) return false;
-  const trimmedCommand = content.slice(1).trim();
-  const [rawCommand] = trimmedCommand.split(/\s+/, 1);
-  const command = rawCommand.toLowerCase();
-  const commandArgs = trimmedCommand.slice(rawCommand.length).trim();
-  const isZh = context.appLang === "zh";
-  const append = context.appendResult;
-
-  switch (command) {
-    case "new": {
+export const slashCommandRegistry: Record<string, SlashCommandDefinition> = {
+  new: {
+    name: "new",
+    description: (isZh) => (isZh ? "开启新对话" : "start a new chat"),
+    execute: (_args, context) => {
       context.createSession(context.selectedProjectRoot);
       return true;
     }
-    case "clear": {
+  },
+  clear: {
+    name: "clear",
+    description: (isZh) => (isZh ? "清空当前会话消息" : "clear messages in the current session"),
+    execute: async (_args, context) => {
+      const isZh = context.appLang === "zh";
+      const append = context.appendResult;
       if (!context.activeSessionId) {
         context.createSession(context.selectedProjectRoot);
         append(
@@ -103,10 +168,7 @@ export async function executeLocalSlashCommand(
         return true;
       }
       try {
-        await invoke("sessions_clear_messages", {
-          sessionId: context.activeSessionId,
-          session_id: context.activeSessionId
-        });
+        await sessionsClearMessages(context.activeSessionId);
         context.setTimelineItems([]);
         context.setUsageSnapshot(null);
         context.clearMessageQueue();
@@ -120,45 +182,35 @@ export async function executeLocalSlashCommand(
       }
       return true;
     }
-    case "help":
-    case "?": {
-      append(
-        isZh ? "桌面命令" : "Desktop commands",
-        isZh
-          ? [
-              "当前可用：",
-              "/trash - 删除当前会话并开启新对话",
-              "/cost - 查看最近一次 token 与成本统计",
-              "/model - 查看当前模型",
-              "/permission <default|auto|bypass|plan> - 切换权限模式",
-              "/rename <标题> - 重命名当前会话",
-              "/sessions - 查看最近会话",
-              "/status - 查看当前会话、模型、权限和运行状态",
-              "/help - 显示这份命令列表",
-              "",
-              "更多桌面原生命令会继续补齐。"
-            ].join("\n")
-          : [
-              "Available now:",
-              "/clear - clear messages in the current session",
-              "/compact - compact older session history",
-              "/export - export the current session as Markdown",
-              "/new - start a new chat",
-              "/trash - delete the current session and start a new chat",
-              "/cost - show the latest token and cost statistics",
-              "/model - show the current model",
-              "/permission <default|auto|bypass|plan> - switch permission mode",
-              "/rename <title> - rename the current session",
-              "/sessions - show recent sessions",
-              "/status - show the current session, model, permission mode, and run state",
-              "/help - show this command list",
-              "",
-              "More native desktop commands will continue to land here."
-            ].join("\n")
+  },
+  help: {
+    name: "help",
+    description: (isZh) => (isZh ? "显示命令列表" : "show this command list"),
+    execute: (_args, context) => {
+      context.appendResult(
+        context.appLang === "zh" ? "桌面命令" : "Desktop commands",
+        getSlashCommandHelp(context.appLang === "zh")
       );
       return true;
     }
-    case "export": {
+  },
+  "?": {
+    name: "?",
+    description: (isZh) => (isZh ? "显示命令列表" : "show this command list"),
+    execute: (_args, context) => {
+      context.appendResult(
+        context.appLang === "zh" ? "桌面命令" : "Desktop commands",
+        getSlashCommandHelp(context.appLang === "zh")
+      );
+      return true;
+    }
+  },
+  export: {
+    name: "export",
+    description: (isZh) => (isZh ? "导出当前会话为 Markdown" : "export the current session as Markdown"),
+    execute: async (_args, context) => {
+      const isZh = context.appLang === "zh";
+      const append = context.appendResult;
       if (!context.activeSessionId) {
         append(
           isZh ? "无法导出" : "Cannot export",
@@ -167,10 +219,7 @@ export async function executeLocalSlashCommand(
         return true;
       }
       try {
-        const exported = await invoke<SessionExportResult>("sessions_export_markdown", {
-          sessionId: context.activeSessionId,
-          session_id: context.activeSessionId
-        });
+        const exported = await sessionsExportMarkdown(context.activeSessionId);
         append(
           isZh ? "会话已导出" : "Session exported",
           isZh
@@ -182,7 +231,13 @@ export async function executeLocalSlashCommand(
       }
       return true;
     }
-    case "compact": {
+  },
+  compact: {
+    name: "compact",
+    description: (isZh) => (isZh ? "压缩更早的会话历史" : "compact older session history"),
+    execute: async (_args, context) => {
+      const isZh = context.appLang === "zh";
+      const append = context.appendResult;
       if (!context.activeSessionId) {
         append(
           isZh ? "无法压缩" : "Cannot compact",
@@ -191,14 +246,8 @@ export async function executeLocalSlashCommand(
         return true;
       }
       try {
-        const compacted = await invoke<SessionCompactResult>("sessions_compact_engine", {
-          sessionId: context.activeSessionId,
-          session_id: context.activeSessionId
-        });
-        const refreshed = await invoke<DesktopMessage[]>("sessions_messages", {
-          sessionId: context.activeSessionId,
-          session_id: context.activeSessionId
-        });
+        const compacted = await sessionsCompactEngine(context.activeSessionId);
+        const refreshed = await sessionsMessages(context.activeSessionId);
         context.setTimelineItems(messagesToTimelineItems(refreshed));
         append(
           compacted.removedCount > 0
@@ -229,19 +278,23 @@ export async function executeLocalSlashCommand(
       }
       return true;
     }
-    case "permission": {
-      const normalizedMode = commandArgs.toLowerCase();
-      const modeMap: Record<string, string> = {
-        default: "default",
-        ask: "default",
-        auto: "accept-edits",
-        "accept-edits": "accept-edits",
-        acceptedits: "accept-edits",
-        bypass: "bypass",
-        trust: "bypass",
-        plan: "plan"
-      };
-      const nextMode = modeMap[normalizedMode];
+  },
+  permission: {
+    name: "permission",
+    description: (isZh) => (isZh ? "切换权限模式" : "switch permission mode"),
+    usage: (isZh) => (isZh ? "/permission <default|auto|bypass|plan>" : "/permission <default|auto|bypass|plan>"),
+    validate: (args, isZh) => {
+      const nextMode = normalizePermissionMode(args);
+      return nextMode
+        ? null
+        : isZh
+          ? "用法：/permission default|auto|bypass|plan"
+          : "Usage: /permission default|auto|bypass|plan";
+    },
+    execute: async (args, context) => {
+      const isZh = context.appLang === "zh";
+      const append = context.appendResult;
+      const nextMode = normalizePermissionMode(args);
       if (!nextMode) {
         append(
           isZh ? "权限模式" : "Permission mode",
@@ -252,7 +305,7 @@ export async function executeLocalSlashCommand(
         return true;
       }
       try {
-        await invoke("permission_mode_set", { mode: nextMode });
+        await permissionModeSet({ mode: nextMode });
         context.setPermissionMode(nextMode);
         append(isZh ? "权限模式已更新" : "Permission mode updated", nextMode);
       } catch (err) {
@@ -260,7 +313,20 @@ export async function executeLocalSlashCommand(
       }
       return true;
     }
-    case "rename": {
+  },
+  rename: {
+    name: "rename",
+    description: (isZh) => (isZh ? "重命名当前会话" : "rename the current session"),
+    usage: (isZh) => (isZh ? "/rename <标题>" : "/rename <title>"),
+    validate: (args, isZh) =>
+      args.trim()
+        ? null
+        : isZh
+          ? "用法：/rename 新标题"
+          : "Usage: /rename New title",
+    execute: async (args, context) => {
+      const isZh = context.appLang === "zh";
+      const append = context.appendResult;
       if (!context.activeSessionId) {
         append(
           isZh ? "无法重命名" : "Cannot rename",
@@ -268,16 +334,12 @@ export async function executeLocalSlashCommand(
         );
         return true;
       }
-      if (!commandArgs) {
+      if (!args.trim()) {
         append(isZh ? "重命名" : "Rename", isZh ? "用法：/rename 新标题" : "Usage: /rename New title");
         return true;
       }
       try {
-        const renamed = await invoke<SessionSummary>("sessions_rename", {
-          sessionId: context.activeSessionId,
-          session_id: context.activeSessionId,
-          title: commandArgs
-        });
+        const renamed = await sessionsRename(context.activeSessionId, args.trim());
         context.setSessionItems((items) => upsertActiveSession(items, renamed));
         append(isZh ? "已重命名" : "Renamed", renamed.title);
       } catch (err) {
@@ -285,23 +347,37 @@ export async function executeLocalSlashCommand(
       }
       return true;
     }
-    case "cost": {
-      append(isZh ? "用量与成本" : "Usage and cost", formatUsageSnapshot(context.usageSnapshot, context.appLang));
+  },
+  cost: {
+    name: "cost",
+    description: (isZh) => (isZh ? "查看最近 token 与成本统计" : "show the latest token and cost statistics"),
+    execute: (_args, context) => {
+      context.appendResult(
+        context.appLang === "zh" ? "用量与成本" : "Usage and cost",
+        formatUsageSnapshot(context.usageSnapshot, context.appLang)
+      );
       return true;
     }
-    case "model": {
-      append(
-        isZh ? "当前模型" : "Current model",
+  },
+  model: {
+    name: "model",
+    description: (isZh) => (isZh ? "查看当前模型" : "show the current model"),
+    execute: (_args, context) => {
+      context.appendResult(
+        context.appLang === "zh" ? "当前模型" : "Current model",
         formatCurrentModelLabel(context.currentProvider, context.currentModel, context.appLang)
       );
       return true;
     }
-    case "sessions": {
+  },
+  sessions: {
+    name: "sessions",
+    description: (isZh) => (isZh ? "查看最近会话" : "show recent sessions"),
+    execute: (_args, context) => {
+      const isZh = context.appLang === "zh";
+      const append = context.appendResult;
       const allSessions = context.sessionItems;
       const visible = allSessions.slice(0, 12);
-      if (commandArgs === "delete" || commandArgs === "rm") {
-        return false;
-      }
       const body =
         visible.length === 0
           ? isZh
@@ -318,7 +394,13 @@ export async function executeLocalSlashCommand(
       append(isZh ? "最近会话" : "Recent sessions", body);
       return true;
     }
-    case "status": {
+  },
+  status: {
+    name: "status",
+    description: (isZh) => (isZh ? "查看会话、模型、权限与运行状态" : "show session, model, permission mode, and run state"),
+    execute: (_args, context) => {
+      const isZh = context.appLang === "zh";
+      const append = context.appendResult;
       const project =
         context.selectedProjectRoot === null
           ? isZh
@@ -347,7 +429,13 @@ export async function executeLocalSlashCommand(
       );
       return true;
     }
-    case "trash": {
+  },
+  trash: {
+    name: "trash",
+    description: (isZh) => (isZh ? "删除当前会话并开启新对话" : "delete the current session and start a new chat"),
+    execute: async (_args, context) => {
+      const isZh = context.appLang === "zh";
+      const append = context.appendResult;
       if (!context.activeSessionId) {
         append(
           isZh ? "无法删除" : "Cannot delete",
@@ -363,10 +451,7 @@ export async function executeLocalSlashCommand(
         return true;
       }
       try {
-        await invoke("sessions_delete", {
-          sessionId: context.activeSessionId,
-          session_id: context.activeSessionId
-        });
+        await sessionsDelete(context.activeSessionId);
         context.setSessionItems((items) => items.filter((s) => s.id !== context.activeSessionId));
         context.setTimelineItems([]);
         context.setUsageSnapshot(null);
@@ -382,16 +467,51 @@ export async function executeLocalSlashCommand(
       }
       return true;
     }
-    case "review":
-      return false;
-    default: {
-      append(
-        isZh ? "未知命令" : "Unknown command",
-        isZh
-          ? `桌面 app 还不支持 /${command}。输入 /help 查看当前可用命令。`
-          : `The desktop app does not support /${command} yet. Type /help to see available commands.`
-      );
-      return true;
-    }
   }
+};
+
+function normalizePermissionMode(args: string): string | null {
+  const modeMap: Record<string, string> = {
+    default: "default",
+    ask: "default",
+    auto: "accept-edits",
+    "accept-edits": "accept-edits",
+    acceptedits: "accept-edits",
+    bypass: "bypass",
+    trust: "bypass",
+    plan: "plan"
+  };
+  return modeMap[args.toLowerCase()] ?? null;
+}
+
+export async function executeLocalSlashCommand(
+  content: string,
+  context: LocalSlashCommandContext
+): Promise<boolean> {
+  const parsed = parseSlashCommand(content);
+  if (!parsed) return false;
+  const command = slashCommandRegistry[parsed.name];
+  if (!command) {
+    // /review 是桌面端明确未实现的命令：不得拦截误发给 LLM 的行为，
+    // 保持旧版语义（detached 审查走正常消息通道）。
+    if (parsed.name === "review") return false;
+    const isZh = context.appLang === "zh";
+    context.appendResult(
+      isZh ? "未知命令" : "Unknown command",
+      isZh
+        ? `桌面 app 还不支持 /${parsed.name}。输入 /help 查看当前可用命令。`
+        : `The desktop app does not support /${parsed.name} yet. Type /help to see available commands.`
+    );
+    return true;
+  }
+  // 参数校验失败不得改变会话状态，也不得误发给 LLM。
+  const validation = command.validate?.(parsed.args, context.appLang === "zh");
+  if (validation) {
+    context.appendResult(
+      context.appLang === "zh" ? "参数错误" : "Invalid arguments",
+      validation
+    );
+    return true;
+  }
+  return await command.execute(parsed.args, context);
 }

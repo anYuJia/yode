@@ -3,6 +3,7 @@ mod records;
 mod sessions;
 #[cfg(test)]
 mod tests;
+mod turns;
 
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
@@ -15,6 +16,9 @@ use crate::session::Session;
 use crate::session_lock::SessionLock;
 
 pub use records::{SessionArtifacts, SessionListEntry, StoredMessage};
+pub use turns::{
+    redact_event_payload, TurnEvent, TurnRecord, TurnState, MAX_TURN_EVENTS, MAX_TURN_EVENT_BYTES,
+};
 
 /// SQLite-backed session and message store.
 /// Uses an internal Mutex to make it Send+Sync safe.
@@ -207,8 +211,55 @@ impl Database {
             "last_compact_boundary_json TEXT",
         )?;
         migrate_message_sort_order(&conn)?;
+        migrate_turn_journal(&conn)?;
         Ok(())
     }
+}
+
+/// Turn journal schema 迁移（user_version = 7）：
+/// 新增 turns 与 turn_events 表。主键覆盖完整 session_id + turn_id（+ seq），
+/// 禁止只按短 ID 查询；旧数据不受影响，迁移失败整体回滚。
+fn migrate_turn_journal(conn: &Connection) -> Result<()> {
+    let current: i64 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
+    if current >= 7 {
+        return Ok(());
+    }
+    conn.execute_batch("BEGIN IMMEDIATE;")?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS turns (
+            session_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            ended_at TEXT,
+            last_seq INTEGER NOT NULL DEFAULT -1,
+            cancellation_requested INTEGER NOT NULL DEFAULT 0,
+            detail TEXT,
+            error_code TEXT,
+            PRIMARY KEY (session_id, turn_id),
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+        );
+        CREATE TABLE IF NOT EXISTS turn_events (
+            session_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            seq INTEGER NOT NULL,
+            kind TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            PRIMARY KEY (session_id, turn_id, seq),
+            FOREIGN KEY (session_id) REFERENCES sessions(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_turn_events_session ON turn_events(session_id);
+        CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id);
+        PRAGMA user_version = 7; COMMIT;",
+    )
+    .map_err(|err| {
+        let _ = conn.execute_batch("ROLLBACK;");
+        anyhow::anyhow!(err)
+    })
+    .with_context(|| "Failed to migrate turn journal schema to version 7")?;
+    Ok(())
 }
 
 fn migrate_message_sort_order(conn: &Connection) -> Result<()> {

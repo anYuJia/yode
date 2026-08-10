@@ -59,6 +59,9 @@ pub struct DesktopSession {
 #[serde(rename_all = "camelCase")]
 pub struct DesktopMessage {
     pub id: i64,
+    /// 会话内消息顺序（sort_order）。分页/向上翻页的游标；旧版响应无此字段。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort_order: Option<i64>,
     pub role: String,
     pub content: Option<String>,
     pub reasoning: Option<String>,
@@ -177,6 +180,8 @@ pub struct TurnAccepted {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DesktopEvent {
+    /// 统一事件协议版本：老字段继续输出，新字段只增不改；前端对缺失值保持兼容。
+    pub schema_version: u32,
     pub session_id: String,
     pub turn_id: String,
     pub seq: u64,
@@ -213,6 +218,37 @@ pub struct SessionRunState {
     pub status: String,
     pub updated_at: String,
     pub detail: Option<String>,
+    /// turn journal 持久化字段：开始/结束时间、已落盘事件 seq、错误码、取消请求标记。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ended_at: Option<String>,
+    #[serde(default)]
+    pub last_seq: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+    #[serde(default)]
+    pub cancellation_requested: bool,
+}
+
+/// 持久化 turn 事件（payload 已在落盘前脱敏，可安全回放给前端）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurnEvent {
+    pub session_id: String,
+    pub turn_id: String,
+    pub seq: i64,
+    pub kind: String,
+    pub timestamp: String,
+    pub payload: Value,
+}
+
+/// 会话消息分页结果：按 sort_order 降序返回最近窗口，has_more 指示是否还有更早消息。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMessagesPage {
+    pub messages: Vec<DesktopMessage>,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

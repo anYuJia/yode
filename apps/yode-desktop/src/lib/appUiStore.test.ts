@@ -247,7 +247,11 @@ describe("app UI store", () => {
       messageQueue: [],
       pendingUserQuestion: null,
       timelineItems: [],
-      usageSnapshot: null
+      usageSnapshot: null,
+      hasMoreHistory: false,
+      historyLoading: false,
+      historyError: false,
+      historyCursor: null
     });
   });
 
@@ -394,6 +398,64 @@ describe("app UI store", () => {
     useAppUiStore.getState().setDraggingPane(null);
 
     expect(useAppUiStore.getState().draggingPane).toBeNull();
+  });
+
+  it("migrates legacy selected-project-root and empty settings tab on load", async () => {
+    stubMemoryLocalStorage({
+      [SELECTED_PROJECT_ROOT_STORAGE_KEY]: "null",
+      "yode-active-tab": ""
+    });
+
+    const {
+      ACTIVE_SETTINGS_TAB_STORAGE_KEY,
+      DEFAULT_SETTINGS_TAB,
+      loadActiveSettingsTab,
+      useAppUiStore
+    } = await import("./appUiStore");
+
+    expect(useAppUiStore.getState().selectedProjectRoot).toBeNull();
+    expect(localStorage.getItem(SELECTED_PROJECT_ROOT_STORAGE_KEY)).toBe(STANDALONE_PROJECT_SENTINEL);
+    expect(loadActiveSettingsTab()).toBe(DEFAULT_SETTINGS_TAB);
+    expect(localStorage.getItem(ACTIVE_SETTINGS_TAB_STORAGE_KEY)).toBe(DEFAULT_SETTINGS_TAB);
+  });
+
+  it("tracks history paging state per session in the store", async () => {
+    stubMemoryLocalStorage();
+
+    const { useAppUiStore } = await import("./appUiStore");
+    const store = useAppUiStore.getState();
+    store.setActiveSessionId("history-session");
+
+    expect(store.getSessionUiState("history-session").hasMoreHistory).toBe(false);
+    store.setHasMoreHistory(true, "history-session");
+    store.setHistoryLoading(true, "history-session");
+    store.setHistoryCursor(42, "history-session");
+    const ui = store.getSessionUiState("history-session");
+    expect(ui.hasMoreHistory).toBe(true);
+    expect(ui.historyLoading).toBe(true);
+    expect(ui.historyCursor).toBe(42);
+
+    // 游标按会话隔离
+    store.setActiveSessionId("other-session");
+    expect(store.getSessionUiState("other-session").historyCursor).toBeNull();
+  });
+
+  it("keeps replay state machine in the store with retry generation", async () => {
+    stubMemoryLocalStorage();
+
+    const { useAppUiStore } = await import("./appUiStore");
+    const store = useAppUiStore.getState();
+    expect(store.replayState.status).toBe("idle");
+    expect(store.replayState.retryGeneration).toBe(0);
+
+    store.setReplayState({ status: "error", error: "查询失败", retryGeneration: 0 });
+    expect(useAppUiStore.getState().replayState.status).toBe("error");
+
+    store.retryReplay();
+    const after = useAppUiStore.getState().replayState;
+    expect(after.status).toBe("idle");
+    expect(after.error).toBeUndefined();
+    expect(after.retryGeneration).toBe(1);
   });
 });
 

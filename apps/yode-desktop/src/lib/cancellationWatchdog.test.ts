@@ -8,7 +8,7 @@ import {
 import { CANCELLATION_STATUS_WATCHDOG_MS, isTerminalTurnEvent } from "./desktopEventHandlers";
 import { RunState } from "./desktopTypes";
 
-function run(sessionId: string, turnId: string, status: string): RunState {
+function run(sessionId: string, turnId: string, status: RunState["status"]): RunState {
   return { sessionId, turnId, status, updatedAt: "2026-08-08T00:00:00Z" };
 }
 

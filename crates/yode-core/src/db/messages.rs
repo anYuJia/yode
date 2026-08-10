@@ -126,6 +126,50 @@ impl Database {
         Ok(messages)
     }
 
+    /// 分页/窗口读取：按 sort_order 降序读取一个会话最近 `limit` 条消息。
+    /// `before_sort_order` 提供时读取严格更早的窗口（向上翻页）。
+    /// 调用方负责反转以获得正序展示。不允许默认一次性加载无限历史。
+    pub fn load_messages_window(
+        &self,
+        session_id: &str,
+        before_sort_order: Option<i64>,
+        limit: usize,
+    ) -> Result<Vec<StoredMessage>> {
+        let limit = limit.max(1);
+        let conn = self.lock_connection()?;
+        let mut stmt = conn.prepare(
+            "SELECT id, session_id, role, content, reasoning, tool_calls_json, tool_call_id, images_json, metadata_json, sort_order, created_at
+             FROM messages
+             WHERE session_id = ?1 AND (?2 IS NULL OR sort_order < ?2)
+             ORDER BY sort_order DESC, id DESC
+             LIMIT ?3",
+        )?;
+        let rows = stmt
+            .query_map(
+                params![session_id, before_sort_order, limit as i64],
+                |row| {
+                    Ok(StoredMessage {
+                        id: row.get(0)?,
+                        session_id: row.get(1)?,
+                        role: row.get(2)?,
+                        content: row.get(3)?,
+                        reasoning: row.get(4)?,
+                        tool_calls_json: row.get(5)?,
+                        tool_call_id: row.get(6)?,
+                        images_json: row.get(7)?,
+                        metadata_json: row.get(8)?,
+                        sort_order: row.get(9)?,
+                        created_at: parse_rfc3339_strict(
+                            row.get::<_, String>(10).unwrap_or_default(),
+                        )
+                        .map_err(|err| rusqlite_corruption(10, err))?,
+                    })
+                },
+            )?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
     /// Atomically rewrite a session snapshot while retaining the identity and metadata of
     /// messages that remain in the conversation. The returned ids correspond to `messages`.
     pub fn replace_messages(&self, session_id: &str, messages: &[Message]) -> Result<Vec<i64>> {

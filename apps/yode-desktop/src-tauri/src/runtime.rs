@@ -57,7 +57,7 @@ use self::turn_runtime::SessionOperationMap;
 
 pub struct DesktopRuntime {
     config: Mutex<Config>,
-    db: Database,
+    db: Arc<Database>,
     db_path: PathBuf,
     workspace_path: PathBuf,
     /// 用户级配置文件的唯一持久化目标。生产环境使用真实用户目录；测试可注入临时路径。
@@ -145,9 +145,29 @@ impl DesktopRuntime {
             .unwrap_or(yode_core::permission::PermissionMode::Default)
             .to_string();
 
+        let db = Arc::new(Database::open(&db_path)?);
+        // 进程启动：上次运行遗留的 running/starting/waiting_*/cancelling turn
+        // 一律标记为 interrupted，绝不伪装成成功；随后限量清理已终态 journal。
+        // 仅在此处执行一次（不在 Database::open 内），避免后台线程二次打开误伤
+        // 正在运行的新 turn。
+        match db.mark_interrupted_turns("检测到上次运行未正常结束，已标记为中断")
+        {
+            Ok(marked) => {
+                if marked > 0 {
+                    tracing::info!("标记 {} 个上次运行遗留的 turn 为 interrupted", marked);
+                }
+            }
+            Err(err) => {
+                tracing::error!("标记遗留 turn 为 interrupted 失败: {}", err);
+            }
+        }
+        if let Err(err) = db.prune_turn_journals() {
+            tracing::error!("启动时清理 turn journal 失败: {}", err);
+        }
+
         Ok(Self {
             config: Mutex::new(config),
-            db: Database::open(&db_path)?,
+            db,
             db_path,
             workspace_path,
             user_config_path,
@@ -273,14 +293,38 @@ impl DesktopRuntime {
         })
     }
 
+    /// 运行状态列表：数据库 turn journal 是事实来源；内存热缓存仅补充
+    /// 极少数尚未落盘的状态（如正在写入的首个事件）。
     pub fn runs_list(&self) -> Result<Vec<SessionRunState>> {
         let mut runs = self
+            .db
+            .list_recent_turns(64)?
+            .into_iter()
+            .map(|turn| SessionRunState {
+                session_id: turn.session_id,
+                turn_id: turn.turn_id,
+                status: turn.status.as_str().to_string(),
+                updated_at: turn.updated_at.to_rfc3339(),
+                detail: turn.detail,
+                started_at: Some(turn.started_at.to_rfc3339()),
+                ended_at: turn.ended_at.map(|value| value.to_rfc3339()),
+                last_seq: turn.last_seq,
+                error_code: turn.error_code,
+                cancellation_requested: turn.cancellation_requested,
+            })
+            .collect::<Vec<_>>();
+        let registry = self
             .run_registry
             .lock()
-            .map_err(|_| anyhow::anyhow!("run registry lock poisoned"))?
-            .values()
-            .cloned()
-            .collect::<Vec<_>>();
+            .map_err(|_| anyhow::anyhow!("run registry lock poisoned"))?;
+        for entry in registry.values() {
+            let exists = runs
+                .iter()
+                .any(|run| run.session_id == entry.session_id && run.turn_id == entry.turn_id);
+            if !exists {
+                runs.push(entry.clone());
+            }
+        }
         runs.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
         Ok(runs)
     }
