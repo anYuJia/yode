@@ -14,6 +14,7 @@ pub mod instructions;
 pub mod permission;
 pub mod plugin_trust;
 pub mod plugins;
+pub mod run_controller;
 pub mod session;
 pub mod session_artifact;
 pub mod session_lock;
