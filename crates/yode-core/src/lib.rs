@@ -24,6 +24,7 @@ pub mod skills;
 pub mod tool_runtime;
 pub mod transcript;
 pub mod updater;
+pub mod verification;
 pub mod workspace_trust;
 
 pub use context::EffortLevel;
