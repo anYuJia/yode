@@ -92,6 +92,12 @@ impl AgentEngine {
         self.consecutive_failures = 0;
         self.violation_retries = 0;
         self.files_modified.clear();
+        self.messages.retain(|message| {
+            !message
+                .content
+                .as_deref()
+                .is_some_and(|content| content.contains("[YODE_VERIFICATION_GATE]"))
+        });
         // BUDGET-001：每轮硬预算状态重置（步数归零，墙钟从本轮起点计时）。
         self.turn_step_count = 0;
         self.turn_budget_started_at = Some(std::time::Instant::now());

@@ -1,12 +1,75 @@
 use super::*;
 
+const VERIFICATION_GATE_MARKER: &str = "[YODE_VERIFICATION_GATE]";
+
 pub(in crate::engine) enum StreamFinalizeAction {
     Continue,
     ReturnOk,
     Break,
 }
 
+enum VerificationGateAction {
+    Allow,
+    Continue,
+    Block,
+}
+
 impl AgentEngine {
+    fn has_strong_verification_evidence(&self) -> bool {
+        const VERIFICATION_TOOLS: &[&str] = &[
+            "test_runner",
+            "verification_agent",
+            "review_changes",
+            "review_pipeline",
+            "review_then_commit",
+        ];
+        self.current_tool_execution_traces.iter().any(|trace| {
+            trace.success && VERIFICATION_TOOLS.contains(&trace.tool_name.as_str())
+        })
+    }
+
+    fn verification_gate_marker_injected(&self) -> bool {
+        self.messages.iter().any(|message| {
+            message
+                .content
+                .as_deref()
+                .is_some_and(|content| content.contains(VERIFICATION_GATE_MARKER))
+        })
+    }
+
+    fn enforce_verification_before_delivery(
+        &mut self,
+        event_tx: &mpsc::UnboundedSender<EngineEvent>,
+    ) -> VerificationGateAction {
+        if self.files_modified.is_empty() || self.has_strong_verification_evidence() {
+            return VerificationGateAction::Allow;
+        }
+
+        if self.verification_gate_marker_injected() {
+            let _ = event_tx.send(EngineEvent::Error(
+                "Verification gate blocked delivery: workspace changes were made but no strong verification evidence was recorded. Run test_runner, verification_agent, review_changes, or review_pipeline before completing the task."
+                    .to_string(),
+            ));
+            return VerificationGateAction::Block;
+        }
+
+        let changed_files = self
+            .files_modified
+            .iter()
+            .take(12)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        self.messages.push(Message::system(format!(
+            "{VERIFICATION_GATE_MARKER}\nYou changed workspace files in this run and delivery is now gated on verification evidence.\n\nChanged files: {changed_files}\n\nBefore answering the user, derive concrete acceptance criteria from the user's goal and the observed changes, then run at least one strong verification path using `test_runner`, `verification_agent`, `review_changes`, or `review_pipeline`. Use targeted checks first; add broader tests when risk warrants it. If verification fails, diagnose, repair, and verify again. Do not claim completion without evidence."
+        )));
+        let _ = event_tx.send(EngineEvent::ActionNarrative(
+            "Workspace changes detected; entering mandatory verification before delivery."
+                .to_string(),
+        ));
+        VerificationGateAction::Continue
+    }
+
     pub(in crate::engine) async fn finalize_stream_turn(
         &mut self,
         mut buffers: StreamTurnBuffers,
@@ -187,6 +250,21 @@ impl AgentEngine {
             self.push_and_persist_assistant_message(&response.message);
 
             if response.message.tool_calls.is_empty() {
+                match self.enforce_verification_before_delivery(event_tx) {
+                    VerificationGateAction::Allow => {}
+                    VerificationGateAction::Continue => {
+                        debug!("Verification gate requested another agent step before delivery.");
+                        return Ok(StreamFinalizeAction::Continue);
+                    }
+                    VerificationGateAction::Block => {
+                        self.complete_tool_turn_artifact_async().await;
+                        self.complete_turn_runtime_artifact(response.stop_reason.as_ref())
+                            .await;
+                        let _ = event_tx.send(EngineEvent::Done);
+                        return Ok(StreamFinalizeAction::Break);
+                    }
+                }
+
                 if self.run_stop_hooks_before_turn_complete(&response).await {
                     return Ok(StreamFinalizeAction::Continue);
                 }
