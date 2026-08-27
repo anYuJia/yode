@@ -16,6 +16,7 @@ tauri-build = { version = "2.6.2", features = [] }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 dirs = { workspace = true }
+reqwest = { workspace = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = { workspace = true }
 toml = { workspace = true }

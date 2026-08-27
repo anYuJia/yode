@@ -87,9 +87,6 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         provider::config_set_default_llm,
         provider::config_test_provider,
         update::check_for_updates,
-        update::download_update,
-        update::has_pending_update,
-        update::apply_downloaded_update,
         app::app_restart
     ]
 }
