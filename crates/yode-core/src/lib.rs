@@ -32,6 +32,8 @@ pub use permission::PermissionMode;
 
 #[cfg(all(test, windows))]
 pub(crate) mod test_support {
+    use std::path::Path;
+
     pub(crate) fn powershell_encoded_command(script: &str) -> String {
         let mut utf16_le = Vec::new();
         for unit in script.encode_utf16() {
@@ -42,6 +44,24 @@ pub(crate) mod test_support {
             "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -OutputFormat Text -EncodedCommand {}",
             base64_encode(&utf16_le)
         )
+    }
+
+    /// Build a cmd.exe command that emits text byte-for-byte without embedding the payload in the
+    /// command line. This avoids the special quote parsing performed by `cmd /s /c` on Windows and
+    /// also avoids `echo` adding CRLF to structured hook output.
+    pub(crate) fn cmd_literal_output_command(
+        working_dir: &Path,
+        text: &str,
+        exit_code: Option<i32>,
+    ) -> String {
+        let file_name = format!("yode-hook-output-{}.txt", uuid::Uuid::new_v4());
+        std::fs::write(working_dir.join(&file_name), text)
+            .expect("write Windows hook literal output fixture");
+
+        match exit_code {
+            Some(code) => format!("type {file_name} & exit /b {code}"),
+            None => format!("type {file_name}"),
+        }
     }
 
     fn base64_encode(bytes: &[u8]) -> String {
