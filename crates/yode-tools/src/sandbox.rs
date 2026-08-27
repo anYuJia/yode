@@ -93,6 +93,8 @@ pub fn prepare_shell(
         SandboxMode::from_env()
     };
     let network = SandboxNetworkPolicy::from_env();
+    #[cfg(target_os = "windows")]
+    let _ = working_dir;
 
     if mode == SandboxMode::Off {
         let (executable, args) = plain_shell(command);
