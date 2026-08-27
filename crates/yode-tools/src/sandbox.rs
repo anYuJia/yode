@@ -307,11 +307,8 @@ fn probe_bwrap(bwrap: &Path) -> Result<(), String> {
     Err(format!("bubblewrap is installed but unusable: {detail}"))
 }
 
+#[cfg(not(target_os = "linux"))]
 fn platform_unavailable_reason() -> String {
-    #[cfg(target_os = "linux")]
-    {
-        return "bubblewrap (bwrap) is not installed or not on PATH".to_string();
-    }
     #[cfg(target_os = "macos")]
     {
         return "sandbox-exec is unavailable on this macOS installation".to_string();
