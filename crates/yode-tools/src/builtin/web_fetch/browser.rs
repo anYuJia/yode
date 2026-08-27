@@ -46,19 +46,18 @@ impl Tool for WebBrowserTool {
     fn activity_description(&self, params: &Value) -> String {
         let action = params
             .get("action")
-            .and_then(|v| v.as_str())
+            .and_then(Value::as_str)
             .unwrap_or("browsing");
-        let url = params.get("url").and_then(|v| v.as_str()).unwrap_or("");
-        if !url.is_empty() {
-            format!("Browser: {} {}", action, url)
+        let url = params.get("url").and_then(Value::as_str).unwrap_or("");
+        if url.is_empty() {
+            format!("Browser: {action}")
         } else {
-            format!("Browser: {}", action)
+            format!("Browser: {action} {url}")
         }
     }
 
     fn description(&self) -> &str {
-        "Interact with a web browser to navigate pages, click elements, type text, and capture screenshots. \
-         Use this for testing web applications or accessing dynamic content."
+        "Interact with a real browser to navigate pages, click elements, type text, scroll, evaluate JavaScript, and capture screenshots. Browser actions never report success unless a real executor completed them."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -67,25 +66,13 @@ impl Tool for WebBrowserTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["navigate", "click", "type", "scroll", "screenshot", "evaluate"],
-                    "description": "The browser action to perform"
+                    "enum": ["navigate", "click", "type", "scroll", "screenshot", "evaluate"]
                 },
-                "url": {
-                    "type": "string",
-                    "description": "URL to navigate to (for 'navigate')"
-                },
-                "selector": {
-                    "type": "string",
-                    "description": "CSS selector for the element (for 'click', 'type')"
-                },
-                "text": {
-                    "type": "string",
-                    "description": "Text to type (for 'type')"
-                },
-                "code": {
-                    "type": "string",
-                    "description": "JavaScript code to evaluate (for 'evaluate')"
-                }
+                "url": { "type": "string" },
+                "selector": { "type": "string" },
+                "text": { "type": "string" },
+                "code": { "type": "string" },
+                "delta_y": { "type": "integer", "default": 600 }
             },
             "required": ["action"]
         })
@@ -100,7 +87,7 @@ impl Tool for WebBrowserTool {
     }
 
     async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
-        let action = params.get("action").and_then(|v| v.as_str()).unwrap_or("");
+        let action = params.get("action").and_then(Value::as_str).unwrap_or("");
         let settings = browser_runtime_settings();
         if !settings.enabled {
             return Ok(ToolResult::error_typed(
@@ -111,7 +98,7 @@ impl Tool for WebBrowserTool {
             ));
         }
 
-        let url = params.get("url").and_then(|v| v.as_str()).unwrap_or("");
+        let url = params.get("url").and_then(Value::as_str).unwrap_or("");
         let domain = extract_domain(url);
         if let Some(domain) = domain.as_deref() {
             if domain_matches_any(domain, &settings.blocked_domains) {
@@ -122,7 +109,6 @@ impl Tool for WebBrowserTool {
                     Some("请从 设置 > 浏览器 > 已拦截域名 中移除该域名后重试。".to_string()),
                 ));
             }
-
             if action == "navigate"
                 && settings.approval_policy == "Never allow"
                 && !domain_matches_any(domain, &settings.allowed_domains)
@@ -131,10 +117,7 @@ impl Tool for WebBrowserTool {
                     format!("当前浏览器审批策略不允许打开未加入白名单的域名：{domain}"),
                     ToolErrorType::PermissionDeny,
                     true,
-                    Some(
-                        "请将该域名加入 设置 > 浏览器 > 已允许域名，或调整授权审批策略。"
-                            .to_string(),
-                    ),
+                    Some("请将该域名加入 设置 > 浏览器 > 已允许域名，或调整授权审批策略。".to_string()),
                 ));
             }
         } else if action == "navigate" {
@@ -146,36 +129,13 @@ impl Tool for WebBrowserTool {
             ));
         }
 
-        // Mock browser execution
-        let msg = match action {
-            "navigate" => format!("Navigated to {}", url),
-            "click" => format!(
-                "Clicked element: {}",
-                params
-                    .get("selector")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("?")
+        Ok(ToolResult::error_typed(
+            format!(
+                "Browser action '{action}' was not executed because no real browser executor is connected. Mock browser success has been disabled."
             ),
-            "screenshot" => "Captured screenshot (stored in session artifacts).".to_string(),
-            _ => format!("Performed browser action: {}", action),
-        };
-
-        Ok(ToolResult::success_with_metadata(
-            msg,
-            json!({
-                "action": action,
-                "url": if url.is_empty() { Value::Null } else { json!(url) },
-                "domain": domain,
-                "browser_enabled": settings.enabled,
-                "approval_policy": settings.approval_policy,
-                "annotation_screenshots": settings.annotation_screenshots,
-                "domain_allowed": domain
-                    .as_deref()
-                    .map(|domain| domain_matches_any(domain, &settings.allowed_domains))
-                    .unwrap_or(false),
-                "domain_blocked": false,
-                "executor": "mock",
-            }),
+            ToolErrorType::Execution,
+            true,
+            Some("Install or enable the Yode desktop browser runtime, then retry the browser action.".to_string()),
         ))
     }
 }
@@ -220,9 +180,7 @@ fn extract_domain(raw_url: &str) -> Option<String> {
 }
 
 fn domain_matches_any(domain: &str, patterns: &[String]) -> bool {
-    patterns
-        .iter()
-        .any(|pattern| domain_matches(domain, pattern))
+    patterns.iter().any(|pattern| domain_matches(domain, pattern))
 }
 
 fn domain_matches(domain: &str, pattern: &str) -> bool {
@@ -248,79 +206,22 @@ mod tests {
 
     async fn env_lock() -> tokio::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
-            .lock()
-            .await
-    }
-
-    fn set_browser_settings(settings: serde_json::Value) {
-        std::env::set_var("YODE_BROWSER_SETTINGS", settings.to_string());
+        LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await
     }
 
     #[tokio::test]
-    async fn web_browser_formats_navigate_and_click_actions() {
+    async fn enabled_browser_never_fakes_success_without_executor() {
         let _guard = env_lock().await;
         std::env::remove_var("YODE_BROWSER_SETTINGS");
-        let navigate = WebBrowserTool
+        let result = WebBrowserTool
             .execute(
                 json!({"action":"navigate","url":"https://example.com"}),
                 &crate::tool::ToolContext::empty(),
             )
             .await
             .unwrap();
-        assert!(!navigate.is_error);
-        assert!(navigate
-            .content
-            .contains("Navigated to https://example.com"));
-        assert_eq!(
-            navigate.metadata.as_ref().unwrap()["domain"],
-            json!("example.com")
-        );
-
-        let click = WebBrowserTool
-            .execute(
-                json!({"action":"click","selector":"#submit"}),
-                &crate::tool::ToolContext::empty(),
-            )
-            .await
-            .unwrap();
-        assert!(!click.is_error);
-        assert!(click.content.contains("Clicked element: #submit"));
-    }
-
-    #[tokio::test]
-    async fn web_browser_formats_screenshot_and_generic_actions() {
-        let _guard = env_lock().await;
-        set_browser_settings(json!({
-            "enabled": true,
-            "annotationScreenshots": "Never include",
-            "approvalPolicy": "Always ask",
-            "blockedDomains": [],
-            "allowedDomains": []
-        }));
-        let screenshot = WebBrowserTool
-            .execute(
-                json!({"action":"screenshot"}),
-                &crate::tool::ToolContext::empty(),
-            )
-            .await
-            .unwrap();
-        assert!(screenshot.content.contains("Captured screenshot"));
-        assert_eq!(
-            screenshot.metadata.as_ref().unwrap()["annotation_screenshots"],
-            json!("Never include")
-        );
-
-        let evaluate = WebBrowserTool
-            .execute(
-                json!({"action":"evaluate","code":"1+1"}),
-                &crate::tool::ToolContext::empty(),
-            )
-            .await
-            .unwrap();
-        assert!(evaluate
-            .content
-            .contains("Performed browser action: evaluate"));
+        assert!(result.is_error);
+        assert!(result.content.contains("Mock browser success has been disabled"));
     }
 
     #[test]
@@ -329,83 +230,5 @@ mod tests {
         assert!(caps.requires_confirmation);
         assert!(!caps.supports_auto_execution);
         assert!(!caps.read_only);
-    }
-
-    #[tokio::test]
-    async fn web_browser_rejects_when_disabled() {
-        let _guard = env_lock().await;
-        set_browser_settings(json!({
-            "enabled": false,
-            "annotationScreenshots": "Always include",
-            "approvalPolicy": "Always ask",
-            "blockedDomains": [],
-            "allowedDomains": []
-        }));
-
-        let result = WebBrowserTool
-            .execute(
-                json!({"action":"navigate","url":"https://example.com"}),
-                &crate::tool::ToolContext::empty(),
-            )
-            .await
-            .unwrap();
-        assert!(result.is_error);
-        assert!(result.content.contains("已在设置中关闭"));
-    }
-
-    #[tokio::test]
-    async fn web_browser_rejects_blocked_domain() {
-        let _guard = env_lock().await;
-        set_browser_settings(json!({
-            "enabled": true,
-            "annotationScreenshots": "Always include",
-            "approvalPolicy": "Always allow",
-            "blockedDomains": ["example.com"],
-            "allowedDomains": []
-        }));
-
-        let result = WebBrowserTool
-            .execute(
-                json!({"action":"navigate","url":"https://docs.example.com/path"}),
-                &crate::tool::ToolContext::empty(),
-            )
-            .await
-            .unwrap();
-        assert!(result.is_error);
-        assert!(result.content.contains("docs.example.com"));
-    }
-
-    #[tokio::test]
-    async fn web_browser_never_allow_requires_allowed_domain() {
-        let _guard = env_lock().await;
-        set_browser_settings(json!({
-            "enabled": true,
-            "annotationScreenshots": "Always include",
-            "approvalPolicy": "Never allow",
-            "blockedDomains": [],
-            "allowedDomains": ["trusted.test"]
-        }));
-
-        let rejected = WebBrowserTool
-            .execute(
-                json!({"action":"navigate","url":"https://example.com"}),
-                &crate::tool::ToolContext::empty(),
-            )
-            .await
-            .unwrap();
-        assert!(rejected.is_error);
-
-        let allowed = WebBrowserTool
-            .execute(
-                json!({"action":"navigate","url":"https://app.trusted.test"}),
-                &crate::tool::ToolContext::empty(),
-            )
-            .await
-            .unwrap();
-        assert!(!allowed.is_error);
-        assert_eq!(
-            allowed.metadata.as_ref().unwrap()["domain_allowed"],
-            json!(true)
-        );
     }
 }
