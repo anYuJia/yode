@@ -28,10 +28,7 @@ fn hook_echo_command(text: &str) -> String {
 
 #[cfg(windows)]
 fn hook_json_command(json: &str) -> String {
-    crate::test_support::powershell_encoded_command(&format!(
-        "Write-Output '{}'",
-        json.replace('\'', "''")
-    ))
+    format!("echo {json}")
 }
 
 #[cfg(not(windows))]
