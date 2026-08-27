@@ -1,0 +1,49 @@
+name: Temporary GPT-3.5 Capability Fix
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+      - name: Restore legacy GPT-3.5 limits
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('crates/yode-llm/src/capabilities.rs')
+          text = path.read_text()
+          old = '''    } else if model.contains("gpt-4o") || model.contains("gpt-4.1") {\n        caps.context_window = 128_000;'''
+          new = '''    } else if model.contains("gpt-3.5") {\n        // Preserve the legacy context budget used before context management\n        // migrated to the shared capability registry. Falling through to the\n        // 128K default silently disables compaction for GPT-3.5 sessions.\n        caps.context_window = 16_385;\n        caps.max_output_tokens = 4_096;\n        caps.supports_tools = true;\n        caps.quality_score = 58;\n        caps.speed_score = 82;\n        caps.cost_class = ModelCostClass::Economy;\n    } else if model.contains("gpt-4o") || model.contains("gpt-4.1") {\n        caps.context_window = 128_000;'''
+          if old not in text:
+              raise SystemExit('GPT family capability insertion point not found')
+          text = text.replace(old, new, 1)
+
+          marker = '''    #[test]\n    fn exact_override_wins_over_builtin_profile() {'''
+          test = '''    #[test]\n    fn legacy_gpt35_context_budget_is_preserved() {\n        let registry = ModelCapabilityRegistry::new();\n        for model in ["gpt-3.5", "gpt-3.5-turbo"] {\n            let caps = registry.resolve("openai", model);\n            assert_eq!(caps.context_window, 16_385);\n            assert_eq!(caps.max_output_tokens, 4_096);\n        }\n    }\n\n    #[test]\n    fn exact_override_wins_over_builtin_profile() {'''
+          if marker not in text:
+              raise SystemExit('capability test insertion point not found')
+          path.write_text(text.replace(marker, test, 1))
+          PY
+          cargo fmt --all
+      - name: Commit fix
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add crates/yode-llm/src/capabilities.rs
+          git commit -m 'fix(llm): preserve gpt-3.5 context capabilities'
+          git push origin HEAD:main
