@@ -95,9 +95,10 @@ pub fn prepare_shell(
     let network = SandboxNetworkPolicy::from_env();
 
     if mode == SandboxMode::Off {
+        let (executable, args) = plain_shell(command);
         return Ok(PreparedShell {
-            executable: PathBuf::from("sh"),
-            args: vec!["-c".to_string(), command.to_string()],
+            executable,
+            args,
             info: SandboxLaunchInfo {
                 mode,
                 backend: SandboxBackend::Disabled,
@@ -190,9 +191,10 @@ pub fn prepare_shell(
         bail!("OS sandbox required but unavailable: {reason}");
     }
 
+    let (executable, args) = plain_shell(command);
     Ok(PreparedShell {
-        executable: PathBuf::from("sh"),
-        args: vec!["-c".to_string(), command.to_string()],
+        executable,
+        args,
         info: SandboxLaunchInfo {
             mode,
             backend: SandboxBackend::Unavailable,
@@ -213,6 +215,25 @@ pub fn annotate_tool_result(result: &mut ToolResult, info: &SandboxLaunchInfo) {
             "sandbox".to_string(),
             serde_json::to_value(info).unwrap_or_else(|_| json!({})),
         );
+    }
+}
+
+fn plain_shell(command: &str) -> (PathBuf, Vec<String>) {
+    #[cfg(target_os = "windows")]
+    {
+        return (
+            PathBuf::from("cmd.exe"),
+            vec![
+                "/d".to_string(),
+                "/s".to_string(),
+                "/c".to_string(),
+                command.to_string(),
+            ],
+        );
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        (PathBuf::from("sh"), vec!["-c".to_string(), command.to_string()])
     }
 }
 
@@ -255,10 +276,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn disabled_mode_uses_plain_shell() {
+    fn disabled_mode_uses_platform_shell() {
         let prepared = prepare_shell("echo ok", Path::new("."), true).unwrap();
         assert_eq!(prepared.info.backend, SandboxBackend::Disabled);
         assert!(!prepared.info.sandboxed);
+        #[cfg(target_os = "windows")]
+        assert_eq!(prepared.executable, PathBuf::from("cmd.exe"));
+        #[cfg(not(target_os = "windows"))]
         assert_eq!(prepared.executable, PathBuf::from("sh"));
     }
 
