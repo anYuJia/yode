@@ -300,7 +300,7 @@ fn domain_matches(domain: &str, pattern: &str) -> bool {
 mod tests {
     use std::sync::OnceLock;
 
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     use crate::tool::Tool;
 
