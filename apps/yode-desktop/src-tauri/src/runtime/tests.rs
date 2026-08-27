@@ -383,24 +383,20 @@ tool = "write_file"
         std::path::Path::new("/tmp"),
     );
     assert_eq!(manager.mode(), PermissionMode::Default);
-    // always_allow
     assert_eq!(
         manager.explain_with_content("read_file", None).action,
         PermissionAction::Allow
     );
-    // always_ask 覆盖 require_confirmation 的默认询问行为
     assert_eq!(
         manager
             .explain_with_content("bash", Some("cargo test"))
             .action,
         PermissionAction::Confirm
     );
-    // always_deny
     assert_eq!(
         manager.explain_with_content("write_file", None).action,
         PermissionAction::Deny
     );
-    // 未配置的只读工具默认允许（与 CLI 一致）
     assert_eq!(
         manager.explain_with_content("grep", None).action,
         PermissionAction::Allow
@@ -429,8 +425,6 @@ fn provider_api_key_never_reaches_webview() {
         .join(".yode")
         .join("config.toml");
     let real_config_metadata = config_file_metadata(&real_config_path);
-    // 模拟正常启动场景：磁盘上已存在带密钥的提供者与 MCP 服务器
-    // （通过统一事务入口写入，与生产路径一致）。
     runtime
         .update_user_config(|config| {
             config.llm.providers.insert(
@@ -461,11 +455,9 @@ fn provider_api_key_never_reaches_webview() {
         .iter()
         .find(|p| p.id == "openai")
         .expect("openai provider");
-    // WebView 永不拿到真实密钥，只拿到掩码标记
     assert_eq!(openai.api_key, "");
     assert!(openai.has_api_key);
 
-    // 保存时留空 = 保持原密钥
     let mut saved = openai.clone();
     saved.api_key = "".to_string();
     saved.models = vec!["gpt-4o".to_string(), "gpt-4.1".to_string()];
@@ -503,7 +495,6 @@ fn provider_api_key_never_reaches_webview() {
         Some("sk-real-secret-42")
     );
 
-    // 显式输入新密钥 = 覆盖
     drop(stored);
     let mut updated = openai.clone();
     updated.api_key = "sk-new-key".to_string();
@@ -559,7 +550,6 @@ fn config_file_metadata(path: &std::path::Path) -> Option<(u64, std::time::Syste
 fn concurrent_updates_from_independent_runtimes_preserve_both_config_domains() {
     use std::sync::Barrier;
 
-    // 两个完全独立的运行时（模拟两个应用实例）共享同一个用户配置文件
     let shared_dir = unique_temp_dir("concurrent-config");
     std::fs::create_dir_all(shared_dir.join(".yode")).unwrap();
     let shared_config_path = shared_dir.join(".yode").join("config.toml");
@@ -573,14 +563,12 @@ fn concurrent_updates_from_independent_runtimes_preserve_both_config_domains() {
     let barrier_b = Arc::clone(&barrier);
     let thread_a = std::thread::spawn(move || {
         barrier_a.wait();
-        // 域 A：默认 LLM
         runtime_a
             .config_set_default_llm("anthropic".to_string(), "claude-sonnet-4-5".to_string())
             .unwrap();
     });
     let thread_b = std::thread::spawn(move || {
         barrier_b.wait();
-        // 域 B：权限默认模式（异步 RPC 在独立线程上执行）
         tauri::async_runtime::block_on(runtime_b.permission_mode_set(
             "plan".to_string(),
             false,
@@ -591,13 +579,11 @@ fn concurrent_updates_from_independent_runtimes_preserve_both_config_domains() {
     thread_a.join().unwrap();
     thread_b.join().unwrap();
 
-    // 最终磁盘配置必须同时保留两项改动，且 TOML 可解析
     let persisted = Config::load_with_overrides(Some(&shared_config_path), None)
         .expect("并发事务后用户配置必须可解析");
     assert_eq!(persisted.llm.default_provider, "anthropic");
     assert_eq!(persisted.llm.default_model, "claude-sonnet-4-5");
     assert_eq!(persisted.permissions.default_mode.as_deref(), Some("plan"));
-    // 未被任一事务触碰的字段仍是默认值（说明不是某一方的过期快照）
     assert_eq!(persisted.ui.theme, "dark");
     let _ = std::fs::remove_dir_all(&shared_dir);
 }
@@ -606,8 +592,6 @@ fn concurrent_updates_from_independent_runtimes_preserve_both_config_domains() {
 fn same_runtime_concurrent_updates_keep_memory_and_disk_consistent() {
     use std::sync::Barrier;
 
-    // 同一运行时两个并发 RPC 修改不同配置域：进程内事务互斥保证
-    // “锁内修改 -> 刷新内存”串行化，最终内存与磁盘都必须同时包含两项改动。
     let runtime = std::sync::Arc::new(test_runtime("same-runtime-concurrent").0);
     let barrier = Arc::new(Barrier::new(2));
     let barrier_a = Arc::clone(&barrier);
@@ -632,7 +616,6 @@ fn same_runtime_concurrent_updates_keep_memory_and_disk_consistent() {
     thread_a.join().unwrap();
     thread_b.join().unwrap();
 
-    // 内存快照 = 最后一次写入后的磁盘状态，两项改动并存（不得倒退）
     let memory = runtime.config.lock().unwrap();
     assert_eq!(memory.llm.default_provider, "anthropic");
     assert_eq!(memory.llm.default_model, "claude-sonnet-4-5");
@@ -677,11 +660,9 @@ bearer_token_env = "DOCS_TOKEN"
     )
     .unwrap();
 
-    // 1) 默认模型（窄修改 llm 域）
     runtime
         .config_set_default_llm("ollama".to_string(), "llama3".to_string())
         .unwrap();
-    // 2) 权限模式（窄修改 permissions 域）——异步 RPC 在独立线程上执行
     let runtime_b = Arc::clone(&runtime);
     std::thread::spawn(move || {
         tauri::async_runtime::block_on(runtime_b.permission_mode_set(
@@ -693,8 +674,6 @@ bearer_token_env = "DOCS_TOKEN"
     })
     .join()
     .unwrap();
-    // 3) MCP 表单保存：与 mcp_servers_save 完全相同的文件锁事务（合并保留
-    //    auth 与未知字段）。工具重载（需真实 MCP 连接）不在本测试范围。
     runtime
         .update_user_config(|config| {
             let existing = config.mcp.servers.clone();
@@ -713,7 +692,6 @@ bearer_token_env = "DOCS_TOKEN"
             Ok(())
         })
         .unwrap();
-    // 4) provider 表单保存（表单不携带密钥：留空保持原密钥）
     runtime
         .config_save_providers(vec![
             DesktopProvider {
@@ -741,7 +719,6 @@ bearer_token_env = "DOCS_TOKEN"
         ])
         .unwrap();
 
-    // 无损：未知顶层、未知嵌套字段、密钥与 MCP auth 全部保留
     let raw = std::fs::read_to_string(runtime.user_config_path()).unwrap();
     assert!(raw.contains("future_top_level = \"keep\""));
     assert!(raw.contains("[experimental]"));
@@ -753,7 +730,6 @@ bearer_token_env = "DOCS_TOKEN"
     assert!(raw.contains("api_key = \"sk-top-secret\""));
     assert!(raw.contains("default_provider = \"ollama\""));
     assert!(raw.contains("default_mode = \"plan\""));
-    // TOML 可解析且语义完整
     let persisted = Config::load_with_overrides(Some(&runtime.user_config_path()), None).unwrap();
     assert_eq!(persisted.llm.default_provider, "ollama");
     assert_eq!(persisted.llm.default_model, "llama3");
@@ -780,7 +756,6 @@ bearer_token_env = "DOCS_TOKEN"
 #[test]
 fn failed_config_transaction_leaves_memory_and_disk_unchanged() {
     let (runtime, dir) = test_runtime("failed-config-transaction");
-    // 先建立合法的磁盘配置（值必须不同于默认，确保确实写盘）
     runtime
         .update_user_config(|config| {
             config.llm.default_model = "gpt-4.1".to_string();
@@ -790,7 +765,6 @@ fn failed_config_transaction_leaves_memory_and_disk_unchanged() {
     let before = runtime.config.lock().unwrap().llm.default_model.clone();
     let disk_before = std::fs::read(runtime.user_config_path()).unwrap();
 
-    // 事务闭包报错：不得写盘、不得刷新内存
     let error = runtime
         .update_user_config(|_config| -> anyhow::Result<()> { anyhow::bail!("模拟保存失败") })
         .unwrap_err();
@@ -1005,7 +979,6 @@ fn release_turn_occupancy_cleans_slot_and_token_on_background_start_failure() {
     let later_operation =
         SessionOperationSlot::acquire(&active, "session-bg", SessionOperation::Delete).unwrap();
 
-    // 旧 turn 的迟到收尾不能误删后来领取的破坏性操作槽位。
     release_turn_occupancy(&active, &tokens, "session-bg", "turn-bg");
     assert_eq!(
         active.lock().unwrap().get("session-bg"),
@@ -1127,7 +1100,6 @@ async fn desktop_export_and_clear_rejected_while_other_process_holds_session_loc
         yode_core::session_lock::write_unique_export_file(&export_dir, "existing", "旧导出")
             .unwrap();
 
-    // 另一进程（CLI/其他桌面）持有该 session 的跨进程锁
     let _other_lock =
         yode_core::session_lock::acquire_session_lock(&runtime.db_path, &session.id).unwrap();
 
@@ -1142,7 +1114,6 @@ async fn desktop_export_and_clear_rejected_while_other_process_holds_session_loc
         .expect_err("其他进程持锁时清空必须被拒绝");
     assert!(err.to_string().contains("该会话正在其他进程中运行"));
 
-    // 数据与旧导出文件保持完整
     let messages = runtime.sessions_messages(session.id.clone()).unwrap();
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].content.as_deref(), Some("保留消息"));
@@ -1160,9 +1131,16 @@ async fn desktop_uses_config_session_db_path_like_cli() {
     std::fs::create_dir_all(&dir).unwrap();
     let custom_db = dir.join("custom").join("sessions.db");
     let user_config = dir.join("config.toml");
+    let mut session = toml::map::Map::new();
+    session.insert(
+        "db_path".to_string(),
+        toml::Value::String(custom_db.to_string_lossy().into_owned()),
+    );
+    let mut document = toml::map::Map::new();
+    document.insert("session".to_string(), toml::Value::Table(session));
     std::fs::write(
         &user_config,
-        format!("[session]\ndb_path = \"{}\"\n", custom_db.display()),
+        toml::to_string(&toml::Value::Table(document)).unwrap(),
     )
     .unwrap();
 
@@ -1187,7 +1165,6 @@ async fn desktop_uses_config_session_db_path_like_cli() {
 fn runs_list_serves_persisted_turn_journal_as_authoritative_source() {
     use yode_core::db::TurnState;
 
-    // 进程 A 的运行时：创建会话与 turn journal（含事件与状态流转）
     let (runtime_a, dir) = test_runtime("runs-journal");
     let session = runtime_a
         .sessions_create(CreateSessionRequest {
@@ -1233,7 +1210,6 @@ fn runs_list_serves_persisted_turn_journal_as_authoritative_source() {
         )
         .unwrap();
 
-    // 进程 B（模拟新进程）用同一数据库文件：runs_list 直接读持久化 journal
     let (mut runtime_b, _dir_b) = test_runtime("runs-journal-b");
     let shared_path = runtime_a.db_path.clone();
     runtime_b.db = Arc::new(Database::open(&shared_path).unwrap());
@@ -1250,7 +1226,6 @@ fn runs_list_serves_persisted_turn_journal_as_authoritative_source() {
     assert_eq!(run.last_seq, 0);
     assert!(run.started_at.is_some());
     assert!(run.ended_at.is_some());
-    // 事件可重放
     let events = runtime_b
         .turn_events_since(session.id.clone(), "turn-journal-1".to_string(), -1, None)
         .unwrap();
@@ -1295,7 +1270,6 @@ fn sessions_messages_page_windows_and_reports_has_more() {
         Some("page message 24")
     );
 
-    // 前端向上翻页：以已加载窗口最旧消息的 sort_order 作为 before
     let first_window = runtime
         .db
         .load_messages_window(&session.id, None, 10)
@@ -1364,7 +1338,6 @@ fn turn_events_since_returns_redacted_payloads_safely() {
         })
         .unwrap();
 
-    // 通过 runtime 的 turn_events_since 重放：脱敏后的 payload 不泄漏密钥
     let events = runtime
         .turn_events_since(session.id.clone(), "turn-redact".to_string(), -1, None)
         .unwrap();
@@ -1409,7 +1382,6 @@ fn turn_recent_events_returns_newest_window_in_ascending_order() {
     let recent = runtime
         .turn_recent_events(session.id.clone(), "turn-recent".to_string(), 3)
         .unwrap();
-    // 升序返回最近 3 条：chunk-2、chunk-3、chunk-4
     assert_eq!(recent.len(), 3);
     assert_eq!(recent[0].seq, 2);
     assert_eq!(recent[2].seq, 4);
