@@ -1,0 +1,49 @@
+name: Temporary Execution Output Fix
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+      - name: Capture execution backend output
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('crates/yode-runtime/src/execution_backend.rs')
+          text = path.read_text()
+
+          old_import = 'use std::path::{Path, PathBuf};\n'
+          new_import = 'use std::path::{Path, PathBuf};\nuse std::process::Stdio;\n'
+          if old_import not in text:
+              raise SystemExit('path import insertion point not found')
+          text = text.replace(old_import, new_import, 1)
+
+          old = '''async fn timeout_output(mut command: Command, timeout_secs: u64) -> Result<std::process::Output> {\n    let child = command\n        .spawn()\n        .context("failed to spawn execution backend process")?;'''
+          new = '''async fn timeout_output(mut command: Command, timeout_secs: u64) -> Result<std::process::Output> {\n    // `spawn()` inherits the parent stdio by default. `wait_with_output()` only\n    // collects streams that were piped, so leaving the defaults here prints\n    // child output directly to Yode/CI while returning empty stdout/stderr.\n    command.stdout(Stdio::piped()).stderr(Stdio::piped());\n    let child = command\n        .spawn()\n        .context("failed to spawn execution backend process")?;'''
+          if old not in text:
+              raise SystemExit('timeout_output block not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+          cargo fmt --all
+          cargo test -p yode-runtime execution_backend::tests::local_backend_executes_command
+      - name: Commit fix and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git rm .github/workflows/tmp-execution-output-fix.yml
+          git add crates/yode-runtime/src/execution_backend.rs
+          git commit -m 'fix(runtime): capture execution backend output'
+          git push origin HEAD:main
