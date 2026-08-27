@@ -1,5 +1,6 @@
 mod app;
 mod configuration;
+mod eval;
 mod mcp;
 mod provider;
 mod session;
@@ -33,6 +34,11 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         turn::turn_events_since,
         turn::turn_recent_events,
         turn::permission_mode_set,
+        eval::eval_task_save,
+        eval::eval_tasks_list,
+        eval::eval_outcome_record,
+        eval::eval_outcomes_list,
+        eval::eval_workspace_snapshot,
         app::general_settings_apply,
         app::open_target,
         app::import_ai_sessions,

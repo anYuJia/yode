@@ -22,6 +22,7 @@ toml = { workspace = true }
 tauri = { version = "2.11.2", features = ["tray-icon"] }
 uuid = { workspace = true }
 yode-core = { workspace = true }
+yode-evals = { workspace = true }
 yode-llm = { workspace = true }
 yode-tools = { workspace = true }
 yode-mcp = { workspace = true }
@@ -32,3 +33,6 @@ tracing = { workspace = true }
 libc = "0.2"
 rfd = "0.15"
 portable-pty = "0.9"
+
+[dev-dependencies]
+tempfile = "3.27.0"
