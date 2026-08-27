@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -87,8 +87,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 0
 
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
@@ -124,17 +122,10 @@ jobs:
       - name: Workspace tests
         run: cargo test --workspace
 
-      - name: Commit validated Windows Codex fix
-        if: runner.os == 'Windows' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor != 'github-actions[bot]'
+      - name: Emit validated Codex source
+        if: runner.os == 'Windows'
         shell: pwsh
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add crates/yode-tools/src/builtin/codex_compat.rs
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) { exit 0 }
-          git commit -m "fix(codex): make shell compatibility cross-platform"
-          git push origin HEAD:main
+        run: python -c "import base64,pathlib; print('YODE_CODEX_B64='+base64.b64encode(pathlib.Path('crates/yode-tools/src/builtin/codex_compat.rs').read_bytes()).decode())"
 
   desktop-frontend:
     name: Desktop Frontend
