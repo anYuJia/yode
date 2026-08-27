@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use anyhow::{bail, Context, Result};
@@ -386,6 +387,10 @@ pub async fn detect_standard_backends() -> Vec<BackendAvailability> {
 }
 
 async fn timeout_output(mut command: Command, timeout_secs: u64) -> Result<std::process::Output> {
+    // `spawn()` inherits the parent stdio by default. `wait_with_output()` only
+    // collects streams that were piped, so leaving the defaults here prints
+    // child output directly to Yode/CI while returning empty stdout/stderr.
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let child = command
         .spawn()
         .context("failed to spawn execution backend process")?;
