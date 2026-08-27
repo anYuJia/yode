@@ -27,22 +27,22 @@ fn hook_echo_command(text: &str) -> String {
 }
 
 #[cfg(windows)]
-fn hook_json_command(json: &str) -> String {
-    format!("echo {json}")
+fn hook_json_command(working_dir: &std::path::Path, json: &str) -> String {
+    crate::test_support::cmd_literal_output_command(working_dir, json, None)
 }
 
 #[cfg(not(windows))]
-fn hook_json_command(json: &str) -> String {
+fn hook_json_command(_working_dir: &std::path::Path, json: &str) -> String {
     format!("printf '%s' '{}'", json.replace('\'', "'\\''"))
 }
 
 #[cfg(windows)]
-fn hook_wake_command(json: &str) -> String {
-    format!("echo {} && exit /b 2", json)
+fn hook_wake_command(working_dir: &std::path::Path, json: &str) -> String {
+    crate::test_support::cmd_literal_output_command(working_dir, json, Some(2))
 }
 
 #[cfg(not(windows))]
-fn hook_wake_command(json: &str) -> String {
+fn hook_wake_command(_working_dir: &std::path::Path, json: &str) -> String {
     format!("printf '%s' '{}' && exit 2", json)
 }
 
@@ -98,11 +98,13 @@ async fn test_session_start_hook_wake_notification_is_injected() {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&hook_dir).unwrap();
+    let command = hook_wake_command(
+        &hook_dir,
+        "{\"hookSpecificOutput\":{\"wakeNotification\":\"background hook finished\"}}",
+    );
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: hook_wake_command(
-            "{\"hookSpecificOutput\":{\"wakeNotification\":\"background hook finished\"}}",
-        ),
+        command,
         events: vec!["session_start".into()],
         tool_filter: None,
         timeout_secs: 5,
@@ -237,11 +239,13 @@ async fn test_stop_hook_can_request_one_continuation() {
     let hook_dir =
         std::env::temp_dir().join(format!("yode-stop-hook-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&hook_dir).unwrap();
+    let command = hook_json_command(
+        &hook_dir,
+        r#"{"continue":false,"reason":"needs evidence","systemMessage":"Read the file before finalizing."}"#,
+    );
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: hook_json_command(
-            r#"{"continue":false,"reason":"needs evidence","systemMessage":"Read the file before finalizing."}"#,
-        ),
+        command,
         events: vec!["stop".into()],
         tool_filter: None,
         timeout_secs: 5,
@@ -282,9 +286,13 @@ async fn test_stop_hook_advisory_output_is_persisted_for_next_turn() {
         uuid::Uuid::new_v4()
     ));
     std::fs::create_dir_all(&hook_dir).unwrap();
+    let command = hook_json_command(
+        &hook_dir,
+        r#"{"systemMessage":"Remember to summarize test coverage."}"#,
+    );
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: hook_json_command(r#"{"systemMessage":"Remember to summarize test coverage."}"#),
+        command,
         events: vec!["stop".into()],
         tool_filter: None,
         timeout_secs: 5,
