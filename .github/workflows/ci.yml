@@ -107,25 +107,8 @@ jobs:
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
 
-      - name: Apply Windows Codex compatibility patch
-        if: runner.os == 'Windows'
-        run: python scripts/fix_codex_windows_compat.py
-
-      - name: Format patched Windows source
-        if: runner.os == 'Windows'
-        run: cargo fmt --all
-
-      - name: Codex compatibility tests
-        if: runner.os == 'Windows'
-        run: cargo test -p yode-tools codex_compat::tests::
-
       - name: Workspace tests
         run: cargo test --workspace
-
-      - name: Emit validated Codex source
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: python -c "import base64,pathlib; print('YODE_CODEX_B64='+base64.b64encode(pathlib.Path('crates/yode-tools/src/builtin/codex_compat.rs').read_bytes()).decode())"
 
   desktop-frontend:
     name: Desktop Frontend
