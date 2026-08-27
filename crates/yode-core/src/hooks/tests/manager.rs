@@ -21,10 +21,7 @@ fn hook_command(command: &str) -> String {
 
 #[cfg(windows)]
 fn hook_json_command(json: &str) -> String {
-    crate::test_support::powershell_encoded_command(&format!(
-        "Write-Output '{}'",
-        powershell_quote(json)
-    ))
+    format!("echo {json}")
 }
 
 #[cfg(not(windows))]
@@ -34,20 +31,12 @@ fn hook_json_command(json: &str) -> String {
 
 #[cfg(windows)]
 fn hook_wake_command(json: &str) -> String {
-    crate::test_support::powershell_encoded_command(&format!(
-        "Write-Output '{}'; exit 2",
-        powershell_quote(json)
-    ))
+    format!("echo {json} & exit /b 2")
 }
 
 #[cfg(not(windows))]
 fn hook_wake_command(json: &str) -> String {
     format!("printf '%s' '{}' && exit 2", json)
-}
-
-#[cfg(windows)]
-fn powershell_quote(value: &str) -> String {
-    value.replace('\'', "''")
 }
 
 #[test]
