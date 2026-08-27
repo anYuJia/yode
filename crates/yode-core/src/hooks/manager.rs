@@ -276,7 +276,7 @@ impl HookManager {
         #[cfg(not(windows))]
         let mut cmd = self.build_hook_command("sh", &["-c"], command, context_json, event);
         #[cfg(windows)]
-        let mut cmd = self.build_hook_command("cmd.exe", &["/C"], command, context_json, event);
+        let mut cmd = self.build_hook_command("cmd.exe", &["/d", "/s", "/c"], command, context_json, event);
         cmd.stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         // 独立进程组：超时/取消时能连同全部后代进程一起终止并回收。
@@ -380,7 +380,45 @@ impl HookManager {
 }
 
 fn normalize_hook_output(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).replace("\r\n", "\n")
+    let decoded = decode_utf16_le_if_needed(bytes)
+        .unwrap_or_else(|| String::from_utf8_lossy(bytes).into_owned());
+    decoded.replace("\r\n", "\n")
+}
+
+/// Windows PowerShell 5 can emit redirected native output as UTF-16LE. Detect a BOM or the
+/// characteristic NUL high bytes of ASCII-heavy JSON/error text before falling back to UTF-8.
+fn decode_utf16_le_if_needed(bytes: &[u8]) -> Option<String> {
+    if bytes.len() < 2 {
+        return None;
+    }
+    let (payload, has_bom) = if bytes.starts_with(&[0xff, 0xfe]) {
+        (&bytes[2..], true)
+    } else {
+        (bytes, false)
+    };
+    if payload.len() % 2 != 0 {
+        return None;
+    }
+
+    if !has_bom {
+        let mut sampled = 0usize;
+        let mut zero_high = 0usize;
+        for pair in payload.chunks_exact(2).take(32) {
+            sampled += 1;
+            if pair[1] == 0 && pair[0] != 0 {
+                zero_high += 1;
+            }
+        }
+        if sampled < 2 || zero_high * 2 < sampled {
+            return None;
+        }
+    }
+
+    let units = payload
+        .chunks_exact(2)
+        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
+        .collect::<Vec<_>>();
+    Some(String::from_utf16_lossy(&units))
 }
 
 enum HookCommandResult {
@@ -391,17 +429,48 @@ enum HookCommandResult {
 
 /// 并行排空子进程管道，避免 stdout/stderr 满时死锁。
 async fn drain_pipe(
-    mut pipe: Option<tokio::process::ChildStdout>,
-    mut stderr_pipe: Option<tokio::process::ChildStderr>,
+    pipe: Option<tokio::process::ChildStdout>,
+    stderr_pipe: Option<tokio::process::ChildStderr>,
 ) -> (Vec<u8>, Vec<u8>) {
     use tokio::io::AsyncReadExt;
-    let mut stdout = Vec::new();
-    let mut stderr = Vec::new();
-    if let Some(mut pipe) = pipe.take() {
-        let _ = pipe.read_to_end(&mut stdout).await;
+
+    async fn read_stdout(mut pipe: Option<tokio::process::ChildStdout>) -> Vec<u8> {
+        let mut output = Vec::new();
+        if let Some(pipe) = pipe.as_mut() {
+            let _ = pipe.read_to_end(&mut output).await;
+        }
+        output
     }
-    if let Some(mut pipe) = stderr_pipe.take() {
-        let _ = pipe.read_to_end(&mut stderr).await;
+
+    async fn read_stderr(mut pipe: Option<tokio::process::ChildStderr>) -> Vec<u8> {
+        let mut output = Vec::new();
+        if let Some(pipe) = pipe.as_mut() {
+            let _ = pipe.read_to_end(&mut output).await;
+        }
+        output
     }
-    (stdout, stderr)
+
+    tokio::join!(read_stdout(pipe), read_stderr(stderr_pipe))
+}
+
+#[cfg(test)]
+mod output_encoding_tests {
+    use super::*;
+
+    #[test]
+    fn utf8_hook_output_is_unchanged_except_crlf() {
+        assert_eq!(normalize_hook_output(b"{\"ok\":true}\r\n"), "{\"ok\":true}\n");
+    }
+
+    #[test]
+    fn utf16le_hook_output_is_decoded_and_normalized() {
+        let mut bytes = Vec::new();
+        for unit in "{\"decision\":\"defer\"}\r\n".encode_utf16() {
+            bytes.extend_from_slice(&unit.to_le_bytes());
+        }
+        assert_eq!(
+            normalize_hook_output(&bytes),
+            "{\"decision\":\"defer\"}\n"
+        );
+    }
 }
