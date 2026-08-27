@@ -11,6 +11,7 @@ pub mod engine;
 pub mod error;
 pub mod hooks;
 pub mod instructions;
+pub mod learning;
 pub mod permission;
 pub mod plugin_trust;
 pub mod plugins;
