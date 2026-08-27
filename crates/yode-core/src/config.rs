@@ -457,7 +457,9 @@ impl Config {
             anyhow::bail!("注入：备份副本最终化失败");
         }
         restrict_path_permissions(candidate, CONFIG_FILE_MODE)?;
-        fs::File::open(candidate)?
+        fs::OpenOptions::new()
+            .write(true)
+            .open(candidate)?
             .sync_all()
             .with_context(|| format!("无法同步备份文件 '{}'", candidate.display()))?;
         sync_config_directory(config_parent_directory(candidate));
@@ -776,11 +778,6 @@ impl Config {
     }
 }
 
-/// 把“闭包实际改动的已知字段差异”应用到原始 toml_edit 文档：
-/// - 未知字段（顶层、provider、MCP 等任意嵌套位置）不参与 typed 序列化，
-///   因此不会出现在 before/after 中，也就永远不会被触碰；
-/// - 未变化的已知字段同样不写回，原注释与格式保持原样；
-/// - 显式删除（before 有、after 无）会把对应键从文档中移除。
 fn apply_config_diff(
     root: &mut toml_edit::Table,
     before: &toml::Value,
@@ -816,8 +813,6 @@ fn apply_config_diff(
                 } else if let (Some(after_items), Some(before_items)) =
                     (after_value.as_array(), before_value.as_array())
                 {
-                    // 元素为表的数组（hooks、权限规则等）：逐元素窄修改，
-                    // 保留同一逻辑元素内的未知字段与注释，见 apply_array_diff。
                     if arrays_have_table_elements(before_items)
                         && arrays_have_table_elements(after_items)
                     {
@@ -849,8 +844,6 @@ fn apply_config_diff(
     Ok(())
 }
 
-/// 对文档中的内联表（`llm = { ... }` 风格）应用同样粒度的窄修改，
-/// 避免整体替换导致内联表内未知字段丢失。
 fn apply_inline_diff(
     inline: &mut toml_edit::InlineTable,
     before: &toml::Value,
@@ -879,7 +872,6 @@ fn apply_inline_diff(
                 } else if let (Some(after_items), Some(before_items)) =
                     (after_value.as_array(), before_value.as_array())
                 {
-                    // 内联表内的元素为表数组：同样做逐元素窄修改
                     if arrays_have_table_elements(before_items)
                         && arrays_have_table_elements(after_items)
                     {
@@ -902,26 +894,15 @@ fn apply_inline_diff(
     Ok(())
 }
 
-/// 数组是否包含表元素（元素级窄修改只适用于这类数组；
-/// 标量数组整体替换即可，标量没有未知字段可丢）。
 fn arrays_have_table_elements(items: &[toml::Value]) -> bool {
     items.iter().any(|item| item.is_table())
 }
 
-/// 数组元素差异：把 before/after（均为完整 typed 序列化的数组）应用到
-/// `[[section]]`（array-of-tables）文档表示上。
-///
-/// 元素按“已知字段内容”匹配（精确相等优先，再按公共等值字段数贪心），
-/// 匹配到的元素只应用字段级差异，元素内未知字段、未知嵌套表与注释全部保留；
-/// 未匹配的 after 元素为新增、未匹配的 before 元素为删除，数组序列按 after
-/// 顺序重建——插入/重排/删除语义明确，绝不按下标把未知字段贴到错误元素。
 fn apply_array_diff_on_tables(
     aot: &mut toml_edit::ArrayOfTables,
     before_items: &[toml::Value],
     after_items: &[toml::Value],
 ) -> Result<()> {
-    // 编码器按表格的解析位置全局排序输出；重排后必须重新分配位置池，
-    // 否则条目会按原始解析顺序输出（见 toml_edit Display for Document）。
     let mut position_pool: Vec<usize> = (0..aot.len())
         .filter_map(|i| {
             aot.get_mut(i)
@@ -931,7 +912,6 @@ fn apply_array_diff_on_tables(
         .collect();
     position_pool.sort_unstable();
     let matched = match_array_elements(before_items, after_items);
-    // 阶段 A：对匹配元素应用字段级差异（作用于 before 下标空间）
     let mut rebuild_from_after = vec![false; after_items.len()];
     for (i, maybe_j) in matched.iter().enumerate() {
         let Some(j) = maybe_j else { continue };
@@ -945,10 +925,8 @@ fn apply_array_diff_on_tables(
                 continue;
             }
         }
-        // 元素不是表（标量数组元素）或文档元素缺失：按 after 值重建该元素
         rebuild_from_after[i] = true;
     }
-    // 阶段 B：按 after 顺序重建序列（移动条目会保留其装饰与注释）
     let mut rebuilt = Vec::with_capacity(after_items.len());
     let mut next_position = position_pool.into_iter();
     for (i, maybe_j) in matched.iter().enumerate() {
@@ -959,7 +937,6 @@ fn apply_array_diff_on_tables(
                     .cloned()
                     .with_context(|| format!("数组元素索引 {} 不存在", j))?;
                 if kept.position().is_some() {
-                    // 保留解析位置的条目按新顺序重新分配位置，保证编码顺序正确
                     kept.set_position(next_position.next().unwrap_or(usize::MAX));
                 }
                 rebuilt.push(kept);
@@ -976,8 +953,6 @@ fn apply_array_diff_on_tables(
     Ok(())
 }
 
-/// 数组元素差异的数组字面量（内联表）表示版本，语义与
-/// [`apply_array_diff_on_tables`] 相同。
 fn apply_array_diff_on_inline(
     array: &mut toml_edit::Array,
     before_items: &[toml::Value],
@@ -1023,9 +998,6 @@ fn apply_array_diff_on_inline(
     Ok(())
 }
 
-/// 元素匹配：对每个 after 元素贪心选择相似度最高的未匹配 before 元素。
-/// 相似度 = 完全相等时优先（高于任何部分匹配）；否则按公共键中等值字段数。
-/// 无共同等值字段的元素视为新增/删除。
 fn match_array_elements(
     before_items: &[toml::Value],
     after_items: &[toml::Value],
@@ -1054,10 +1026,6 @@ fn match_array_elements(
     matched
 }
 
-/// 两个数组元素的相似度分数：
-/// - 均为表时，分数 = 已知字段中等值字段数；完全相等额外加权，保证
-///   精确匹配优先于部分匹配；
-/// - 其余（标量元素）仅完全相等计 1 分。
 fn element_similarity(before: &toml::Value, after: &toml::Value) -> usize {
     let (Some(before_table), Some(after_table)) = (before.as_table(), after.as_table()) else {
         return usize::from(before == after);
@@ -1071,7 +1039,6 @@ fn element_similarity(before: &toml::Value, after: &toml::Value) -> usize {
         .count()
 }
 
-/// 由 typed 元素值构建一个全新的 `[section]` 表条目（用于新增元素）。
 fn fresh_edit_table_from(value: &toml::Value) -> Result<toml_edit::Table> {
     let Some(map) = value.as_table() else {
         anyhow::bail!("配置差异应用失败：数组元素不是表");
@@ -1084,7 +1051,6 @@ fn fresh_edit_table_from(value: &toml::Value) -> Result<toml_edit::Table> {
     Ok(table)
 }
 
-/// 插入一个完整的已知字段子树：表递归展开为 `[section]` 表，叶子写入对应类型。
 fn insert_edit_value(table: &mut toml_edit::Table, key: &str, value: &toml::Value) -> Result<()> {
     match value {
         toml::Value::Table(map) => {
@@ -1103,7 +1069,6 @@ fn insert_edit_value(table: &mut toml_edit::Table, key: &str, value: &toml::Valu
     }
 }
 
-/// 整体替换某个已知字段的值；表会被重建成 `[section]` 表。
 fn replace_edit_value(table: &mut toml_edit::Table, key: &str, value: &toml::Value) -> Result<()> {
     match value {
         toml::Value::Table(map) => {
@@ -1122,8 +1087,6 @@ fn replace_edit_value(table: &mut toml_edit::Table, key: &str, value: &toml::Val
     }
 }
 
-/// 把 toml::Value 转换为类型一致的 toml_edit Value：表转内联表、数组逐元素
-/// 转换、标量经单值文本往返保持类型（含 Datetime）不变。
 fn edit_value_from(value: &toml::Value) -> Result<toml_edit::Value> {
     match value {
         toml::Value::Table(map) => {
@@ -1149,8 +1112,6 @@ fn edit_value_from(value: &toml::Value) -> Result<toml_edit::Value> {
     }
 }
 
-/// 覆盖层（仓库内配置）白名单过滤：只保留 `ui` 表。其余顶层键
-/// （llm/permissions/mcp/hooks/session/tools/cost/update）一律丢弃。
 fn filter_override_value(value: toml::Value) -> toml::Value {
     let toml::Value::Table(mut table) = value else {
         return toml::Value::Table(toml::map::Map::new());
@@ -1163,7 +1124,6 @@ fn filter_override_value(value: toml::Value) -> toml::Value {
     toml::Value::Table(filtered)
 }
 
-/// Configuration for a single MCP server.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct McpServerConfig {
     #[serde(default, skip_serializing_if = "is_false")]
@@ -1227,7 +1187,6 @@ pub struct McpOAuthConfig {
     pub scopes: Vec<String>,
 }
 
-/// Top-level MCP configuration.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct McpConfig {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -1374,16 +1333,13 @@ bearer_token_env = "DOCS_TOKEN"
         .unwrap();
 
         let toml_str = config.to_shared_project_toml().unwrap();
-        // API key 与疑似密钥环境变量值不得出现在项目配置中
         assert!(!toml_str.contains("sk-secret-12345"));
         assert!(!toml_str.contains("ghp-secret-token"));
-        // 非敏感字段、环境变量与 MCP auth 必须 round-trip 保留
         assert!(toml_str.contains("PUBLIC_VAR"));
         assert!(toml_str.contains("public-value"));
         assert!(toml_str.contains("bearer_token_env"));
         assert!(toml_str.contains("DOCS_TOKEN"));
         assert!(toml_str.contains("https://api.openai.com/v1"));
-        // 用户配置保存仍包含完整内容（api_key 只对项目共享配置脱敏）
         let full = toml::to_string_pretty(&config).unwrap();
         assert!(full.contains("sk-secret-12345"));
     }
@@ -1452,7 +1408,6 @@ theme = "light"
         .unwrap();
 
         let config = Config::load_with_overrides(Some(&user), Some(&project)).unwrap();
-        // 仓库内配置不能覆盖敏感字段：tools/llm/permissions/mcp/hooks/session 全部被丢弃
         assert_eq!(config.tools.bash_timeout, 30);
         assert_eq!(config.llm.default_provider, "openai");
         assert_eq!(
@@ -1468,7 +1423,6 @@ theme = "light"
         assert!(config.permissions.always_allow.is_empty());
         assert!(config.mcp.servers.is_empty());
         assert!(config.hooks.hooks.is_empty());
-        // 白名单字段 ui 仍可来自仓库内配置
         assert_eq!(config.ui.language, "en");
         assert_eq!(config.ui.theme, "light");
         std::fs::remove_dir_all(&dir).ok();
@@ -1476,7 +1430,6 @@ theme = "light"
 
     #[tokio::test]
     async fn load_with_overrides_async_preserves_user_provider_when_project_config_exists() {
-        // 集成场景：桌面端在项目配置存在时也必须加载用户配置（provider/API key 不丢失）
         let dir =
             std::env::temp_dir().join(format!("yode-config-async-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1516,9 +1469,7 @@ bash_timeout = 120
         let config = Config::load_with_overrides_async(Some(&user), Some(&project))
             .await
             .unwrap();
-        // 仓库内配置的 tools 覆盖被丢弃，用户配置保持生效
         assert_eq!(config.tools.bash_timeout, 60);
-        // 用户 provider 与密钥保留
         assert_eq!(config.llm.default_provider, "anthropic");
         assert_eq!(
             config
@@ -1680,7 +1631,6 @@ bash_timeout = 120
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join(".yode").join("config.toml");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        // 模拟磁盘上已有的用户配置：密钥、MCP auth、未知字段等前端表单不承载的内容
         std::fs::write(
             &path,
             r#"
@@ -1708,7 +1658,7 @@ theme = "dark"
 
 [mcp.servers.docs]
 command = "npx"
-args = ["-y", "@modelcontextprotocol/server-docs"]
+args = ["-y", "docs"]
 future_mcp_field = 42
 [mcp.servers.docs.auth]
 bearer_token_env = "DOCS_TOKEN"
@@ -1716,7 +1666,6 @@ bearer_token_env = "DOCS_TOKEN"
         )
         .unwrap();
 
-        // 窄修改：只更新默认模型，不重建整个 providers/mcp 表
         Config::update_user_config_file(&path, |config| {
             config.llm.default_model = "claude-sonnet-4-5".to_string();
             Ok(())
@@ -1742,18 +1691,14 @@ bearer_token_env = "DOCS_TOKEN"
                 .and_then(|auth| auth.bearer_token_env.as_deref()),
             Some("DOCS_TOKEN")
         );
-        // 缺失的默认字段在事务后依然有默认值（完整 TOML 可解析）
         assert!(persisted.update.auto_check);
-        // 无损：未知顶层字段、未知嵌套字段与注释全部原样保留
         let raw = std::fs::read_to_string(&path).unwrap();
         assert!(raw.contains("future_top_level = \"keep-me\""));
         assert!(raw.contains("legacy_retries = 3"));
         assert!(raw.contains("future_mcp_field = 42"));
         assert!(raw.contains("# 顶层注释必须保留"));
-        // 未改动区域保持原格式（多行表而不是内联）
         assert!(raw.contains("[mcp.servers.docs]"));
         assert!(!raw.contains("[llm.providers.openai]models"));
-        // 更新过的字段类型不变
         assert!(raw.contains("default_model = \"claude-sonnet-4-5\""));
     }
 
@@ -1784,7 +1729,6 @@ can_block = false
         )
         .unwrap();
 
-        // 修改第一个 hook 的已知字段 timeout_secs
         Config::update_user_config_file(&path, |config| {
             config.hooks.hooks[0].timeout_secs = 30;
             Ok(())
@@ -1792,7 +1736,6 @@ can_block = false
         .unwrap();
 
         let raw = std::fs::read_to_string(&path).unwrap();
-        // 未改动区域与元素内未知字段、注释、日期类型全部保留
         assert!(raw.contains("extension_label = \"自定义钩子\""));
         assert!(raw.contains("# 自定义扩展字段（必须保留）"));
         assert!(raw.contains("# hooks 区域注释"));
@@ -1800,9 +1743,7 @@ can_block = false
         assert!(raw.contains("command = \"npm run lint\""));
         assert!(raw.contains("timeout_secs = 30"));
         assert!(raw.contains("timeout_secs = 10"));
-        // 仍是 array-of-tables 结构（不是内联数组）
         assert!(raw.contains("[[hooks.hooks]]"));
-        // 写后 TOML 可解析，语义完整
         let persisted = Config::load_with_overrides(Some(&path), None).unwrap();
         assert_eq!(persisted.hooks.hooks[0].timeout_secs, 30);
         assert_eq!(persisted.hooks.hooks[1].timeout_secs, 10);
@@ -1833,7 +1774,6 @@ description = "保护 git 内部文件"
         )
         .unwrap();
 
-        // 修改第一条规则的 description（Option<String> 显式更新）
         Config::update_user_config_file(&path, |config| {
             config.permissions.always_deny[0].description =
                 Some("更新后的危险操作说明".to_string());
@@ -1847,7 +1787,6 @@ description = "保护 git 内部文件"
         assert!(raw.contains("rule_tags = [\"ops\", \"danger\"]"));
         assert!(raw.contains("description = \"更新后的危险操作说明\""));
         assert!(raw.contains("tool = \"bash\""));
-        // 第二条规则未被触碰
         assert!(raw.contains("保护 git 内部文件"));
         let persisted = Config::load_with_overrides(Some(&path), None).unwrap();
         assert_eq!(
@@ -1886,7 +1825,6 @@ unknown_third = 3
         )
         .unwrap();
 
-        // 重排 + 修改：第二条移到最前并修改 description；删除第三条；插入新规则
         Config::update_user_config_file(&path, |config| {
             let second = config.permissions.always_deny[1].clone();
             let mut new_rule = config.permissions.always_deny[0].clone();
@@ -1905,7 +1843,6 @@ unknown_third = 3
         let raw = std::fs::read_to_string(&path).unwrap();
         let persisted = Config::load_with_overrides(Some(&path), None).unwrap();
         assert_eq!(persisted.permissions.always_deny.len(), 3);
-        // 重排后的顺序：第二条在前，第一条修改后其次，新增最后
         assert_eq!(
             persisted.permissions.always_deny[0].pattern.as_deref(),
             Some("mkfs.*")
@@ -1918,10 +1855,8 @@ unknown_third = 3
             persisted.permissions.always_deny[2].pattern.as_deref(),
             Some("shred .*")
         );
-        // 显式删除的第三条（write_file）不得复活
         assert!(!raw.contains("保护 git"));
         assert!(!raw.contains("unknown_third"));
-        // 保留元素的未知字段仍在文档中（顺序与重排一致）
         let pos_second = raw.find("unknown_second").unwrap();
         let pos_first = raw.find("unknown_first").unwrap();
         let pos_inserted = raw.find("shred .*").unwrap();
@@ -1953,7 +1888,6 @@ unknown_beta = "B"
         )
         .unwrap();
 
-        // 两条规则已知字段部分相同（tool 相同、pattern 相同），修改第二条的 description
         Config::update_user_config_file(&path, |config| {
             config.permissions.always_deny[1].description = Some("规则乙（已更新）".to_string());
             Ok(())
@@ -1961,7 +1895,6 @@ unknown_beta = "B"
         .unwrap();
 
         let raw = std::fs::read_to_string(&path).unwrap();
-        // 两个元素的未知字段都必须仍在文档中（不会因下标合并而丢失或重复）
         assert!(raw.contains("unknown_alpha = \"A\""));
         assert!(raw.contains("unknown_beta = \"B\""));
         assert_eq!(raw.matches("unknown_alpha").count(), 1);
@@ -1996,7 +1929,6 @@ permissions = { always_deny = [{ tool = "bash", pattern = "rm -rf /*", descripti
         .unwrap();
 
         let raw = std::fs::read_to_string(&path).unwrap();
-        // 内联表元素保留未知字段，且仍是内联形式
         assert!(raw.contains("rule_flags = { strict = true }"));
         assert!(raw.contains("description = \"内联更新\""));
         assert!(raw.contains("always_deny = ["));
@@ -2027,7 +1959,6 @@ unknown_provider_flag = true
 "#,
         )
         .unwrap();
-        // 显式删除 provider legacy-custom：必须从文档中移除，不能被旧值合并回来
         Config::update_user_config_file(&path, |config| {
             config.llm.providers.remove("legacy-custom");
             config.llm.providers.get_mut("openai").unwrap().models = vec!["gpt-4o".to_string()];
@@ -2038,7 +1969,6 @@ unknown_provider_flag = true
         let raw = std::fs::read_to_string(&path).unwrap();
         assert!(!raw.contains("legacy-custom"));
         assert!(!raw.contains("unknown_provider_flag"));
-        // models 数组按新值替换且类型保持（字符串数组）
         assert!(raw.contains("models = [\"gpt-4o\"]"));
         let persisted = Config::load_with_overrides(Some(&path), None).unwrap();
         assert!(!persisted.llm.providers.contains_key("legacy-custom"));
@@ -2057,19 +1987,16 @@ unknown_provider_flag = true
         let directory = tempfile::tempdir().unwrap();
         let parent = directory.path().join(".yode");
         std::fs::create_dir_all(&parent).unwrap();
-        // 源是目录：fs::copy 必然失败，且发生在 create_new 预留名字之后
         let source = parent.join("broken-source");
         std::fs::create_dir_all(source.join("inner")).unwrap();
 
         let error = Config::create_config_backup(&source).unwrap_err();
         assert!(error.to_string().contains("无法备份配置文件"));
-        // 不完整备份（空文件）已被清理
         assert!(std::fs::read_dir(&parent).unwrap().all(|entry| !entry
             .unwrap()
             .file_name()
             .to_string_lossy()
             .contains(".bak-")));
-        // 源目录不受影响
         assert!(source.join("inner").is_dir());
     }
 
@@ -2084,7 +2011,6 @@ unknown_provider_flag = true
         Config::inject_config_backup_finalize_failure();
         let error = Config::create_config_backup(&source).unwrap_err();
         assert!(error.to_string().contains("注入：备份副本最终化失败"));
-        // 原文件不变；本次创建的不完整备份已被清理
         assert_eq!(std::fs::read(&source).unwrap(), b"{incomplete");
         assert!(std::fs::read_dir(&parent).unwrap().all(|entry| !entry
             .unwrap()
@@ -2100,18 +2026,15 @@ unknown_provider_flag = true
         std::fs::create_dir_all(&parent).unwrap();
         let source = parent.join("desktop-settings.json");
         std::fs::write(&source, b"{incomplete").unwrap();
-        // 既有合法备份必须不受影响
         let existing_backup = parent.join("desktop-settings.json.bak-kept");
         std::fs::write(&existing_backup, b"previous-backup").unwrap();
 
-        // 同时注入最终化失败 + 清理失败：错误必须包含原始失败与清理失败双上下文
         Config::inject_config_backup_finalize_failure();
         Config::inject_config_backup_cleanup_failure();
         let error = Config::create_config_backup(&source).unwrap_err();
         let message = error.to_string();
         assert!(message.contains("注入：备份副本最终化失败"), "{message}");
         assert!(message.contains("清理不完整备份失败"), "{message}");
-        // 原文件不变；既有合法备份完好
         assert_eq!(std::fs::read(&source).unwrap(), b"{incomplete");
         assert_eq!(std::fs::read(&existing_backup).unwrap(), b"previous-backup");
     }
@@ -2127,9 +2050,7 @@ unknown_provider_flag = true
         Config::inject_atomic_replace_rename_failure();
         let error = Config::write_config_file(&path, b"new-content").unwrap_err();
         assert!(error.to_string().contains("注入：原子替换 rename 前失败"));
-        // 原路径内容完整保留
         assert_eq!(std::fs::read(&path).unwrap(), b"original-content");
-        // 无临时文件残留（TempPath Drop 已清理）
         assert!(std::fs::read_dir(&parent).unwrap().all(|entry| !entry
             .unwrap()
             .file_name()
@@ -2151,7 +2072,6 @@ default_model = "gpt-4o"
         std::fs::write(&path, original).unwrap();
         let before_meta = std::fs::metadata(&path).unwrap();
 
-        // 闭包未改动任何已知字段：显式 no-op，不得写回
         Config::update_user_config_file(&path, |config| {
             let _ = &config.llm.default_model;
             Ok(())
@@ -2178,7 +2098,6 @@ default_model = "gpt-4o"
         })
         .unwrap();
 
-        // 文件只包含实际改动的最小差异，未缺失的字段由默认值合并补齐
         let raw = std::fs::read_to_string(&path).unwrap();
         let persisted =
             Config::load_with_overrides(Some(&path), None).expect("事务写回必须是可解析 TOML");
