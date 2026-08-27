@@ -59,7 +59,7 @@ jobs:
         run: cargo audit
 
       - name: Provider integration tests
-        run: cargo test --test anthropic_integration
+        run: cargo test -p yode-llm --test anthropic_integration
 
       - name: Artifact smoke verification
         run: bash scripts/verify-compact-artifacts.sh

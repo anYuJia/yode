@@ -28,7 +28,6 @@ async fn test_anthropic_chat() {
     let provider = AnthropicProvider::new("anthropic", api_key, base_url);
     assert_eq!(provider.name(), "anthropic");
 
-    // Test non-streaming chat
     let request = ChatRequest {
         model: model.clone(),
         messages: vec![
@@ -116,7 +115,6 @@ async fn test_anthropic_stream() {
 
 #[tokio::test]
 async fn test_dashscope_simple_input() {
-    // Test what DashScope returns for a simple input like "1"
     let Some((api_key, base_url, model)) = anthropic_test_config("qwen3.5-plus") else {
         return;
     };
@@ -131,7 +129,7 @@ async fn test_dashscope_simple_input() {
         ],
         tools: vec![],
         temperature: Some(0.0),
-        max_tokens: Some(2048), // Enable thinking with higher tokens
+        max_tokens: Some(2048),
         provider_hints: ProviderRequestHints::default(),
     };
 
