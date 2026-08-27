@@ -1,7 +1,12 @@
 use super::*;
 
 fn hook_working_dir() -> PathBuf {
-    std::env::temp_dir()
+    let dir = std::env::temp_dir().join(format!(
+        "yode-hook-manager-test-{}",
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
 }
 
 #[cfg(windows)]
@@ -20,22 +25,22 @@ fn hook_command(command: &str) -> String {
 }
 
 #[cfg(windows)]
-fn hook_json_command(json: &str) -> String {
-    format!("echo {json}")
+fn hook_json_command(working_dir: &std::path::Path, json: &str) -> String {
+    crate::test_support::cmd_literal_output_command(working_dir, json, None)
 }
 
 #[cfg(not(windows))]
-fn hook_json_command(json: &str) -> String {
+fn hook_json_command(_working_dir: &std::path::Path, json: &str) -> String {
     format!("printf '%s' '{}'", json)
 }
 
 #[cfg(windows)]
-fn hook_wake_command(json: &str) -> String {
-    format!("echo {json} & exit /b 2")
+fn hook_wake_command(working_dir: &std::path::Path, json: &str) -> String {
+    crate::test_support::cmd_literal_output_command(working_dir, json, Some(2))
 }
 
 #[cfg(not(windows))]
-fn hook_wake_command(json: &str) -> String {
+fn hook_wake_command(_working_dir: &std::path::Path, json: &str) -> String {
     format!("printf '%s' '{}' && exit 2", json)
 }
 
@@ -145,8 +150,9 @@ async fn test_hook_tool_filter() {
 
 #[tokio::test]
 async fn test_hook_manager_parses_structured_json_output() {
-    let mut mgr = HookManager::new(hook_working_dir());
-    let command = hook_json_command("{\"continue\":false,\"reason\":\"blocked\",\"modified_input\":{\"path\":\"src/main.rs\"},\"systemMessage\":\"hook context\"}");
+    let working_dir = hook_working_dir();
+    let command = hook_json_command(&working_dir, "{\"continue\":false,\"reason\":\"blocked\",\"modified_input\":{\"path\":\"src/main.rs\"},\"systemMessage\":\"hook context\"}");
+    let mut mgr = HookManager::new(working_dir);
     mgr.register(HookDefinition {
         command,
         events: vec!["pre_tool_use".into()],
@@ -182,8 +188,9 @@ async fn test_hook_manager_parses_structured_json_output() {
 
 #[tokio::test]
 async fn test_hook_manager_records_invalid_structured_json_output() {
-    let mut mgr = HookManager::new(hook_working_dir());
-    let command = hook_json_command("{not-json");
+    let working_dir = hook_working_dir();
+    let command = hook_json_command(&working_dir, "{not-json");
+    let mut mgr = HookManager::new(working_dir);
     mgr.register(HookDefinition {
         command: command.clone(),
         events: vec!["pre_tool_use".into()],
@@ -223,10 +230,12 @@ async fn test_hook_manager_records_invalid_structured_json_output() {
 
 #[tokio::test]
 async fn test_hook_manager_parses_defer_output() {
-    let mut mgr = HookManager::new(hook_working_dir());
+    let working_dir = hook_working_dir();
     let command = hook_json_command(
+        &working_dir,
         "{\"decision\":\"defer\",\"deferReason\":\"wait for browser auth\",\"systemMessage\":\"deferred\"}",
     );
+    let mut mgr = HookManager::new(working_dir);
     mgr.register(HookDefinition {
         command: command.clone(),
         events: vec!["pre_tool_use".into()],
@@ -264,9 +273,14 @@ async fn test_hook_manager_parses_defer_output() {
 
 #[tokio::test]
 async fn test_hook_manager_queues_wake_notifications() {
-    let mut mgr = HookManager::new(hook_working_dir());
+    let working_dir = hook_working_dir();
+    let command = hook_wake_command(
+        &working_dir,
+        "{\"hookSpecificOutput\":{\"wakeNotification\":\"wake up\"}}",
+    );
+    let mut mgr = HookManager::new(working_dir);
     mgr.register(HookDefinition {
-        command: hook_wake_command("{\"hookSpecificOutput\":{\"wakeNotification\":\"wake up\"}}"),
+        command,
         events: vec!["pre_tool_use".into()],
         tool_filter: None,
         timeout_secs: 5,
