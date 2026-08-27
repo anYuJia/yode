@@ -2,8 +2,16 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
+    paths:
+      - "Cargo.toml"
+      - "apps/yode-desktop/package.json"
+      - "apps/yode-desktop/src-tauri/Cargo.toml"
+      - "apps/yode-desktop/src-tauri/tauri.conf.json"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -12,16 +20,67 @@ env:
   CARGO_TERM_COLOR: always
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   quality-gate:
     name: Release Quality Gate
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.ref, 'refs/tags/v') ||
+      startsWith(github.event.head_commit.message, 'chore(release): v')
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
+
+      - name: Verify release version consistency
+        id: version
+        shell: bash
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          import os
+          import tomllib
+
+          with open("Cargo.toml", "rb") as f:
+              workspace_version = tomllib.load(f)["workspace"]["package"]["version"]
+          with open("apps/yode-desktop/src-tauri/Cargo.toml", "rb") as f:
+              tauri_crate_version = tomllib.load(f)["package"]["version"]
+          with open("apps/yode-desktop/package.json", encoding="utf-8") as f:
+              package_version = json.load(f)["version"]
+          with open("apps/yode-desktop/src-tauri/tauri.conf.json", encoding="utf-8") as f:
+              tauri_config_version = json.load(f)["version"]
+
+          versions = {
+              "workspace": workspace_version,
+              "tauri crate": tauri_crate_version,
+              "desktop package": package_version,
+              "tauri config": tauri_config_version,
+          }
+          unique = set(versions.values())
+          if len(unique) != 1:
+              raise SystemExit(f"release version mismatch: {versions}")
+
+          version = unique.pop()
+          release_tag = f"v{version}"
+          ref = os.environ.get("GITHUB_REF", "")
+          if ref.startswith("refs/tags/") and ref.removeprefix("refs/tags/") != release_tag:
+              raise SystemExit(
+                  f"tag/config mismatch: tag={ref.removeprefix('refs/tags/')} config={release_tag}"
+              )
+
+          print(f"version={version}")
+          print(f"release_tag={release_tag}")
+          PY
 
       - name: Install Linux desktop dependencies
         run: |
@@ -36,7 +95,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # pinned action commit
         with:
-          toolchain: stable
+          toolchain: 1.97.1
           components: clippy, rustfmt
 
       - name: Cache cargo artifacts
@@ -101,7 +160,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # pinned action commit
         with:
-          toolchain: stable
+          toolchain: 1.97.1
           targets: ${{ matrix.target }}
 
       - name: Setup pnpm
@@ -121,15 +180,59 @@ jobs:
         working-directory: apps/yode-desktop
         run: pnpm install --frozen-lockfile
 
-      - name: Build and publish desktop app
+      - name: Build and upload desktop app to draft release
         uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: apps/yode-desktop
-          tagName: ${{ github.ref_name }}
-          releaseName: Yode Desktop ${{ github.ref_name }}
-          releaseBody: "Yode 桌面应用发布。"
-          releaseDraft: false
+          tagName: ${{ needs.quality-gate.outputs.release_tag }}
+          releaseName: Yode Desktop ${{ needs.quality-gate.outputs.release_tag }}
+          releaseBody: "Yode Desktop ${{ needs.quality-gate.outputs.version }} 正在完成多平台构建与资产校验。"
+          releaseDraft: true
           prerelease: false
           args: --target ${{ matrix.target }}
+
+  finalize:
+    name: Verify Assets And Publish Release
+    runs-on: ubuntu-latest
+    needs:
+      - quality-gate
+      - publish
+    steps:
+      - name: Checkout
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Verify release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.quality-gate.outputs.release_tag }}
+        shell: bash
+        run: |
+          gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | sort > release-assets.txt
+          cat release-assets.txt
+          grep -Eqi '\.(AppImage|deb|rpm)$' release-assets.txt
+          grep -Eqi '(x64|x86_64).*\.dmg$' release-assets.txt
+          grep -Eqi '(aarch64|arm64).*\.dmg$' release-assets.txt
+          test "$(grep -Eic '\.dmg$' release-assets.txt)" -ge 2
+          grep -Eqi '\.(msi|exe)$' release-assets.txt
+
+      - name: Publish verified release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.quality-gate.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.quality-gate.outputs.version }}
+        shell: bash
+        run: |
+          NOTES="docs/releases/v${RELEASE_VERSION}.md"
+          if [[ -f "$NOTES" ]]; then
+            gh release edit "$RELEASE_TAG" \
+              --draft=false \
+              --title "Yode Desktop $RELEASE_TAG" \
+              --notes-file "$NOTES"
+          else
+            gh release edit "$RELEASE_TAG" \
+              --draft=false \
+              --title "Yode Desktop $RELEASE_TAG" \
+              --notes "Yode Desktop $RELEASE_VERSION"
+          fi
