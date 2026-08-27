@@ -2,7 +2,8 @@ name: Temporary Rust Autoformat
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -10,7 +11,6 @@ permissions:
 
 jobs:
   rustfmt:
-    if: github.actor != 'github-actions[bot]' || !contains(github.event.head_commit.message, 'chore: apply rustfmt')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
