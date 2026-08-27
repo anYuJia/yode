@@ -321,6 +321,7 @@ fn platform_unavailable_reason() -> String {
     "no supported OS sandbox backend is available".to_string()
 }
 
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn find_executable(name: &str) -> Option<PathBuf> {
     let direct = PathBuf::from(name);
     if direct.components().count() > 1 && direct.is_file() {
