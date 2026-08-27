@@ -233,7 +233,10 @@ fn plain_shell(command: &str) -> (PathBuf, Vec<String>) {
     }
     #[cfg(not(target_os = "windows"))]
     {
-        (PathBuf::from("sh"), vec!["-c".to_string(), command.to_string()])
+        (
+            PathBuf::from("sh"),
+            vec!["-c".to_string(), command.to_string()],
+        )
     }
 }
 

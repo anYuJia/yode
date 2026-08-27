@@ -542,7 +542,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let backend = LocalExecutionBackend;
         let request = ExecutionRequest {
-            command: "printf yode".to_string(),
+            command: "echo yode".to_string(),
             workspace: dir.path().to_path_buf(),
             timeout_secs: 5,
             env: BTreeMap::new(),
