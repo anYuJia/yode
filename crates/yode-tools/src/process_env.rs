@@ -9,9 +9,9 @@ use tokio::process::Command;
 /// 基础白名单：子进程解析外部程序、定位用户目录、临时目录和本地化所必需。
 ///
 /// Windows 的系统根目录、用户 profile、程序目录和临时目录属于 shell/Win32
-/// 运行时的核心启动上下文，不是应用凭据。PowerShell/cmd 在 `env_clear()` 后
-/// 缺少其中部分变量时可能无法初始化，因此保留一组最小但完整的 core env。
-/// 这里仍然不会继承 API key、token、代理、云凭据等敏感变量。
+/// 运行时的核心启动上下文，不是应用凭据。`cmd.exe` 与部分 Win32 运行时在
+/// `env_clear()` 后缺少其中部分变量时可能无法初始化，因此保留一组最小但完整
+/// 的 core env。这里仍然不会继承 API key、token、代理、云凭据等敏感变量。
 pub const MINIMAL_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "HOME",
@@ -30,7 +30,7 @@ pub const MINIMAL_ENV_ALLOWLIST: &[&str] = &[
     "SystemRoot",
     "WINDIR",
     "SYSTEMDRIVE",
-    // Windows user/profile context required by legacy PowerShell and Win32 APIs.
+    // Windows user/profile context required by Win32 APIs.
     "USERNAME",
     "USERDOMAIN",
     "USERPROFILE",
@@ -154,50 +154,22 @@ mod tests {
 
     #[cfg(windows)]
     #[tokio::test]
-    async fn minimal_env_keeps_windows_powershell_bootstrap() {
-        let mut cmd = Command::new("powershell.exe");
-        apply_minimal_env(&mut cmd);
-        cmd.args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-Command",
-            "Write-Output ok",
-        ]);
-
-        let output = cmd.output().await.expect("powershell should start");
-        assert!(
-            output.status.success(),
-            "PowerShell failed under minimal environment: status={} stderr={}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-
-    #[cfg(windows)]
-    #[tokio::test]
-    async fn minimal_env_keeps_powershell_bootstrap_through_cmd() {
+    async fn minimal_env_keeps_windows_cmd_bootstrap() {
         let mut cmd = Command::new("cmd.exe");
         apply_minimal_env(&mut cmd);
-        cmd.args([
-            "/d",
-            "/s",
-            "/c",
-            "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -OutputFormat Text -Command \"Write-Output ok\"",
-        ]);
+        cmd.args(["/d", "/s", "/c", "echo ok"]);
 
-        let output = cmd.output().await.expect("cmd should start PowerShell");
+        let output = cmd.output().await.expect("cmd should start");
         let stdout = String::from_utf8_lossy(&output.stdout);
         assert!(
             output.status.success(),
-            "PowerShell through cmd failed under minimal environment: status={} stderr={}",
+            "cmd failed under minimal environment: status={} stderr={}",
             output.status,
             String::from_utf8_lossy(&output.stderr)
         );
         assert!(
             stdout.contains("ok"),
-            "PowerShell through cmd produced unexpected stdout: {stdout:?}"
+            "cmd produced unexpected stdout: {stdout:?}"
         );
     }
 }
