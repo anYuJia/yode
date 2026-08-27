@@ -261,7 +261,12 @@ fn replace_file(target: &Path, bytes: &[u8]) -> Result<()> {
         .truncate(true)
         .write(true)
         .open(&temp)
-        .with_context(|| format!("failed to create temporary learning file {}", temp.display()))?;
+        .with_context(|| {
+            format!(
+                "failed to create temporary learning file {}",
+                temp.display()
+            )
+        })?;
     file.write_all(bytes)?;
     file.flush()?;
     file.sync_all()?;
