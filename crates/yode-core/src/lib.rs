@@ -39,7 +39,7 @@ pub(crate) mod test_support {
         }
 
         format!(
-            "powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {}",
+            "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -OutputFormat Text -EncodedCommand {}",
             base64_encode(&utf16_le)
         )
     }
