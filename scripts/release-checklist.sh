@@ -4,22 +4,36 @@ set -euo pipefail
 ROOT="${1:-$(pwd)}"
 cd "$ROOT"
 
-echo "[1/5] Verify git working tree is clean"
-git status --short
-
+echo "[1/7] Verify git working tree is clean"
 if [[ -n "$(git status --short)" ]]; then
+  git status --short
   echo "Working tree is not clean."
   exit 1
 fi
 
-echo "[2/5] Run release preflight"
-cargo run -- update preflight
+echo "[2/7] Rust format"
+cargo fmt --all -- --check
 
-echo "[3/5] Draft release notes"
-cargo run -- update notes --limit 20
+echo "[3/7] Rust clippy/check"
+cargo clippy --workspace --all-targets --no-deps -- -D warnings
+cargo check --workspace --all-targets
 
-echo "[4/5] Show latest local release tag"
-git tag --list 'v*' --sort=-version:refname | head -n 1
+echo "[4/7] Rust workspace tests"
+cargo test --workspace
 
-echo "[5/5] Checklist complete"
-echo "If the notes and tag look correct, push commits and create/push the next release tag."
+echo "[5/7] Provider integration tests"
+cargo test -p yode-llm --test anthropic_integration
+
+echo "[6/7] Desktop frontend tests/build"
+(
+  cd apps/yode-desktop
+  pnpm install --frozen-lockfile
+  pnpm test
+  pnpm build
+)
+
+echo "[7/7] Validate release workflow coverage"
+bash scripts/release-validation-matrix.sh /tmp/yode-release-validation-matrix.md
+
+echo "Release checklist complete."
+echo "The tagged release workflow is responsible for producing macOS, Windows, and Linux Tauri artifacts."

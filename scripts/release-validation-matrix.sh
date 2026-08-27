@@ -2,50 +2,71 @@
 set -euo pipefail
 
 out_file="${1:-docs/optimization/306-release-validation-matrix.md}"
-workflow="${2:-.github/workflows/ci.yml}"
+ci_workflow="${2:-.github/workflows/ci.yml}"
+release_workflow="${3:-.github/workflows/release.yml}"
 
-[[ -f "$workflow" ]] || { echo "Missing CI workflow: $workflow" >&2; exit 1; }
+[[ -f "$ci_workflow" ]] || { echo "Missing CI workflow: $ci_workflow" >&2; exit 1; }
+[[ -f "$release_workflow" ]] || { echo "Missing release workflow: $release_workflow" >&2; exit 1; }
 
-rg -q 'os: \[ubuntu-latest, macos-latest, windows-latest\]' "$workflow"
-rg -q 'YODE_CLI_PACKAGES:' "$workflow"
-rg -q 'run: cargo test \$\{\{ env\.YODE_CLI_PACKAGES \}\} --lib' "$workflow"
-rg -q 'run: cargo clippy \$\{\{ env\.YODE_CLI_PACKAGES \}\} --no-deps -- -D warnings' "$workflow"
-rg -q 'bash scripts/parity-snapshot-ci.sh' "$workflow"
-rg -q 'bash scripts/parity-replay-ci.sh' "$workflow"
-rg -q 'bash scripts/parity-docs-ci.sh' "$workflow"
-rg -q 'parity-snapshot-artifacts' "$workflow"
-rg -q 'parity-replay-artifacts' "$workflow"
-rg -q 'parity-visual-docs-artifacts' "$workflow"
-rg -q 'yode-benchmark-snapshot' "$workflow"
+# Core workspace validation must stay platform-independent and CLI-free.
+rg -q 'cargo fmt --all -- --check' "$ci_workflow"
+rg -q 'cargo clippy --workspace --all-targets --no-deps -- -D warnings' "$ci_workflow"
+rg -q 'cargo check --workspace --all-targets' "$ci_workflow"
+rg -q 'cargo test --workspace' "$ci_workflow"
+rg -q 'cargo test -p yode-llm --test anthropic_integration' "$ci_workflow"
+rg -q 'os: \[ubuntu-latest, macos-latest, windows-latest\]' "$ci_workflow"
+
+# Desktop frontend and packaged application must be first-class gates.
+rg -q 'working-directory: apps/yode-desktop' "$ci_workflow"
+rg -q 'pnpm test' "$ci_workflow"
+rg -q 'pnpm build' "$ci_workflow"
+rg -q 'tauri-apps/tauri-action' "$release_workflow"
+rg -q 'projectPath: apps/yode-desktop' "$release_workflow"
+rg -q 'x86_64-pc-windows-msvc' "$release_workflow"
+rg -q 'aarch64-apple-darwin' "$release_workflow"
+rg -q 'x86_64-unknown-linux-gnu' "$release_workflow"
+
+# Guard against accidentally restoring the retired root CLI product.
+if rg -q 'YODE_CLI_PACKAGES|cargo run --|cargo install --path \.|src/main\.rs' "$ci_workflow" "$release_workflow"; then
+  echo "Legacy CLI release/build path detected in active workflows." >&2
+  exit 1
+fi
 
 mkdir -p "$(dirname "$out_file")"
 cat >"$out_file" <<'EOF'
 # Release Validation Matrix
 
+## Product Surface
+
+- Yode ships as a Tauri Desktop application.
+- The repository root is a virtual Cargo workspace and does not ship a root CLI/TUI binary.
+- Release validation must not depend on `cargo run`, root `src/main.rs`, shell completions, or `YODE_CLI_PACKAGES`.
+
 ## CI Platform Coverage
 
-- `rust` job runs format, clippy, cargo check, workspace library tests, audit, provider integration tests, compact artifact smoke verification, and benchmark snapshot upload on `ubuntu-latest`.
-- `test-matrix` runs CLI package library tests on `ubuntu-latest`, `macos-latest`, and `windows-latest`.
-- Parity jobs run snapshot, replay, visual/docs, and upload their parity artifact bundles.
+- Rust workspace formatting, clippy, check, tests, audit, and provider integration run in CI.
+- Workspace tests run on Linux, macOS, and Windows.
+- Desktop frontend tests and production build run in CI.
 
-## Required Release Gates
+## Desktop Release Coverage
 
-- `cargo test $YODE_CLI_PACKAGES --lib`
-- `cargo clippy $YODE_CLI_PACKAGES --no-deps -- -D warnings`
-- `bash scripts/parity-ci-local.sh`
+- Tagged releases are packaged with `tauri-apps/tauri-action`.
+- Release targets include Linux x86_64, macOS Intel, macOS Apple Silicon, and Windows x86_64.
+- The release job depends on the Rust quality gate before packaging.
+
+## Required Local Release Gates
+
+- `cargo fmt --all -- --check`
+- `cargo clippy --workspace --all-targets --no-deps -- -D warnings`
+- `cargo check --workspace --all-targets`
+- `cargo test --workspace`
+- `cargo test -p yode-llm --test anthropic_integration`
+- `cd apps/yode-desktop && pnpm test && pnpm build`
 - `bash scripts/release-checklist.sh`
-
-## Uploaded Evidence
-
-- `yode-benchmark-snapshot`
-- `parity-snapshot-artifacts`
-- `parity-replay-artifacts`
-- `parity-visual-docs-artifacts`
 
 ## Release Interpretation
 
-- Local release-candidate validation can confirm the current platform and release scripts.
-- The final tag should wait for the GitHub Actions Linux/macOS/Windows matrix and parity artifact uploads to finish successfully.
+A release is ready only when the desktop packaging workflow and cross-platform CI matrix complete successfully on the tagged commit.
 EOF
 
 echo "Release validation matrix written: $out_file"
