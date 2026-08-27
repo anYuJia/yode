@@ -19,12 +19,12 @@ fn hook_dump_context_command(path: &std::path::Path) -> String {
 }
 
 #[cfg(windows)]
-fn hook_json_command(json: &str) -> String {
-    format!("echo {json}")
+fn hook_json_command(working_dir: &std::path::Path, json: &str) -> String {
+    crate::test_support::cmd_literal_output_command(working_dir, json, None)
 }
 
 #[cfg(not(windows))]
-fn hook_json_command(json: &str) -> String {
+fn hook_json_command(_working_dir: &std::path::Path, json: &str) -> String {
     format!("printf '%s' '{}'", json)
 }
 
@@ -46,9 +46,10 @@ async fn test_pre_tool_use_hook_can_modify_input() {
     let hook_dir =
         std::env::temp_dir().join(format!("yode-modify-hook-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&hook_dir).unwrap();
+    let command = hook_json_command(&hook_dir, "{\"updatedInput\":{\"path\":\"new.txt\"}}");
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: hook_json_command("{\"updatedInput\":{\"path\":\"new.txt\"}}"),
+        command,
         events: vec!["pre_tool_use".into()],
         tool_filter: Some(vec!["mock_path".into()]),
         timeout_secs: 5,
@@ -136,11 +137,13 @@ async fn test_pre_tool_use_hook_can_defer_call_with_artifact() {
     let hook_dir =
         std::env::temp_dir().join(format!("yode-defer-hook-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&hook_dir).unwrap();
+    let command = hook_json_command(
+        &hook_dir,
+        "{\"decision\":\"defer\",\"deferReason\":\"await external approval\"}",
+    );
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: hook_json_command(
-            "{\"decision\":\"defer\",\"deferReason\":\"await external approval\"}",
-        ),
+        command,
         events: vec!["pre_tool_use".into()],
         tool_filter: Some(vec!["mock_path".into()]),
         timeout_secs: 5,
@@ -179,11 +182,13 @@ async fn test_pre_tool_use_hook_can_defer_tool_call() {
     let hook_dir =
         std::env::temp_dir().join(format!("yode-defer-hook-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&hook_dir).unwrap();
+    let command = hook_json_command(
+        &hook_dir,
+        "{\"decision\":\"defer\",\"deferReason\":\"wait for remote approval\"}",
+    );
     let mut hook_mgr = crate::hooks::HookManager::new(hook_dir);
     hook_mgr.register(crate::hooks::HookDefinition {
-        command: hook_json_command(
-            "{\"decision\":\"defer\",\"deferReason\":\"wait for remote approval\"}",
-        ),
+        command,
         events: vec!["pre_tool_use".into()],
         tool_filter: Some(vec!["mock_path".into()]),
         timeout_secs: 5,
