@@ -23,6 +23,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libappindicator3-dev \
+            librsvg2-dev \
+            libwebkit2gtk-4.1-dev \
+            patchelf
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # pinned action commit
         with:
@@ -82,6 +92,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            pkg-config \
             libappindicator3-dev \
             librsvg2-dev \
             libwebkit2gtk-4.1-dev \
