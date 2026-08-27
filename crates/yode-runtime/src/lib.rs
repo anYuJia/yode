@@ -1,7 +1,12 @@
+pub mod deliberation;
 pub mod desktop_events;
 pub mod execution_backend;
 pub mod provider_bootstrap;
 
+pub use deliberation::{
+    run_best_of_n, run_debate, BestOfNConfig, BestOfNResult, DebateConfig, DebateResult,
+    DebateTurn, DeliberationCandidate, DeliberationRunner, JudgeDecision,
+};
 pub use desktop_events::{
     engine_event_to_desktop_parts, engine_event_to_runtime_parts, run_status_for_event_kind,
     AskUserPayload, BudgetExceededPayload, CancelledPayload, CancellingPayload,
