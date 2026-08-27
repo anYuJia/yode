@@ -1,0 +1,52 @@
+name: Temporary Test Target Fix
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          ref: main
+      - name: Repair stale test fixtures
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          runtime_tests = Path('apps/yode-desktop/src-tauri/src/runtime/tests.rs')
+          text = runtime_tests.read_text()
+          text = text.replace('use yode_core::updater::Updater;\n', '', 1)
+          stale = '''        updater: Updater::new(\n            dirs::home_dir()\n                .unwrap_or_else(|| PathBuf::from("."))\n                .join(".yode"),\n            false,\n            false,\n        ),\n'''
+          if stale not in text:
+              raise SystemExit('stale DesktopRuntime updater fixture not found')
+          runtime_tests.write_text(text.replace(stale, '', 1))
+
+          browser_tests = Path('crates/yode-tools/src/builtin/web_fetch/browser.rs')
+          text = browser_tests.read_text()
+          old = '    use serde_json::json;\n'
+          new = '    use serde_json::{json, Value};\n'
+          if old not in text:
+              raise SystemExit('browser test serde_json import not found')
+          browser_tests.write_text(text.replace(old, new, 1))
+          PY
+          cargo fmt --all
+      - name: Commit fix
+        shell: bash
+        run: |
+          if git diff --quiet; then
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add apps/yode-desktop/src-tauri/src/runtime/tests.rs crates/yode-tools/src/builtin/web_fetch/browser.rs
+          git commit -m 'fix(tests): align fixtures with current runtime'
+          git push origin HEAD:main
