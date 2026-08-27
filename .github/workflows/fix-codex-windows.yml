@@ -21,157 +21,160 @@ jobs:
         with:
           toolchain: 1.97.1
       - name: Apply targeted cross-platform Codex fixes
-        shell: python
+        shell: pwsh
         run: |
+          @'
           import pathlib
 
           path = pathlib.Path('crates/yode-tools/src/builtin/codex_compat.rs')
           text = path.read_text(encoding='utf-8')
 
           old = '''fn effective_exec_command(command: &str, params: &Value) -> String {
-    let Some(shell) = params
-        .get("shell")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        return command.to_string();
-    };
+              let Some(shell) = params
+                  .get("shell")
+                  .and_then(Value::as_str)
+                  .map(str::trim)
+                  .filter(|value| !value.is_empty())
+              else {
+                  return command.to_string();
+              };
 
-    let flag = if params
-        .get("login")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        "-lc"
-    } else {
-        "-c"
-    };
-    format!("{} {} {}", shell_quote(shell), flag, shell_quote(command))
-}
-'''
+              let flag = if params
+                  .get("login")
+                  .and_then(Value::as_bool)
+                  .unwrap_or(false)
+              {
+                  "-lc"
+              } else {
+                  "-c"
+              };
+              format!("{} {} {}", shell_quote(shell), flag, shell_quote(command))
+          }
+          '''
           new = '''fn effective_exec_command(command: &str, params: &Value) -> String {
-    let Some(shell) = params
-        .get("shell")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    else {
-        return command.to_string();
-    };
+              let Some(shell) = params
+                  .get("shell")
+                  .and_then(Value::as_str)
+                  .map(str::trim)
+                  .filter(|value| !value.is_empty())
+              else {
+                  return command.to_string();
+              };
 
-    #[cfg(target_os = "windows")]
-    {
-        let executable = shell
-            .replace('\\\\', "/")
-            .rsplit('/')
-            .next()
-            .unwrap_or(shell)
-            .to_ascii_lowercase();
-        if matches!(executable.as_str(), "cmd" | "cmd.exe") {
-            return command.to_string();
-        }
-    }
+              #[cfg(target_os = "windows")]
+              {
+                  let executable = shell
+                      .replace('\\\\', "/")
+                      .rsplit('/')
+                      .next()
+                      .unwrap_or(shell)
+                      .to_ascii_lowercase();
+                  if matches!(executable.as_str(), "cmd" | "cmd.exe") {
+                      return command.to_string();
+                  }
+              }
 
-    let flag = if params
-        .get("login")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
-    {
-        "-lc"
-    } else {
-        "-c"
-    };
-    format!("{} {} {}", shell_quote(shell), flag, shell_quote(command))
-}
-'''
+              let flag = if params
+                  .get("login")
+                  .and_then(Value::as_bool)
+                  .unwrap_or(false)
+              {
+                  "-lc"
+              } else {
+                  "-c"
+              };
+              format!("{} {} {}", shell_quote(shell), flag, shell_quote(command))
+          }
+          '''
           if old not in text:
               raise SystemExit('effective_exec_command block not found')
           text = text.replace(old, new, 1)
 
           marker = '''    use super::{
-        ApplyPatchTool, ExecCommandTool, GetContextRemainingTool, RequestUserInputTool,
-        ShellCommandTool, UpdatePlanTool, ViewImageTool, WriteStdinTool,
-    };
-'''
+              ApplyPatchTool, ExecCommandTool, GetContextRemainingTool, RequestUserInputTool,
+              ShellCommandTool, UpdatePlanTool, ViewImageTool, WriteStdinTool,
+          };
+          '''
           helpers = marker + '''
-    #[cfg(target_os = "windows")]
-    fn codex_shell_test_case() -> (&'static str, &'static str) {
-        ("echo shell-ok", "cmd")
-    }
+              #[cfg(target_os = "windows")]
+              fn codex_shell_test_case() -> (&'static str, &'static str) {
+                  ("echo shell-ok", "cmd")
+              }
 
-    #[cfg(not(target_os = "windows"))]
-    fn codex_shell_test_case() -> (&'static str, &'static str) {
-        ("printf shell-ok", "sh")
-    }
+              #[cfg(not(target_os = "windows"))]
+              fn codex_shell_test_case() -> (&'static str, &'static str) {
+                  ("printf shell-ok", "sh")
+              }
 
-    #[cfg(target_os = "windows")]
-    fn background_stdin_command() -> &'static str {
-        "setlocal EnableDelayedExpansion & echo ready & set /p line= & echo got:!line!"
-    }
+              #[cfg(target_os = "windows")]
+              fn background_stdin_command() -> &'static str {
+                  "setlocal EnableDelayedExpansion & echo ready & set /p line= & echo got:!line!"
+              }
 
-    #[cfg(not(target_os = "windows"))]
-    fn background_stdin_command() -> &'static str {
-        "printf 'ready\\n'; IFS= read line; printf 'got:%s\\n' \"$line\""
-    }
-'''
+              #[cfg(not(target_os = "windows"))]
+              fn background_stdin_command() -> &'static str {
+                  "printf 'ready\\n'; IFS= read line; printf 'got:%s\\n' \"$line\""
+              }
+          '''
           if marker not in text:
               raise SystemExit('test import marker not found')
           text = text.replace(marker, helpers, 1)
 
           old_test = '''    async fn exec_command_accepts_codex_shell_options() {
-        let result = ExecCommandTool
-            .execute(
-                json!({
-                    "cmd": "printf shell-ok",
-                    "shell": "sh",
-                    "login": false,
-                    "tty": false,
-                    "sandbox_permissions": "use_default",
-                    "justification": "test",
-                    "prefix_rule": ["printf"]
-                }),
-'''
+              let result = ExecCommandTool
+                  .execute(
+                      json!({
+                          "cmd": "printf shell-ok",
+                          "shell": "sh",
+                          "login": false,
+                          "tty": false,
+                          "sandbox_permissions": "use_default",
+                          "justification": "test",
+                          "prefix_rule": ["printf"]
+                      }),
+          '''
           new_test = '''    async fn exec_command_accepts_codex_shell_options() {
-        let (command, shell) = codex_shell_test_case();
-        let result = ExecCommandTool
-            .execute(
-                json!({
-                    "cmd": command,
-                    "shell": shell,
-                    "login": false,
-                    "tty": false,
-                    "sandbox_permissions": "use_default",
-                    "justification": "test",
-                    "prefix_rule": ["echo"]
-                }),
-'''
+              let (command, shell) = codex_shell_test_case();
+              let result = ExecCommandTool
+                  .execute(
+                      json!({
+                          "cmd": command,
+                          "shell": shell,
+                          "login": false,
+                          "tty": false,
+                          "sandbox_permissions": "use_default",
+                          "justification": "test",
+                          "prefix_rule": ["echo"]
+                      }),
+          '''
           if old_test not in text:
               raise SystemExit('shell options test block not found')
           text = text.replace(old_test, new_test, 1)
 
           background_old = '''                    "cmd": "printf 'ready\\\\n'; IFS= read line; printf 'got:%s\\\\n' \\\"$line\\\"",
-                    "run_in_background": true
-'''
+                              "run_in_background": true
+          '''
           background_new = '''                    "cmd": background_stdin_command(),
-                    "run_in_background": true
-'''
+                              "run_in_background": true
+          '''
           count = text.count(background_old)
           if count != 2:
               raise SystemExit(f'expected 2 background command blocks, found {count}')
           text = text.replace(background_old, background_new)
 
           path.write_text(text, encoding='utf-8')
+          '@ | python -
       - name: Format
         run: cargo fmt --all
-      - name: Run targeted yode-tools tests
-        run: cargo test -p yode-tools codex_compat::tests::exec_command_accepts_codex_shell_options codex_compat::tests::write_stdin_feeds_background_exec_command codex_compat::tests::write_stdin_accepts_codex_numeric_session_id_and_empty_poll
+      - name: Run Codex compatibility tests
+        run: cargo test -p yode-tools codex_compat::tests::
       - name: Commit fix
-        shell: bash
+        shell: pwsh
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add crates/yode-tools/src/builtin/codex_compat.rs
-          git diff --cached --quiet && exit 0
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
           git commit -m "fix(codex): make shell compatibility tests cross-platform"
           git push origin HEAD:main
