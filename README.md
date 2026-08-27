@@ -6,7 +6,7 @@
   <img alt="Yode" src="assets/logo-dark.svg" width="220">
 </picture>
 
-### A local-first AI coding agent runtime for the terminal
+### A local-first desktop AI coding agent
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org/)
@@ -19,191 +19,128 @@
 
 ---
 
-**Yode** is an open-source coding agent for developers who want Claude Code-style agent ergonomics inside a Rust-native, inspectable, terminal workflow.
+**Yode** is an open-source, desktop-first coding agent built with Rust, Tauri, and React. It is designed for long-running repository work where planning, execution, verification, recovery, and observability need to stay inside one inspectable local application.
 
-It is built around three ideas:
+Yode is no longer developed as a CLI/TUI product. The supported product surface is `apps/yode-desktop/`; reusable Agent capabilities live in Rust crates and are exposed to the GUI through the Tauri runtime.
 
-- **Act in the repo.** Read, edit, search, run shell commands, use LSP, review diffs, run workflows, and coordinate agents from one terminal session.
-- **Keep the runtime visible.** Inspect permissions, hooks, MCP servers, startup settings, background tasks, remote sessions, and compact/restore state.
-- **Stay local-first.** Configuration, artifacts, task history, checkpoints, and operator commands live where you can audit and recover them.
+## Product principles
 
-```text
-╭─── Yode ───────────────────────────────────────────────╮
-│  claude-sonnet · ~/my-project · Default · 3 jobs       │
-╰─────────────────────────────────────────────────────────╯
+- **Act in the repository.** Read, edit, search, run commands, use LSP, review diffs, coordinate agents, and operate worktrees from one desktop workspace.
+- **Verify before delivery.** Code-changing runs are expected to produce verification evidence before they can be considered complete.
+- **Keep the runtime visible.** Runs, permissions, tool traces, background tasks, recovery state, costs, browser actions, artifacts, and evaluation results are inspectable by the GUI.
+- **Stay local-first.** Project state, artifacts, indexes, evaluation data, and recovery information remain auditable on disk.
 
-❯ review the current workspace changes and propose a safe fix
+## Desktop capabilities
 
-⏺ review_pipeline(...)
-⏺ coordinate_agents(...)
-⏺ remote_queue_dispatch(...)
-
-/status
-/inspect artifact latest-runtime-timeline
-/tasks monitor
-```
+| Area | Current direction |
+| --- | --- |
+| Agent runtime | RunController lifecycle, hard budgets, cancellation, recovery and persistent run state |
+| Code intelligence | Repository map, LSP and persistent repository intelligence index |
+| Verification | Acceptance criteria, evidence tracking, test/review verification gates |
+| Multi-agent | Planning, DAG orchestration, true concurrent ready batches and background agents |
+| Browser | Real Chromium CDP runtime for navigation, interaction, JavaScript and screenshots |
+| Evaluation | YodeBench task/outcome/metrics model with workspace artifacts |
+| Safety | Workspace trust, permission governance, fail-closed tool/runtime behavior |
+| Extensibility | MCP, skills, hooks, tools and provider abstractions |
 
 ## Install
 
-### One-line install (macOS / Linux)
+Download the desktop application for macOS, Windows, or Linux from GitHub Releases.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
-```
+Yode does not provide or maintain a root CLI binary, Cargo-install workflow, shell completion package, or TUI installer.
 
-### Cargo
+## Run from source
 
-```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v1.0.0
-```
+### Requirements
 
-### Windows
+- Rust toolchain
+- Node.js
+- pnpm
+- platform dependencies required by Tauri
 
-Download `yode-x86_64-pc-windows-msvc.zip` from [Releases](https://github.com/anYuJia/yode/releases), or install with PowerShell:
-
-```powershell
-iwr -useb https://raw.githubusercontent.com/anYuJia/yode/main/install.ps1 | iex
-```
-
-### From source
+### Development
 
 ```bash
 git clone https://github.com/anYuJia/yode.git
-cd yode
-cargo install --path .
+cd yode/apps/yode-desktop
+pnpm install --frozen-lockfile
+pnpm tauri:dev
 ```
 
-## Quick Start
+### Validation
 
 ```bash
-# Set one provider API key
-export ANTHROPIC_API_KEY="..."
-# or OPENAI_API_KEY / GEMINI_API_KEY
+# from repository root
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --no-deps -- -D warnings
+cargo check --workspace --all-targets
+cargo test --workspace
 
-# Configure a provider if this is your first run
-yode provider add
-
-# Launch the TUI
-yode
-
-# Run a non-interactive one-shot
-yode --chat "Summarize the repository structure"
-
-# Pick a provider/model explicitly
-yode --provider anthropic --model <model-name>
-
-# Resume a previous session
-yode --resume <session-id>
-
-# Check the local environment
-yode doctor
+# Desktop frontend
+cd apps/yode-desktop
+pnpm test
+pnpm build
 ```
 
-## Core Experience
+Provider integration tests live with the provider crate:
 
-### Agent Tools
-
-Yode ships a broad built-in tool surface:
-
-| Area | Tools |
-| --- | --- |
-| Code | `read_file`, `write_file`, `edit_file`, `glob`, `grep`, `bash`, `lsp` |
-| Review | `review_changes`, `review_pipeline`, `review_then_commit` |
-| Workflow | `workflow_run`, `workflow_run_with_writes`, worktree tools, plan-mode tools |
-| Agents | `agent`, `team_create`, `send_message`, `team_monitor`, `coordinate_agents` |
-| Remote | `remote_queue_dispatch`, `remote_queue_result`, `remote_transport_control` |
-| Runtime | `task_output`, `tool_search`, cron tools, MCP resource tools |
-
-### Operator Commands
-
-The runtime is visible from inside the product:
-
-| Command | What it is for |
-| --- | --- |
-| `/status` | Full session/runtime snapshot |
-| `/brief` | Compact current-state summary |
-| `/diagnostics` | Runtime health and observability overview |
-| `/inspect artifact summary` | Entry point into artifact families |
-| `/tools diag` | Tool pool, hidden/deferred tool, and failure diagnostics |
-| `/permissions mode` | Permission mode guide and switching |
-| `/tasks monitor` | Background runtime task workspace |
-| `/remote-control monitor` | Remote live-session monitor surface |
-| `/mcp` | MCP and settings control-plane summary |
-| `/workflows` | Workflow inspection and run prompts |
-| `/checkpoint` | Save, restore, branch, rewind, and rollback session state |
-
-### Governance and Safety
-
-Yode includes a control plane for serious local work:
-
-- permission modes: `default`, `plan`, `auto`, `accept-edits`, `bypass`
-- inspectable permission governance and precedence chains
-- hook lifecycle coverage for tool, task, sub-agent, and worktree flows
-- hook `defer` support with resumable artifacts/state
-- dangerous shell detection and runtime confirmation rules
-
-### MCP and Managed Settings
-
-MCP and settings are part of the inspectable runtime, not hidden setup:
-
-- provider inventory artifacts
-- settings scope artifacts
-- managed MCP inventory artifacts
-- tool-search activation artifacts
-- operator-facing MCP diagnostics and remediation paths
-
-## CLI Reference
-
-| Command | Description |
-| --- | --- |
-| `yode` | Start the TUI |
-| `yode --chat "<msg>"` | Non-interactive single-turn mode |
-| `yode --serve-mcp` | Run Yode as an MCP server over stdio |
-| `yode provider list` | List configured providers |
-| `yode provider add` | Interactive provider setup |
-| `yode update check` | Check and apply updates |
-| `yode completions zsh` | Generate shell completions |
-| `yode doctor` | Environment health checks |
-
-## Configuration
-
-Yode merges configuration and permission/governance state from multiple layers:
-
-- `~/.yode/managed-config.toml`
-- `~/.yode/config.toml`
-- `.yode/config.toml`
-- `.yode/config.local.toml`
-- session and CLI overrides
-
-Example:
-
-```toml
-[llm]
-default_provider = "anthropic"
-default_model = "your-model-name"
-
-[permissions]
-default_mode = "auto"
-
-[[permissions.always_allow]]
-category = "read"
-description = "allow read-only tools"
-
-[[hooks.hooks]]
-command = "scripts/pre_tool_use.sh"
-events = ["pre_tool_use", "permission_request"]
-tool_filter = ["bash", "write_file"]
-timeout_secs = 10
-can_block = true
-
-[mcp.servers.github]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-github"]
+```bash
+cargo test -p yode-llm --test anthropic_integration
 ```
 
-## Project Instructions
+## Architecture
 
-Yode loads project instructions from multiple compatible filenames, including:
+```text
+Desktop React UI
+      ↓ Tauri commands / events
+apps/yode-desktop/src-tauri
+      ↓
+┌──────────────────────────────────────────────────────────────┐
+│ yode-core      AgentEngine, RunController, context, safety  │
+│ yode-agent     planning, orchestration, scheduler           │
+│ yode-tools     repository/tool/browser/runtime capabilities │
+│ yode-runtime   shared runtime bootstrap                     │
+├──────────────────────────────────────────────────────────────┤
+│ yode-llm       provider/model abstraction                   │
+│ yode-mcp       MCP integration                              │
+│ yode-index     repository intelligence                      │
+│ yode-evals     YodeBench evaluation model                   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+The repository root is a **virtual Cargo workspace**. There is intentionally no root `src/main.rs` or root `yode` executable.
+
+## Agent tools
+
+Yode includes a broad runtime tool surface, including file operations, search, shell execution, LSP, review, worktrees, MCP, repository intelligence, verification agents, background tasks, multi-agent coordination, browser control, and Git operations.
+
+The project does not aim to win by adding more tools indefinitely. Current development prioritizes a stronger closed loop:
+
+```text
+Intent
+  → Analyze / Acceptance Criteria
+  → Plan
+  → Execute
+  → Verify
+      ├─ pass → Deliver
+      └─ fail → Replan → Execute
+  → Evaluate / Postmortem / Learn
+```
+
+## Runtime artifacts
+
+Project-local `.yode/` data is used for inspectable runtime state such as:
+
+- run/session artifacts
+- verification and review evidence
+- repository index data
+- browser screenshots/cache
+- YodeBench tasks and outcomes
+- transcripts, plans, checkpoints and recovery information
+
+## Project instructions
+
+Yode can load compatible project instruction files including:
 
 - `YODE.md`
 - `docs/YODE.md`
@@ -212,73 +149,15 @@ Yode loads project instructions from multiple compatible filenames, including:
 - `AGENTS.md`
 - `.claude/CLAUDE.md`
 
-Example:
+For contributors and coding agents working on Yode itself, `AGENTS.md` is the canonical product-direction guide. In particular, new user-facing capabilities must target the Desktop GUI rather than recreating CLI/TUI surfaces.
 
-```markdown
-# Project Guidelines
+## Release
 
-- Run `cargo test -p yode-core --lib` after engine changes
-- Prefer small reviewable patches
-- Keep migration notes in `docs/optimization/`
-```
-
-## Regression Snapshots
-
-Use the snapshot scripts when changing output surfaces:
-
-- `./scripts/output-regression-snapshot.sh`
-  Writes a multi-surface output snapshot to `.yode/benchmarks/output-regression-snapshot.md`.
-- `./scripts/split-output-regression-snapshot.sh`
-  Splits the combined output snapshot into per-section markdown files.
-- `./scripts/diff-output-regression-snapshot.sh`
-  Regenerates the snapshot in a temp dir and diffs it against the saved baseline.
-- `./scripts/benchmark-snapshot.sh`
-  Writes the long-session benchmark snapshot to `.yode/benchmarks/long-session-benchmark.md`.
-
-## Release Candidate Validation
-
-Before tagging a release candidate, run `bash scripts/release-checklist.sh` alongside the
-GitHub Actions matrix. The local checklist covers parity docs, snapshots, replay, visual
-artifacts, and benchmark evidence; the remote matrix still provides the Linux, macOS, and
-Windows confidence needed for the final tag.
-
-Current release-candidate evidence:
-
-- `docs/optimization/304-four-month-release-note-draft.md`
-- `docs/optimization/305-release-benchmark-evidence.md`
-- `docs/optimization/306-release-validation-matrix.md`
-
-## Architecture
-
-```text
-crates/
-├── yode-core     # engine, context, permissions, hooks, session/runtime state
-├── yode-llm      # provider abstraction
-├── yode-tools    # built-in tools and runtime tool surface
-├── yode-mcp      # MCP integration
-├── yode-agent    # agent/runtime helpers
-└── yode-runtime  # shared runtime bootstrap
-```
-
-## Latest Release
-
-`1.0.0` is the release-readiness milestone, focusing on:
-
-- Security: out-of-repo workspace/plugin trust stores, non-bypassable managed permissions, minimal child-process environments, truncated streams never execute tool calls
-- Reliability: per-turn hard budgets, atomic file writes, SQLite WAL + transactional migrations, explicit database corruption reporting
-- Desktop: single backend permission source of truth, per-session run registry, workspace trust flow
-
-Release: [v0.0.19](https://github.com/anYuJia/yode/releases/tag/v0.0.19)
+Tagged releases are built through the Tauri desktop release workflow for macOS, Windows, and Linux. Release quality gates run Rust formatting, clippy, workspace checks/tests, and dependency audit before packaging.
 
 ## Contributing
 
-Contributions are welcome.
-
-1. Fork the repository.
-2. Create a branch.
-3. Make a focused change.
-4. Run the relevant checks.
-5. Open a pull request.
+Contributions are welcome. Keep changes focused, preserve fail-closed behavior, add verification for behavior changes, and run the relevant Rust and Desktop checks before submitting.
 
 ## License
 

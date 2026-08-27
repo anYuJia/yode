@@ -6,7 +6,7 @@
   <img alt="Yode" src="assets/logo-dark.svg" width="220">
 </picture>
 
-### 面向终端的本地优先 AI 编程代理 runtime
+### 本地优先的桌面 AI 编程 Agent
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://www.rust-lang.org/)
@@ -19,191 +19,128 @@
 
 ---
 
-**Yode** 是一个开源编程代理，目标是在 Rust 原生、可检查、终端优先的工作流里，提供接近 Claude Code 的核心使用体验。
+**Yode** 是一个使用 Rust、Tauri 和 React 构建的开源 Desktop-first AI 编程 Agent，目标是把长任务中的规划、执行、验证、恢复和可观测性统一放在一个可检查的本地桌面应用里。
 
-它围绕三件事设计：
+Yode 已经停止把 CLI/TUI 作为产品方向。正式产品入口只有 `apps/yode-desktop/`；可复用 Agent 能力放在 Rust crates 中，再通过 Tauri runtime 暴露给 GUI。
 
-- **直接在仓库里行动。** 读写文件、搜索、运行 shell、使用 LSP、审查 diff、执行 workflow、协调 agents，都在一个终端会话内完成。
-- **让 runtime 可见。** permissions、hooks、MCP servers、startup settings、后台任务、remote sessions、compact/restore 状态都能被检查和复盘。
-- **保持本地优先。** 配置、artifact、任务历史、checkpoint 和 operator commands 都保留在你能审计、恢复、接力的位置。
+## 产品原则
 
-```text
-╭─── Yode ───────────────────────────────────────────────╮
-│  claude-sonnet · ~/my-project · Default · 3 jobs       │
-╰─────────────────────────────────────────────────────────╯
+- **直接在仓库里行动。** 读写文件、搜索、运行命令、使用 LSP、审查 diff、协调 Agents、管理 worktree，都在同一个桌面工作区完成。
+- **验证后再交付。** 修改代码的 run 应产生验证证据，不能只凭模型文本宣称“完成”。
+- **让 runtime 可见。** Run、权限、工具 trace、后台任务、恢复状态、成本、浏览器动作、artifact、评测结果都应能被 GUI 检查。
+- **保持本地优先。** 项目状态、artifact、索引、评测数据和恢复信息都保留在可审计的本地文件中。
 
-❯ review the current workspace changes and propose a safe fix
+## Desktop 能力
 
-⏺ review_pipeline(...)
-⏺ coordinate_agents(...)
-⏺ remote_queue_dispatch(...)
-
-/status
-/inspect artifact latest-runtime-timeline
-/tasks monitor
-```
+| 范围 | 当前方向 |
+| --- | --- |
+| Agent Runtime | RunController 生命周期、硬预算、取消、恢复、持久化运行状态 |
+| 代码理解 | Repository Map、LSP、持久 Repository Intelligence 索引 |
+| 验证 | Acceptance Criteria、Evidence、测试/Review Verification Gate |
+| Multi-Agent | Planning、DAG 编排、真正并发 ready batch、后台 Agent |
+| Browser | 真实 Chromium CDP runtime，支持导航、交互、JS 与截图 |
+| Evaluation | YodeBench task/outcome/metrics 与 workspace artifact |
+| Safety | Workspace Trust、Permission Governance、fail-closed runtime |
+| Extensibility | MCP、Skills、Hooks、Tools、Provider abstraction |
 
 ## 安装
 
-### 一键安装（macOS / Linux）
+请直接从 GitHub Releases 下载 macOS、Windows 或 Linux 的桌面应用。
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/anYuJia/yode/main/install.sh | bash
-```
+Yode 不再提供或维护根 CLI binary、Cargo install 产品路径、shell completion 包或 TUI installer。
 
-### Cargo
+## 从源码运行
 
-```bash
-cargo install --git https://github.com/anYuJia/yode.git --tag v0.0.18
-```
+### 环境要求
 
-### Windows
+- Rust toolchain
+- Node.js
+- pnpm
+- Tauri 对应平台依赖
 
-从 [Releases](https://github.com/anYuJia/yode/releases) 下载 `yode-x86_64-pc-windows-msvc.zip`，或使用 PowerShell 安装：
-
-```powershell
-iwr -useb https://raw.githubusercontent.com/anYuJia/yode/main/install.ps1 | iex
-```
-
-### 从源码安装
+### 开发
 
 ```bash
 git clone https://github.com/anYuJia/yode.git
-cd yode
-cargo install --path .
+cd yode/apps/yode-desktop
+pnpm install --frozen-lockfile
+pnpm tauri:dev
 ```
 
-## 快速开始
+### 验证
 
 ```bash
-# 设置一个 provider API key
-export ANTHROPIC_API_KEY="..."
-# 或 OPENAI_API_KEY / GEMINI_API_KEY
+# 仓库根目录
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --no-deps -- -D warnings
+cargo check --workspace --all-targets
+cargo test --workspace
 
-# 第一次使用时配置 provider
-yode provider add
-
-# 启动 TUI
-yode
-
-# 非交互单轮模式
-yode --chat "Summarize the repository structure"
-
-# 显式指定 provider / model
-yode --provider anthropic --model <model-name>
-
-# 恢复历史会话
-yode --resume <session-id>
-
-# 检查本地环境
-yode doctor
+# Desktop 前端
+cd apps/yode-desktop
+pnpm test
+pnpm build
 ```
 
-## 核心体验
+Provider 集成测试已经归属到 provider crate：
 
-### Agent 工具
-
-Yode 内置一套覆盖实际编程工作的工具面：
-
-| 范围 | 工具 |
-| --- | --- |
-| 代码 | `read_file`、`write_file`、`edit_file`、`glob`、`grep`、`bash`、`lsp` |
-| Review | `review_changes`、`review_pipeline`、`review_then_commit` |
-| Workflow | `workflow_run`、`workflow_run_with_writes`、worktree tools、plan-mode tools |
-| Agents | `agent`、`team_create`、`send_message`、`team_monitor`、`coordinate_agents` |
-| Remote | `remote_queue_dispatch`、`remote_queue_result`、`remote_transport_control` |
-| Runtime | `task_output`、`tool_search`、cron tools、MCP resource tools |
-
-### Operator Commands
-
-runtime 不是黑盒，可以在产品内部直接检查：
-
-| 命令 | 用途 |
-| --- | --- |
-| `/status` | 会话与 runtime 全量快照 |
-| `/brief` | 当前状态的紧凑摘要 |
-| `/diagnostics` | runtime health / observability 总览 |
-| `/inspect artifact summary` | artifact family 总入口 |
-| `/tools diag` | tool pool、hidden/deferred tool、失败诊断 |
-| `/permissions mode` | permission mode 指南与切换 |
-| `/tasks monitor` | 后台 runtime task 工作区 |
-| `/remote-control monitor` | remote live-session monitor 面 |
-| `/mcp` | MCP 与 settings control-plane 摘要 |
-| `/workflows` | workflow 检查与运行入口 |
-| `/checkpoint` | 保存、恢复、branch、rewind、rollback 会话状态 |
-
-### Governance 与 Safety
-
-Yode 面向严肃本地开发提供控制平面：
-
-- permission modes：`default`、`plan`、`auto`、`accept-edits`、`bypass`
-- 可检查的 permission governance 与 precedence chain
-- 覆盖 tool / task / sub-agent / worktree 的 hook lifecycle
-- hook `defer` 支持和可恢复 artifact/state
-- 危险 shell 行为检测与 runtime confirmation 规则
-
-### MCP 与 Managed Settings
-
-MCP 和 settings 也是可检查 runtime 的一部分：
-
-- provider inventory artifact
-- settings scope artifact
-- managed MCP inventory artifact
-- tool-search activation artifact
-- 面向 operator 的 MCP diagnostics 与 remediation 跳转
-
-## CLI 入口
-
-| 命令 | 说明 |
-| --- | --- |
-| `yode` | 启动 TUI |
-| `yode --chat "<msg>"` | 非交互单轮模式 |
-| `yode --serve-mcp` | 以 stdio MCP server 方式运行 |
-| `yode provider list` | 列出已配置 provider |
-| `yode provider add` | 交互式 provider 配置 |
-| `yode update check` | 检查并应用更新 |
-| `yode completions zsh` | 生成 shell 补全 |
-| `yode doctor` | 环境健康检查 |
-
-## 配置
-
-Yode 会从多层来源合并配置与 governance 状态：
-
-- `~/.yode/managed-config.toml`
-- `~/.yode/config.toml`
-- `.yode/config.toml`
-- `.yode/config.local.toml`
-- session 与 CLI override
-
-示例：
-
-```toml
-[llm]
-default_provider = "anthropic"
-default_model = "your-model-name"
-
-[permissions]
-default_mode = "auto"
-
-[[permissions.always_allow]]
-category = "read"
-description = "allow read-only tools"
-
-[[hooks.hooks]]
-command = "scripts/pre_tool_use.sh"
-events = ["pre_tool_use", "permission_request"]
-tool_filter = ["bash", "write_file"]
-timeout_secs = 10
-can_block = true
-
-[mcp.servers.github]
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-github"]
+```bash
+cargo test -p yode-llm --test anthropic_integration
 ```
 
-## 项目指令文件
+## 架构
 
-Yode 会加载多种兼容命名的项目说明文件，包括：
+```text
+Desktop React UI
+      ↓ Tauri commands / events
+apps/yode-desktop/src-tauri
+      ↓
+┌──────────────────────────────────────────────────────────────┐
+│ yode-core      AgentEngine、RunController、Context、Safety  │
+│ yode-agent     Planning、Orchestration、Scheduler           │
+│ yode-tools     Code/Browser/Runtime tools                   │
+│ yode-runtime   Shared runtime bootstrap                     │
+├──────────────────────────────────────────────────────────────┤
+│ yode-llm       Provider / Model abstraction                 │
+│ yode-mcp       MCP integration                              │
+│ yode-index     Repository Intelligence                      │
+│ yode-evals     YodeBench                                    │
+└──────────────────────────────────────────────────────────────┘
+```
+
+仓库根目录现在是 **virtual Cargo workspace**，有意不再存在根 `src/main.rs` 或根 `yode` 可执行程序。
+
+## Agent 工具
+
+Yode runtime 已经拥有较完整的工具面，包括文件操作、搜索、shell、LSP、review、worktree、MCP、repository intelligence、verification agent、后台任务、多 Agent 协调、浏览器控制和 Git 操作。
+
+项目下一阶段不会继续靠“堆更多工具”提升能力，而是优先强化闭环：
+
+```text
+Intent
+  → Analyze / Acceptance Criteria
+  → Plan
+  → Execute
+  → Verify
+      ├─ 通过 → Deliver
+      └─ 失败 → Replan → Execute
+  → Evaluate / Postmortem / Learn
+```
+
+## Runtime Artifacts
+
+项目内 `.yode/` 用于保存可检查的 runtime 数据，例如：
+
+- run / session artifact
+- verification / review evidence
+- repository index
+- browser screenshot/cache
+- YodeBench task/outcome
+- transcript、plan、checkpoint、recovery 信息
+
+## 项目指令
+
+Yode 可以加载兼容的项目指令文件，包括：
 
 - `YODE.md`
 - `docs/YODE.md`
@@ -212,60 +149,15 @@ Yode 会加载多种兼容命名的项目说明文件，包括：
 - `AGENTS.md`
 - `.claude/CLAUDE.md`
 
-示例：
+对开发 Yode 本身的 Coding Agent 来说，`AGENTS.md` 是产品方向的唯一权威说明。特别是：新增用户能力必须面向 Desktop GUI，不要重新创建 CLI/TUI 产品面。
 
-```markdown
-# Project Guidelines
+## 发布
 
-- Run `cargo test -p yode-core --lib` after engine changes
-- Prefer small reviewable patches
-- Keep migration notes in `docs/optimization/`
-```
-
-## 回归快照
-
-修改命令输出或 operator surface 时，优先使用这些脚本留存快照：
-
-- `./scripts/output-regression-snapshot.sh`
-  写入多 surface 输出快照到 `.yode/benchmarks/output-regression-snapshot.md`。
-- `./scripts/split-output-regression-snapshot.sh`
-  将组合快照拆成按 section 分组的 markdown 文件。
-- `./scripts/diff-output-regression-snapshot.sh`
-  在临时目录重新生成快照，并和保存的 baseline 对比。
-- `./scripts/benchmark-snapshot.sh`
-  写入长会话 benchmark 快照到 `.yode/benchmarks/long-session-benchmark.md`。
-
-## 架构
-
-```text
-crates/
-├── yode-core     # engine、context、permissions、hooks、session/runtime state
-├── yode-llm      # provider abstraction
-├── yode-tools    # built-in tools 与 runtime tool surface
-├── yode-mcp      # MCP integration
-├── yode-agent    # agent/runtime helpers
-└── yode-runtime  # shared runtime bootstrap
-```
-
-## 最新版本
-
-`1.0.0` 发布就绪版本，重点改进：
-
-- 安全：仓库外工作区/插件信任存储、Managed 权限不可绕过、子进程最小环境、截断流不执行工具调用
-- 可靠性：单轮硬预算、原子文件写入、SQLite WAL + 事务化迁移、数据库损坏显式报错
-- 桌面：后端唯一权限真相源、运行状态注册表、工作区信任流程
-
-Release: [v1.0.0](https://github.com/anYuJia/yode/releases/tag/v1.0.0)
+Tag release 通过 Tauri Desktop release workflow 构建 macOS、Windows 和 Linux 应用。发布前会执行 Rust fmt、clippy、workspace check/test 和依赖审计。
 
 ## 贡献
 
-欢迎贡献。
-
-1. Fork 仓库
-2. 新建分支
-3. 做聚焦、可 review 的改动
-4. 运行相关检查
-5. 提交 PR
+欢迎贡献。请保持提交聚焦，保留 fail-closed 行为，对行为修改增加验证，并在提交前运行相关 Rust 与 Desktop 检查。
 
 ## 许可证
 
