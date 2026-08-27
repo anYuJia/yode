@@ -14,6 +14,7 @@ pub mod git_commit;
 pub mod git_diff;
 pub mod git_log;
 pub mod git_status;
+pub mod github_delivery;
 pub mod glob;
 pub mod grep;
 pub(crate) mod http_client;
@@ -142,6 +143,7 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
     registry.register(Arc::new(git_diff::GitDiffTool));
     registry.register(Arc::new(git_log::GitLogTool));
     registry.register(Arc::new(git_status::GitStatusTool));
+    registry.register(Arc::new(github_delivery::GitHubIssueDeliveryTool));
     registry.register(Arc::new(common::SendUserMessageTool));
     registry.register(Arc::new(common::ConfigTool));
     registry.register(Arc::new(common::SleepTool));
@@ -154,9 +156,7 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
 
 /// Register the skill tool with the given skill store.
 pub fn register_skill_tool(registry: &ToolRegistry, store: Arc<Mutex<skill::SkillStore>>) {
-    registry.register(Arc::new(skill::SkillTool {
-        store: store.clone(),
-    }));
+    registry.register(Arc::new(skill::SkillTool { store: store.clone() }));
     registry.register(Arc::new(skill::discover::DiscoverSkillsTool { store }));
 }
 
@@ -184,5 +184,6 @@ mod tests {
         assert!(names.contains("request_user_input"));
         assert!(names.contains("list_mcp_resource_templates"));
         assert!(names.contains("repository_search"));
+        assert!(names.contains("github_issue_delivery"));
     }
 }
