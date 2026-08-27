@@ -276,7 +276,8 @@ impl HookManager {
         #[cfg(not(windows))]
         let mut cmd = self.build_hook_command("sh", &["-c"], command, context_json, event);
         #[cfg(windows)]
-        let mut cmd = self.build_hook_command("cmd.exe", &["/d", "/s", "/c"], command, context_json, event);
+        let mut cmd =
+            self.build_hook_command("cmd.exe", &["/d", "/s", "/c"], command, context_json, event);
         cmd.stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         // 独立进程组：超时/取消时能连同全部后代进程一起终止并回收。
@@ -459,7 +460,10 @@ mod output_encoding_tests {
 
     #[test]
     fn utf8_hook_output_is_unchanged_except_crlf() {
-        assert_eq!(normalize_hook_output(b"{\"ok\":true}\r\n"), "{\"ok\":true}\n");
+        assert_eq!(
+            normalize_hook_output(b"{\"ok\":true}\r\n"),
+            "{\"ok\":true}\n"
+        );
     }
 
     #[test]
@@ -468,9 +472,6 @@ mod output_encoding_tests {
         for unit in "{\"decision\":\"defer\"}\r\n".encode_utf16() {
             bytes.extend_from_slice(&unit.to_le_bytes());
         }
-        assert_eq!(
-            normalize_hook_output(&bytes),
-            "{\"decision\":\"defer\"}\n"
-        );
+        assert_eq!(normalize_hook_output(&bytes), "{\"decision\":\"defer\"}\n");
     }
 }
