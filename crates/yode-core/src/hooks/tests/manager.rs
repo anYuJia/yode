@@ -1,10 +1,7 @@
 use super::*;
 
 fn hook_working_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "yode-hook-manager-test-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let dir = std::env::temp_dir().join(format!("yode-hook-manager-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
