@@ -43,8 +43,13 @@ export function PermissionActions({
   const selectedOption = options[selectedIndex];
   const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  // setState 不会在同一事件循环内立即生效；用 ref 保证点击、Enter、Esc
+  // 不会对同一条权限请求发出多次 RPC。
+  const submittingRef = useRef(false);
 
   const respond = async (decision: PermissionDecision) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError(null);
     // 只有后端 RPC 成功后才移除权限卡片；失败保留卡片并显示可重试错误
@@ -60,6 +65,7 @@ export function PermissionActions({
       onResolved?.();
       return;
     }
+    submittingRef.current = false;
     setIsSubmitting(false);
     setSubmitError(
       result === "missing-info"
@@ -69,9 +75,11 @@ export function PermissionActions({
   };
 
   useEffect(() => {
+    submittingRef.current = false;
+    setIsSubmitting(false);
     setSelectedIndex(0);
     setSubmitError(null);
-  }, [item.id]);
+  }, [item.id, item.sessionId, item.turnId]);
 
   useEffect(() => {
     optionRefs.current[selectedIndex]?.focus();
@@ -109,6 +117,7 @@ export function PermissionActions({
       role="dialog"
       aria-modal="false"
       aria-labelledby="permission-prompt-title"
+      aria-busy={isSubmitting}
     >
       <div className="permission-prompt-title">
         <span className="permission-prompt-icon">
@@ -119,6 +128,7 @@ export function PermissionActions({
           className="permission-esc-hint"
           onClick={() => void respond("deny")}
           type="button"
+          disabled={isSubmitting}
           title={isZh ? "按 Esc 拒绝" : "Press Esc to deny"}
         >
           <X size={13} />

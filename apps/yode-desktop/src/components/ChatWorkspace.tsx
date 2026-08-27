@@ -1,5 +1,12 @@
 import React, { useState, useRef, useMemo, useLayoutEffect, useEffect } from "react";
-import { Bot } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUpRight,
+  Bot,
+  Gauge,
+  ScanSearch,
+  TestTube2
+} from "lucide-react";
 import { ImageAttachment, PendingUserQuestion, RunState, TimelineItem, UsageSnapshot } from "../lib/desktopTypes";
 import {
   isIntermediateAssistantItem,
@@ -90,10 +97,16 @@ interface ChatWorkspaceProps {
   inspectorOpen: boolean;
   inspectorWidth: number;
   onInspectorResizeStart: (event: React.PointerEvent) => void;
+  onInspectorResizeKeyDown: (event: React.KeyboardEvent) => void;
+  onInspectorResizeReset: () => void;
+  onCloseInspector: () => void;
   isProcessing: boolean;
   onCancelMessage: () => void;
   permissionMode: string;
-  onPermissionModeChange: (mode: string) => void;
+  /** 返回 true 表示已接受选择（可能是打开二次确认），false 表示保留下拉以便重试。 */
+  onPermissionModeChange: (mode: string) => Promise<boolean>;
+  permissionModeUpdating: boolean;
+  permissionModeError: string | null;
   onPermissionResolved: (id: string) => void;
   appLang: string;
   projectOptions: Array<{ label: string; root: string | null }>;
@@ -133,10 +146,15 @@ export function ChatWorkspace({
   inspectorOpen,
   inspectorWidth,
   onInspectorResizeStart,
+  onInspectorResizeKeyDown,
+  onInspectorResizeReset,
+  onCloseInspector,
   isProcessing,
   onCancelMessage,
   permissionMode,
   onPermissionModeChange,
+  permissionModeUpdating,
+  permissionModeError,
   onPermissionResolved,
   appLang,
   projectOptions,
@@ -181,7 +199,53 @@ export function ChatWorkspace({
   }, [timelineItems, isProcessing, pendingUserQuestion]);
 
   const [expandedTurnIds, setExpandedTurnIds] = useState<string[]>([]);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
   const previousStreamingRef = useRef(false);
+
+  const currentProjectLabel = useMemo(() => {
+    const match = projectOptions.find((option) => option.root === selectedProjectRoot);
+    return match?.label ?? (appLang === "zh" ? "独立对话" : "Standalone");
+  }, [appLang, projectOptions, selectedProjectRoot]);
+
+  const suggestedPrompts = useMemo(
+    () => [
+      {
+        icon: ScanSearch,
+        eyebrow: appLang === "zh" ? "理解代码库" : "Understand",
+        title: appLang === "zh" ? "分析项目" : "Analyze project",
+        body:
+          appLang === "zh"
+            ? "解释当前项目的主要架构和目录结构"
+            : "Explain the main architecture and directory structure of this project"
+      },
+      {
+        icon: Gauge,
+        eyebrow: appLang === "zh" ? "提升质量" : "Improve",
+        title: appLang === "zh" ? "代码优化" : "Optimize code",
+        body:
+          appLang === "zh"
+            ? "帮我找出当前代码中可以优化性能的模块"
+            : "Help me find modules in the current code that can be optimized for performance"
+      },
+      {
+        icon: TestTube2,
+        eyebrow: appLang === "zh" ? "增强信心" : "Validate",
+        title: appLang === "zh" ? "编写测试" : "Write tests",
+        body:
+          appLang === "zh"
+            ? "为最近修改的 Rust 模块生成单元测试"
+            : "Generate unit tests for the recently modified Rust modules"
+      }
+    ],
+    [appLang]
+  );
+
+  const chooseSuggestedPrompt = (prompt: string) => {
+    onDraftChange(prompt);
+    window.requestAnimationFrame(() => {
+      document.getElementById("message-composer")?.focus();
+    });
+  };
 
   const turns = useMemo(() => {
     const list: ConversationTurn[] = [];
@@ -276,6 +340,8 @@ export function ChatWorkspace({
   const scrollTimelineToBottom = (behavior: ScrollBehavior = "smooth") => {
     const panel = timelinePanelRef.current;
     if (!panel) return;
+    shouldStickToBottomRef.current = true;
+    setShowJumpToLatest(false);
     panel.scrollTo({
       top: panel.scrollHeight,
       behavior
@@ -309,6 +375,7 @@ export function ChatWorkspace({
       nextMetrics,
       shouldStickToBottomRef.current
     );
+    setShowJumpToLatest(!isNearTimelineBottom(panel, 96));
     const previousScrollTop = lastScrollTopRef.current;
     lastScrollTopRef.current = panel.scrollTop;
     // 向上翻页：只有「从更下方滚动到接近顶部」才触发加载更早窗口。
@@ -455,7 +522,7 @@ export function ChatWorkspace({
       <div className="conversation-column">
         <section
           className="timeline-panel"
-          aria-label="会话时间线"
+          aria-label={appLang === "zh" ? "会话时间线" : "Conversation timeline"}
           ref={timelinePanelRef}
           onScroll={handleTimelineScroll}
           onWheel={handleTimelineWheel}
@@ -463,7 +530,11 @@ export function ChatWorkspace({
           onTouchMove={handleTimelineTouchMove}
         >
           {historyLoading ? (
-            <div className="timeline-skeleton" role="status" aria-label="加载更早消息">
+            <div
+              className="timeline-skeleton"
+              role="status"
+              aria-label={appLang === "zh" ? "加载更早消息" : "Loading earlier messages"}
+            >
               <div className="skeleton-line skeleton-line-wide" />
               <div className="skeleton-line" />
               <div className="skeleton-line skeleton-line-short" />
@@ -489,8 +560,14 @@ export function ChatWorkspace({
           ) : null}
           {turns.length === 0 ? (
             <div className="welcome-dashboard">
+              <div className="welcome-context" title={currentProjectLabel}>
+                <span className="welcome-context-dot" aria-hidden="true" />
+                <span>{appLang === "zh" ? "工作区就绪" : "Workspace ready"}</span>
+                <span className="welcome-context-separator" aria-hidden="true">·</span>
+                <strong>{currentProjectLabel}</strong>
+              </div>
               <div className="welcome-logo">
-                <Bot size={44} className="glowing-logo" style={{ color: "var(--accent)" }} />
+                <Bot size={34} className="glowing-logo" aria-hidden="true" />
               </div>
               <h1 className="welcome-title">{appLang === "zh" ? "今天想构建点什么？" : "What would you like to build today?"}</h1>
               <p className="welcome-subtitle">
@@ -501,30 +578,26 @@ export function ChatWorkspace({
               
               {showSuggestedPrompts ? (
                 <div className="welcome-cards">
-                  <button
-                    type="button"
-                    className="welcome-card"
-                    onClick={() => onDraftChange(appLang === "zh" ? "解释当前项目的主要架构和目录结构" : "Explain the main architecture and directory structure of this project")}
-                  >
-                    <h3>🔍 {appLang === "zh" ? "分析项目" : "Analyze Project"}</h3>
-                    <p>{appLang === "zh" ? "解释当前项目的主要架构和目录结构" : "Explain the main architecture and directory structure of this project"}</p>
-                  </button>
-                  <button
-                    type="button"
-                    className="welcome-card"
-                    onClick={() => onDraftChange(appLang === "zh" ? "帮我找出当前代码中可以优化性能的模块" : "Help me find modules in the current code that can be optimized for performance")}
-                  >
-                    <h3>🛠️ {appLang === "zh" ? "代码优化" : "Code Optimization"}</h3>
-                    <p>{appLang === "zh" ? "帮我找出当前代码中可以优化性能的模块" : "Help me find modules in the current code that can be optimized for performance"}</p>
-                  </button>
-                  <button
-                    type="button"
-                    className="welcome-card"
-                    onClick={() => onDraftChange(appLang === "zh" ? "为最近修改的 Rust 模块生成单元测试" : "Generate unit tests for the recently modified Rust modules")}
-                  >
-                    <h3>📝 {appLang === "zh" ? "编写测试" : "Write Tests"}</h3>
-                    <p>{appLang === "zh" ? "为最近修改的 Rust 模块生成单元测试" : "Generate unit tests for the recently modified Rust modules"}</p>
-                  </button>
+                  {suggestedPrompts.map((prompt) => {
+                    const Icon = prompt.icon;
+                    return (
+                      <button
+                        type="button"
+                        className="welcome-card"
+                        key={prompt.title}
+                        onClick={() => chooseSuggestedPrompt(prompt.body)}
+                        aria-label={`${prompt.title}：${prompt.body}`}
+                      >
+                        <span className="welcome-card-head">
+                          <span className="welcome-card-icon"><Icon size={16} /></span>
+                          <span className="welcome-card-eyebrow">{prompt.eyebrow}</span>
+                          <ArrowUpRight className="welcome-card-arrow" size={15} />
+                        </span>
+                        <h3>{prompt.title}</h3>
+                        <p>{prompt.body}</p>
+                      </button>
+                    );
+                  })}
                 </div>
               ) : null}
             </div>
@@ -592,6 +665,16 @@ export function ChatWorkspace({
             })
           )}
         </section>
+        {showJumpToLatest && !hasBlockingDecision ? (
+          <button
+            type="button"
+            className="timeline-jump-button"
+            onClick={() => scrollTimelineToBottom("smooth")}
+          >
+            <ArrowDown size={14} />
+            {appLang === "zh" ? "回到最新" : "Jump to latest"}
+          </button>
+        ) : null}
         {parsedStructuredQuery ? (
           <div className="bottom-decision-panel ask-user-overlay" aria-label="用户提问确认">
             <AskUserActions
@@ -603,6 +686,7 @@ export function ChatWorkspace({
         ) : activePermission ? (
           <div className="bottom-decision-panel permission-dock" aria-label="执行确认">
             <PermissionActions
+              key={`${activePermission.sessionId}:${activePermission.turnId}:${activePermission.id}`}
               item={activePermission}
               appLang={appLang}
               onResolved={() => onPermissionResolved(activePermission.id)}
@@ -620,6 +704,8 @@ export function ChatWorkspace({
             onCancelMessage={onCancelMessage}
             permissionMode={permissionMode}
             onPermissionModeChange={onPermissionModeChange}
+            permissionModeUpdating={permissionModeUpdating}
+            permissionModeError={permissionModeError}
             appLang={appLang}
             projectOptions={projectOptions}
             selectedProjectRoot={selectedProjectRoot}
@@ -634,12 +720,27 @@ export function ChatWorkspace({
           />
         ) : null}
       </div>
+      {inspectorOpen ? (
+        <button
+          type="button"
+          className="inspector-backdrop"
+          aria-label={appLang === "zh" ? "点击背景关闭运行详情" : "Close run details from backdrop"}
+          onClick={onCloseInspector}
+        />
+      ) : null}
       <div
         className="pane-resizer inspector-resizer"
         onPointerDown={onInspectorResizeStart}
+        onKeyDown={onInspectorResizeKeyDown}
+        onDoubleClick={onInspectorResizeReset}
         role="separator"
         aria-orientation="vertical"
-        title="拖动调整运行详情宽度"
+        aria-controls="run-inspector"
+        aria-valuemin={220}
+        aria-valuemax={460}
+        aria-valuenow={Math.round(inspectorWidth)}
+        tabIndex={inspectorOpen ? 0 : -1}
+        title="拖动或使用方向键调整运行详情宽度；双击恢复默认"
       />
       <RunInspector
         isProcessing={isProcessing}
@@ -650,6 +751,7 @@ export function ChatWorkspace({
         currentRun={currentRun}
         replayState={replayState}
         onRetryReplay={onRetryReplay}
+        onClose={onCloseInspector}
       />
     </div>
   );

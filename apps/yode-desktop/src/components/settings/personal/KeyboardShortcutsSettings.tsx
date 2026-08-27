@@ -113,6 +113,7 @@ export function KeyboardShortcutsSettings({ isZh, t }: { isZh: boolean; t: (zh: 
           <input
             type="text"
             placeholder={t("搜索命令或快捷键...", "Search commands or shortcuts...")}
+            aria-label={t("搜索命令或快捷键", "Search commands or shortcuts")}
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
             style={{
@@ -230,7 +231,10 @@ export function KeyboardShortcutsSettings({ isZh, t }: { isZh: boolean; t: (zh: 
                         <button
                           onClick={() => handleDeleteBinding(item.id, idx)}
                           type="button"
-                          aria-label={t("移除快捷键", "Remove shortcut")}
+                          aria-label={t(
+                            `移除“${item.cmdZh}”的快捷键 ${key}`,
+                            `Remove ${key} from “${item.cmdEn}”`
+                          )}
                           style={{
                             background: "transparent",
                             border: "none",
@@ -252,6 +256,7 @@ export function KeyboardShortcutsSettings({ isZh, t }: { isZh: boolean; t: (zh: 
                   <button
                     type="button"
                     autoFocus
+                    aria-label={t(`正在为“${item.cmdZh}”录制快捷键`, `Recording shortcut for “${item.cmdEn}”`)}
                     onKeyDown={(event) => handleRecordKey(event, item.id)}
                     onBlur={() => setRecordingId(null)}
                     style={{
@@ -272,6 +277,7 @@ export function KeyboardShortcutsSettings({ isZh, t }: { isZh: boolean; t: (zh: 
                   <button
                     type="button"
                     className="secondary-button"
+                    aria-label={t(`为“${item.cmdZh}”添加快捷键`, `Add shortcut for “${item.cmdEn}”`)}
                     onClick={() => {
                       if (!IMPLEMENTED_SHORTCUT_IDS.has(item.id)) {
                         setStatusText(

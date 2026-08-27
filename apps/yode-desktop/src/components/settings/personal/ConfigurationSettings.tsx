@@ -130,10 +130,7 @@ export function ConfigurationSettings({ bootstrap, isZh, t }: { bootstrap: Boots
   return (
     <div className="appearance-container" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       <div style={{ fontSize: "12px", color: "var(--text-soft)" }}>
-        {t("配置审批策略和沙箱设置", "Configure approval policy and sandbox settings")}{" "}
-        <a href="#learn" style={{ color: "var(--accent)", textDecoration: "none" }}>
-          {t("了解更多", "Learn more")}
-        </a>
+        {t("配置审批策略、沙箱边界以及项目级 config.toml。", "Configure approval policy, sandbox boundaries, and project-level config.toml.")}
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
@@ -152,6 +149,7 @@ export function ConfigurationSettings({ bootstrap, isZh, t }: { bootstrap: Boots
         <div className="theme-card" style={{ padding: "16px", display: "flex", flexDirection: "column", gap: "14px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <CustomSelect
+              ariaLabel={t("配置范围", "Configuration scope")}
               value={configScope}
               onChange={(val) => {
                 setConfigScope(val);
@@ -186,6 +184,7 @@ export function ConfigurationSettings({ bootstrap, isZh, t }: { bootstrap: Boots
               <span className="row-desc">{t("选择 Yode 何时需要确认请求", "Choose when Yode asks for approval")}</span>
             </div>
             <CustomSelect
+              ariaLabel={t("审批策略", "Approval policy")}
               value={approvalPolicy}
               onChange={(val) => {
                 setApprovalPolicy(val);
@@ -210,6 +209,7 @@ export function ConfigurationSettings({ bootstrap, isZh, t }: { bootstrap: Boots
               </span>
             </div>
             <CustomSelect
+              ariaLabel={t("沙箱设置", "Sandbox settings")}
               value={sandboxSettings}
               onChange={(val) => {
                 setSandboxSettings(val);
@@ -261,6 +261,7 @@ export function ConfigurationSettings({ bootstrap, isZh, t }: { bootstrap: Boots
               <input
                 type="checkbox"
                 checked={exposeDeps}
+                aria-label={t("启用 Yode 依赖项", "Enable Yode dependencies")}
                 onChange={(e) => {
                   setExposeDeps(e.target.checked);
                   void applyConfiguration({ exposeDependencies: e.target.checked });

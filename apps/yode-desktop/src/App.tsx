@@ -43,7 +43,6 @@ import {
   Square
 } from "lucide-react";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState, useRef } from "react";
-import { createPortal } from "react-dom";
 import "./lib/highlightLanguages";
 
 import {
@@ -73,6 +72,7 @@ import { PROVIDERS_META } from "./components/settings/ProvidersSettings";
 import { Sidebar } from "./components/Sidebar";
 import { Topbar } from "./components/Topbar";
 import { ChatWorkspace } from "./components/ChatWorkspace";
+import { PermissionModeConfirmDialog } from "./components/PermissionModeConfirmDialog";
 import {
   upsertActiveSession,
   deriveSessionTitle,
@@ -102,6 +102,7 @@ import {
 import {
   computePaneDragSize,
   isPaneCollapsed,
+  PANE_LIMITS,
   PaneDragState,
   PaneKind,
 } from "./lib/paneLayout";
@@ -134,6 +135,11 @@ import {
 } from "./lib/appearanceSettings";
 import { recordFromUnknown } from "./lib/jsonUtils";
 import { storageWriteString } from "./lib/storageAdapter";
+import {
+  applyPermissionModeState,
+  isBypassPermissionMode,
+  permissionModeSetRequest
+} from "./lib/permissionMode";
 
 function imageToRequestPayload(image: ImageAttachment) {
   return {
@@ -284,6 +290,11 @@ export function App() {
   const draftRequestSequenceRef = useRef(0);
   const queuedDispatchesRef = useRef(new Set<string>());
   const deletedSessionIdsRef = useRef(new Set<string>());
+  // 权限模式更新不能依赖 React state 的异步刷新来防重；同一时刻只允许一条 IPC。
+  const permissionModeRequestInFlightRef = useRef(false);
+  const [bypassConfirmationOpen, setBypassConfirmationOpen] = useState(false);
+  const [permissionModeUpdating, setPermissionModeUpdating] = useState(false);
+  const [permissionModeError, setPermissionModeError] = useState<string | null>(null);
   const terminalConversationKey = activeSessionId ?? "__draft__";
   const terminalOpen = terminalOpenByConversation[terminalConversationKey] ?? false;
   const setTerminalOpenForCurrentConversation = (open: boolean) => {
@@ -389,10 +400,93 @@ export function App() {
     }
   };
 
-  const handlePermissionModeChange = (mode: string) => {
-    setPermissionMode(mode);
-    setBootstrap(prev => ({ ...prev, permissionMode: mode }));
-    permissionModeSet({ mode }).catch(console.error);
+  const resizePaneWithKeyboard = (pane: "sidebar" | "inspector" | "terminal", event: React.KeyboardEvent) => {
+    const supportedKeys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"];
+    if (!supportedKeys.includes(event.key)) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 32 : 12;
+    const current = pane === "sidebar" ? sidebarWidth : pane === "inspector" ? inspectorWidth : terminalHeight;
+    const max = pane === "terminal"
+      ? Math.min(PANE_LIMITS.terminal.max, Math.floor(window.innerHeight * 0.75))
+      : PANE_LIMITS[pane].max;
+    let next = current;
+    if (event.key === "Home") next = PANE_LIMITS[pane].min;
+    else if (event.key === "End") next = max;
+    else if (pane === "sidebar") next += event.key === "ArrowRight" || event.key === "ArrowDown" ? step : -step;
+    else if (pane === "inspector") next += event.key === "ArrowLeft" || event.key === "ArrowUp" ? step : -step;
+    else next += event.key === "ArrowUp" || event.key === "ArrowLeft" ? step : -step;
+    next = Math.min(max, Math.max(PANE_LIMITS[pane].min, next));
+
+    if (pane === "sidebar") {
+      setSidebarWidth(next);
+      setSidebarOpen(true);
+    } else if (pane === "inspector") {
+      setInspectorWidth(next);
+      setInspectorOpen(true);
+    } else {
+      setTerminalHeight(next);
+      setTerminalOpenForCurrentConversation(true);
+    }
+  };
+
+  const resetPaneSize = (pane: "sidebar" | "inspector" | "terminal") => {
+    const size = PANE_LIMITS[pane].fallback;
+    if (pane === "sidebar") setSidebarWidth(size);
+    else if (pane === "inspector") setInspectorWidth(size);
+    else setTerminalHeight(size);
+  };
+
+  const permissionModeFailureText = appLang === "zh"
+    ? "未能更新权限模式。请检查桌面运行时后重试。"
+    : "Could not update the permission mode. Check the desktop runtime and try again.";
+
+  /**
+   * 只有后端成功返回的 effectivePermissionMode 才能更新 UI。这样 RPC 拒绝、
+   * 权限策略降级或网络失败时，界面不会谎称已获得更高权限。
+   */
+  const applyPermissionModeChange = async (mode: string, bypassConfirmed = false) => {
+    if (permissionModeRequestInFlightRef.current) return false;
+    permissionModeRequestInFlightRef.current = true;
+    setPermissionModeUpdating(true);
+    setPermissionModeError(null);
+    try {
+      const state = await permissionModeSet(permissionModeSetRequest(mode, bypassConfirmed));
+      setPermissionMode(state.effectivePermissionMode);
+      setBootstrap((current) => applyPermissionModeState(current, state));
+      return true;
+    } catch {
+      setPermissionModeError(permissionModeFailureText);
+      return false;
+    } finally {
+      permissionModeRequestInFlightRef.current = false;
+      setPermissionModeUpdating(false);
+    }
+  };
+
+  /**
+   * bypass 绝不能由下拉项直接生效：先显示显式确认，再携带后端要求的
+   * bypassConfirmed + application-session 作用域提交。
+   */
+  const handlePermissionModeChange = async (mode: string) => {
+    if (isBypassPermissionMode(mode)) {
+      if (isBypassPermissionMode(permissionMode)) return true;
+      if (permissionModeRequestInFlightRef.current) return false;
+      setPermissionModeError(null);
+      setBypassConfirmationOpen(true);
+      return true;
+    }
+    return applyPermissionModeChange(mode);
+  };
+
+  const handleConfirmBypassPermissionMode = async () => {
+    const applied = await applyPermissionModeChange("bypass", true);
+    if (applied) setBypassConfirmationOpen(false);
+  };
+
+  const handleCancelBypassPermissionMode = () => {
+    if (permissionModeUpdating) return;
+    setBypassConfirmationOpen(false);
+    setPermissionModeError(null);
   };
 
   const handleUpdateProvider = async (provider: string) => {
@@ -1090,7 +1184,15 @@ export function App() {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener(KEYBOARD_SHORTCUTS_CHANGE_EVENT, refreshBindings);
     };
-  }, [sessionItems, selectedProjectRoot, terminalOpen, displayedWorkspacePath, viewMode]);
+  }, [
+    sessionItems,
+    selectedProjectRoot,
+    terminalOpen,
+    displayedWorkspacePath,
+    viewMode,
+    sidebarOpen,
+    inspectorOpen
+  ]);
 
   if (viewMode === "settings") {
     return (
@@ -1101,7 +1203,8 @@ export function App() {
   }
 
   return (
-    <main
+    <>
+      <main
       className={`app-shell ${sidebarOpen ? "" : "sidebar-collapsed"} ${draggingPane ? "pane-dragging" : ""}`}
       style={{
         "--sidebar-width": `${sidebarWidth}px`,
@@ -1110,6 +1213,7 @@ export function App() {
       } as React.CSSProperties}
     >
       <Sidebar
+        isOpen={sidebarOpen}
         sessions={sessionItems}
         projectOptions={orderedProjectOptions}
         activeSessionId={activeSessionId}
@@ -1126,15 +1230,24 @@ export function App() {
       <div
         className="pane-resizer sidebar-resizer"
         onPointerDown={(event) => beginPaneDrag("sidebar", event)}
+        onKeyDown={(event) => resizePaneWithKeyboard("sidebar", event)}
+        onDoubleClick={() => resetPaneSize("sidebar")}
         role="separator"
         aria-orientation="vertical"
-        title="拖动调整侧边栏宽度"
+        aria-controls="app-sidebar"
+        aria-valuemin={PANE_LIMITS.sidebar.min}
+        aria-valuemax={PANE_LIMITS.sidebar.max}
+        aria-valuenow={Math.round(sidebarWidth)}
+        tabIndex={sidebarOpen ? 0 : -1}
+        title="拖动或使用方向键调整侧栏宽度；双击恢复默认"
       />
       <section className="workspace" style={{ position: "relative", overflow: "hidden" }}>
         <Topbar
           bootstrap={bootstrap}
           sessionTitle={activeSession?.title ?? (appLang === "zh" ? "新对话" : "New chat")}
           workspacePath={displayedWorkspacePath}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           inspectorOpen={inspectorOpen}
           isProcessing={isProcessing && !pendingUserQuestion}
           onToggleInspector={() => setInspectorOpen(!inspectorOpen)}
@@ -1142,6 +1255,10 @@ export function App() {
           onToggleTerminal={() => setTerminalOpenForCurrentConversation(!terminalOpen)}
           currentProvider={currentProvider}
           currentModel={currentModel}
+          onConfigureProviders={() => {
+            saveActiveSettingsTab("模型提供商");
+            handleSetViewMode("settings");
+          }}
           onProviderChange={handleUpdateProvider}
           onModelChange={handleUpdateModel}
         />
@@ -1155,10 +1272,15 @@ export function App() {
           inspectorOpen={inspectorOpen}
           inspectorWidth={inspectorWidth}
           onInspectorResizeStart={(event) => beginPaneDrag("inspector", event)}
+          onInspectorResizeKeyDown={(event) => resizePaneWithKeyboard("inspector", event)}
+          onInspectorResizeReset={() => resetPaneSize("inspector")}
+          onCloseInspector={() => setInspectorOpen(false)}
           isProcessing={isProcessing}
           onCancelMessage={handleCancelMessage}
           permissionMode={permissionMode}
           onPermissionModeChange={handlePermissionModeChange}
+          permissionModeUpdating={permissionModeUpdating}
+          permissionModeError={bypassConfirmationOpen ? null : permissionModeError}
           onPermissionResolved={(id) => {
             setTimelineItems((items) => items.filter((item) => item.id !== id));
           }}
@@ -1201,8 +1323,22 @@ export function App() {
           conversationId={activeSessionId}
           height={terminalHeight}
           onResizeStart={(event) => beginPaneDrag("terminal", event)}
+          onResizeKeyDown={(event) => resizePaneWithKeyboard("terminal", event)}
+          onResizeReset={() => resetPaneSize("terminal")}
         />
       </section>
-    </main>
+      </main>
+      {bypassConfirmationOpen ? (
+        <PermissionModeConfirmDialog
+          appLang={appLang}
+          error={permissionModeError}
+          isSubmitting={permissionModeUpdating}
+          onCancel={handleCancelBypassPermissionMode}
+          onConfirm={() => {
+            void handleConfirmBypassPermissionMode();
+          }}
+        />
+      ) : null}
+    </>
   );
 }

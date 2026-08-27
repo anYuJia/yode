@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Copy, RefreshCw, TriangleAlert } from "lucide-react";
+import { Copy, RefreshCw, TriangleAlert, X } from "lucide-react";
 
 import { turnRecentEvents } from "../lib/desktopIpc";
 import type { RunState, TimelineItem, TurnEventRecord, UsageSnapshot } from "../lib/desktopTypes";
@@ -15,6 +15,7 @@ interface RunInspectorProps {
   currentRun: RunState | null;
   replayState: { status: "idle" | "loading" | "done" | "error"; error?: string };
   onRetryReplay?: () => void;
+  onClose?: () => void;
 }
 
 const MAX_EVENT_BODY_CHARS = 400;
@@ -67,6 +68,18 @@ function toolStatusLabel(status: "running" | "success" | "blocked", isZh: boolea
   if (status === "running") return isZh ? "运行中" : "running";
   if (status === "success") return isZh ? "完成" : "done";
   return isZh ? "阻塞" : "blocked";
+}
+
+export function permissionModeLabel(mode: string, isZh: boolean): string {
+  const normalized = mode.trim().toLowerCase();
+  const labels: Record<string, { zh: string; en: string }> = {
+    default: { zh: "每次询问", en: "Ask every time" },
+    auto: { zh: "自动授权", en: "Auto approve" },
+    plan: { zh: "仅规划", en: "Plan only" },
+    bypass: { zh: "完全信任", en: "Full access" }
+  };
+  const label = labels[normalized];
+  return label ? (isZh ? label.zh : label.en) : mode;
 }
 
 /** 单条持久化事件的折叠展示：默认折叠，可展开、复制、安全截断。 */
@@ -173,7 +186,8 @@ export function RunInspector({
   appLang,
   currentRun,
   replayState,
-  onRetryReplay
+  onRetryReplay,
+  onClose
 }: RunInspectorProps) {
   const isZh = appLang === "zh";
   const [recentEvents, setRecentEvents] = useState<TurnEventRecord[]>([]);
@@ -232,12 +246,31 @@ export function RunInspector({
     endedAt && startedAt ? endedAt - startedAt : startedAt && status !== "idle" ? Date.now() - startedAt : 0;
 
   return (
-    <aside className="run-inspector" aria-label={isZh ? "运行详情" : "Run details"}>
+    <aside
+      className="run-inspector"
+      id="run-inspector"
+      aria-label={isZh ? "运行详情" : "Run details"}
+      data-run-status={status}
+    >
       <div className="inspector-head">
-        <span>TURN</span>
-        <strong>
-          {timelineItems.length} {isZh ? "事件" : "events"}
-        </strong>
+        <div className="inspector-title-group">
+          <span className={`inspector-status-dot status-${status}`} aria-hidden="true" />
+          <div>
+            <strong>{isZh ? "运行详情" : "Run details"}</strong>
+            <span>{timelineItems.length} {isZh ? "个事件" : "events"}</span>
+          </div>
+        </div>
+        {onClose ? (
+          <button
+            type="button"
+            className="inspector-close-button"
+            onClick={onClose}
+            aria-label={isZh ? "关闭运行详情" : "Close run details"}
+            title={isZh ? "关闭运行详情" : "Close run details"}
+          >
+            <X size={15} />
+          </button>
+        ) : null}
       </div>
 
       {/* 断线恢复失败：保留锁定状态，提供可重试路径 */}
@@ -289,7 +322,7 @@ export function RunInspector({
         ) : null}
         <div className="metric-row">
           <span>{isZh ? "权限" : "Permission"}</span>
-          <strong>{permissionMode}</strong>
+          <strong>{permissionModeLabel(permissionMode, isZh)}</strong>
         </div>
         <div className="metric-row">
           <span>{isZh ? "工具" : "Tools"}</span>

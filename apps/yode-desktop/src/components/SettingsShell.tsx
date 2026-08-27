@@ -17,7 +17,8 @@ import {
   Bot,
   Download,
   ArrowLeft,
-  Search
+  Search,
+  X
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { Bootstrap } from "../lib/desktopTypes";
@@ -52,6 +53,16 @@ import {
 } from "./settings/ArchivedChatsSettings";
 import { ProvidersSettings } from "./settings/ProvidersSettings";
 import { GeneralSettings } from "./settings/GeneralSettings";
+
+const MANAGED_DIALOG_SELECTOR = '[data-settings-dialog="true"][role="dialog"]';
+const MANAGED_DIALOG_FOCUSABLE = [
+  "button:not([disabled])",
+  "[href]",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])"
+].join(",");
 import { AboutSettings } from "./settings/AboutSettings";
 import {
   LANGUAGE_CHANGE_EVENT,
@@ -75,9 +86,13 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
   const setSettingsSidebarWidth = useAppUiStore((state) => state.setSettingsSidebarWidth);
   const [draggingSidebar, setDraggingSidebar] = useState(false);
   const sidebarDragRef = useRef<{ startX: number; startWidth: number; target: Element | null; pointerId: number | null } | null>(null);
+  const settingsRootRef = useRef<HTMLDivElement>(null);
+  const dialogTriggerRef = useRef<HTMLElement | null>(null);
+  const lastStableFocusRef = useRef<HTMLElement | null>(null);
 
   const handleSetActiveTab = (tab: string) => {
     setActiveTab(saveActiveSettingsTab(tab));
+    setSearchQuery("");
   };
 
   const [currentLang, setCurrentLang] = useState(() => loadAppLanguage());
@@ -185,131 +200,227 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
     setDraggingSidebar(true);
   };
 
+  const resizeSettingsSidebarWithKeyboard = (event: React.KeyboardEvent) => {
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 32 : 12;
+    const next = event.key === "Home"
+      ? 180
+      : event.key === "End"
+        ? 340
+        : clampNumber(
+          sidebarWidth + (event.key === "ArrowRight" || event.key === "ArrowDown" ? step : -step),
+          180,
+          340
+        );
+    setSettingsSidebarWidth(next);
+  };
+
   const categories = [
     {
       title: t("个人设置", "Personal"),
       items: [
-        { id: "常规", label: t("常规", "General"), icon: Settings },
-        { id: "外观", label: t("外观", "Appearance"), icon: Eye },
-        { id: "配置", label: t("配置", "Configuration"), icon: Sliders },
-        { id: "模型提供商", label: t("模型提供商", "Model providers"), icon: Bot },
-        { id: "个性化", label: t("个性化", "Personalization"), icon: Sparkles },
-        { id: "键盘快捷键", label: t("键盘快捷键", "Keyboard shortcuts"), icon: Command }
+        { id: "常规", label: t("常规", "General"), description: t("语言、启动与对话行为", "Language, startup, and chat behavior"), icon: Settings },
+        { id: "外观", label: t("外观", "Appearance"), description: t("主题、字体、密度与辅助功能", "Theme, typography, density, and accessibility"), icon: Eye },
+        { id: "配置", label: t("配置", "Configuration"), description: t("审批策略、沙箱与工作区依赖", "Approvals, sandboxing, and workspace dependencies"), icon: Sliders },
+        { id: "模型提供商", label: t("模型提供商", "Model providers"), description: t("连接模型服务并管理模型", "Connect model services and manage models"), icon: Bot },
+        { id: "个性化", label: t("个性化", "Personalization"), description: t("定义 Yode 的偏好与工作方式", "Shape Yode's preferences and working style"), icon: Sparkles },
+        { id: "键盘快捷键", label: t("键盘快捷键", "Keyboard shortcuts"), description: t("查看并自定义高频操作", "View and customize frequent actions"), icon: Command }
       ]
     },
     {
       title: t("应用集成", "Integrations"),
       items: [
-        { id: "应用截图", label: t("应用截图", "Appshots"), icon: MonitorPlay },
-        { id: "MCP 服务器", label: t("MCP 服务器", "MCP servers"), icon: TerminalSquare },
-        { id: "浏览器", label: t("浏览器", "Browser"), icon: Globe },
-        { id: "计算机使用", label: t("计算机使用", "Computer use"), icon: Fingerprint }
+        { id: "应用截图", label: t("应用截图", "Appshots"), description: t("管理应用截图与视觉上下文", "Manage app captures and visual context"), icon: MonitorPlay, comingSoon: true },
+        { id: "MCP 服务器", label: t("MCP 服务器", "MCP servers"), description: t("连接外部工具与数据源", "Connect external tools and data sources"), icon: TerminalSquare },
+        { id: "浏览器", label: t("浏览器", "Browser"), description: t("配置浏览器控制与隔离", "Configure browser control and isolation"), icon: Globe },
+        { id: "计算机使用", label: t("计算机使用", "Computer use"), description: t("管理桌面交互与安全边界", "Manage desktop interaction and safety boundaries"), icon: Fingerprint }
       ]
     },
     {
       title: t("编码设置", "Coding"),
       items: [
-        { id: "钩子", label: t("钩子", "Hooks"), icon: GitBranch },
-        { id: "连接", label: t("连接", "Connections"), icon: Workflow },
-        { id: "Git", label: t("Git", "Git"), icon: GitBranch },
-        { id: "环境", label: t("环境", "Environments"), icon: Code2 },
-        { id: "工作树", label: t("工作树", "Worktrees"), icon: Folder }
+        { id: "钩子", label: t("钩子", "Hooks"), description: t("在工具调用前后运行自动化", "Run automation around tool calls"), icon: GitBranch },
+        { id: "连接", label: t("连接", "Connections"), description: t("管理开发服务连接", "Manage development service connections"), icon: Workflow, comingSoon: true },
+        { id: "Git", label: t("Git", "Git"), description: t("配置提交、分支与仓库行为", "Configure commits, branches, and repository behavior"), icon: GitBranch },
+        { id: "环境", label: t("环境", "Environments"), description: t("管理运行环境和依赖", "Manage runtimes and dependencies"), icon: Code2 },
+        { id: "工作树", label: t("工作树", "Worktrees"), description: t("查看和清理 Git 工作树", "Inspect and clean up Git worktrees"), icon: Folder }
       ]
     },
     {
       title: t("已归档", "Archived"),
       items: [
-        { id: "已归档对话", label: t("已归档对话", "Archived chats"), icon: Archive }
+        { id: "已归档对话", label: t("已归档对话", "Archived chats"), description: t("恢复或永久删除旧对话", "Restore or permanently remove old chats"), icon: Archive }
       ]
     },
     {
       title: t("其他", "Other"),
       items: [
-        { id: "更新", label: t("更新", "Updates"), icon: Download }
+        { id: "更新", label: t("更新", "Updates"), description: t("版本信息、更新与开源许可", "Version, updates, and open-source licenses"), icon: Download }
       ]
     }
   ];
 
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+  const filteredCategories = categories
+    .map((category) => ({
+      ...category,
+      items: category.items.filter((item) => {
+        if (!normalizedSearch) return true;
+        return [category.title, item.label, item.description]
+          .join(" ")
+          .toLocaleLowerCase()
+          .includes(normalizedSearch);
+      })
+    }))
+    .filter((category) => category.items.length > 0);
+  const activeItem = categories
+    .flatMap((category) => category.items)
+    .find((item) => item.id === activeTab);
+
+  useEffect(() => {
+    const root = settingsRootRef.current;
+    if (!root) return;
+    let activeDialog: HTMLElement | null = null;
+    let focusFrame = 0;
+
+    const syncDialogFocus = () => {
+      const nextDialog = root.querySelector<HTMLElement>(MANAGED_DIALOG_SELECTOR);
+      if (nextDialog && nextDialog !== activeDialog) {
+        activeDialog = nextDialog;
+        const activeElement = document.activeElement instanceof HTMLElement
+          && document.activeElement !== document.body
+          && root.contains(document.activeElement)
+          ? document.activeElement
+          : null;
+        dialogTriggerRef.current = activeElement ?? lastStableFocusRef.current;
+        window.cancelAnimationFrame(focusFrame);
+        focusFrame = window.requestAnimationFrame(() => {
+          const initial = nextDialog.querySelector<HTMLElement>("[data-dialog-initial-focus]")
+            ?? nextDialog.querySelector<HTMLElement>(
+              "input:not([disabled]), textarea:not([disabled]), select:not([disabled])"
+            )
+            ?? nextDialog.querySelector<HTMLElement>("button:not([disabled])");
+          initial?.focus();
+        });
+      } else if (!nextDialog && activeDialog) {
+        activeDialog = null;
+        window.cancelAnimationFrame(focusFrame);
+        focusFrame = window.requestAnimationFrame(() => {
+          const target = dialogTriggerRef.current?.isConnected
+            ? dialogTriggerRef.current
+            : lastStableFocusRef.current;
+          target?.focus();
+        });
+      }
+    };
+
+    const observer = new MutationObserver(syncDialogFocus);
+    observer.observe(root, { childList: true, subtree: true });
+    syncDialogFocus();
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(focusFrame);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
+      const dialog = settingsRootRef.current?.querySelector<HTMLElement>(MANAGED_DIALOG_SELECTOR);
+      if (dialog) {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          dialog.querySelector<HTMLButtonElement>("[data-dialog-close]")?.click();
+          return;
+        }
+        if (event.key === "Tab") {
+          const controls = Array.from(dialog.querySelectorAll<HTMLElement>(MANAGED_DIALOG_FOCUSABLE))
+            .filter((control) => control.getClientRects().length > 0);
+          if (controls.length === 0) {
+            event.preventDefault();
+            dialog.focus();
+            return;
+          }
+          const currentIndex = controls.indexOf(document.activeElement as HTMLElement);
+          const nextIndex = event.shiftKey
+            ? (currentIndex <= 0 ? controls.length - 1 : currentIndex - 1)
+            : (currentIndex === controls.length - 1 ? 0 : currentIndex + 1);
+          event.preventDefault();
+          controls[nextIndex]?.focus();
+          return;
+        }
+      }
+      if (event.key !== "Escape") return;
+      if (document.querySelector('[role="dialog"], [role="listbox"]')) return;
+      event.preventDefault();
+      if (searchQuery) {
+        setSearchQuery("");
+        return;
+      }
+      onClose();
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, [onClose, searchQuery]);
+
   return (
     <div
+      ref={settingsRootRef}
       className={`settings-layout ${draggingSidebar ? "settings-sidebar-dragging" : ""}`}
       style={{ "--settings-sidebar-width": `${sidebarWidth}px` } as React.CSSProperties}
+      onFocusCapture={(event) => {
+        const target = event.target instanceof HTMLElement ? event.target : null;
+        if (!target || target.closest(MANAGED_DIALOG_SELECTOR)) return;
+        const menu = target.closest<HTMLElement>('[role="menu"][id]');
+        const controller = menu
+          ? Array.from(settingsRootRef.current?.querySelectorAll<HTMLElement>("[aria-controls]") ?? [])
+            .find((candidate) => candidate.getAttribute("aria-controls") === menu.id)
+          : null;
+        lastStableFocusRef.current = controller ?? target;
+      }}
     >
-      <aside className="settings-tabs" style={{ paddingTop: "32px", paddingInline: "12px", gap: "14px" }}>
-        {/* Back Button */}
+      <aside id="settings-navigation" className="settings-tabs settings-navigation" aria-label={t("设置导航", "Settings navigation")}>
         <button
           className="settings-tab back-tab-btn"
           onClick={onClose}
           type="button"
-          style={{
-            border: "none",
-            borderRadius: "var(--radius)",
-            fontWeight: "600",
-            fontSize: "13px",
-            color: "var(--text-soft)",
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            background: "transparent",
-            paddingInline: "8px",
-            paddingBlock: "4px",
-            cursor: "pointer",
-            width: "100%",
-            textAlign: "left",
-            marginBottom: "4px"
-          }}
+          aria-label={t("返回对话", "Back to app")}
         >
           <ArrowLeft size={15} />
           {t("返回对话", "Back to app")}
         </button>
 
-        {/* Search settings bar */}
-        <div style={{ position: "relative", width: "100%" }}>
-          <Search size={13} style={{ position: "absolute", left: "9px", top: "7px", color: "var(--text-soft)", opacity: 0.8 }} />
+        <div className="settings-search-field">
+          <Search size={14} aria-hidden="true" />
           <input
             type="text"
-            placeholder={t("搜索设置...", "Search settings...")}
+            placeholder={t("搜索设置…", "Search settings…")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            style={{
-              width: "100%",
-              height: "26px",
-              background: "var(--field)",
-              border: "none",
-              borderRadius: "var(--radius)",
-              paddingLeft: "26px",
-              paddingRight: "8px",
-              fontSize: "11.5px",
-              color: "var(--text)",
-              outline: "none"
-            }}
+            aria-label={t("搜索设置", "Search settings")}
           />
+          {searchQuery ? (
+            <button
+              type="button"
+              className="settings-search-clear"
+              onClick={() => setSearchQuery("")}
+              aria-label={t("清空搜索", "Clear search")}
+              title={t("清空搜索", "Clear search")}
+            >
+              <X size={12} />
+            </button>
+          ) : null}
         </div>
 
-        {/* Categorized menu items */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px", overflowY: "auto", flex: 1, paddingRight: "2px" }}>
-          {categories.map((category) => {
-            const filteredItems = category.items.filter((item) =>
-              item.label.toLowerCase().includes(searchQuery.toLowerCase())
-            );
-
-            if (filteredItems.length === 0) return null;
-
-            return (
-              <div key={category.title} style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <div style={{
-                  fontSize: "10.5px",
-                  fontWeight: "700",
-                  color: "var(--text-soft)",
-                  opacity: 0.6,
-                  paddingLeft: "10px",
-                  textTransform: "capitalize",
-                  marginBottom: "1px",
-                  letterSpacing: "0.3px"
-                }}>
+        <div className="settings-navigation-scroll">
+          {filteredCategories.map((category) => (
+              <div className="settings-category" key={category.title}>
+                <div className="settings-category-title">
                   {category.title}
                 </div>
-                {filteredItems.map((item) => {
+                {category.items.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
                   return (
@@ -318,45 +429,45 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
                       key={item.id}
                       onClick={() => handleSetActiveTab(item.id)}
                       type="button"
-                      style={{
-                        paddingBlock: "5px",
-                        paddingInline: "10px",
-                        fontSize: "12.5px",
-                        fontWeight: isActive ? "600" : "500",
-                        borderRadius: "var(--radius)",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                        width: "100%",
-                        textAlign: "left",
-                        background: isActive ? "color-mix(in oklch, var(--accent-muted), transparent 42%)" : "transparent",
-                        color: isActive ? "var(--text)" : "color-mix(in oklch, var(--text-muted), transparent 20%)",
-                        border: "none",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap"
-                      }}
+                      aria-current={isActive ? "page" : undefined}
+                      title={item.description}
                     >
-                      <Icon size={13} className="tab-icon" style={{ flexShrink: 0, color: isActive ? "var(--accent)" : "var(--text-soft)" }} />
-                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                      <Icon size={14} className="tab-icon" />
+                      <span className="settings-tab-label">
                         {item.label}
                       </span>
+                      {item.comingSoon ? (
+                        <span className="settings-tab-badge">{t("即将推出", "Soon")}</span>
+                      ) : null}
                     </button>
                   );
                 })}
               </div>
-            );
-          })}
+          ))}
+          {filteredCategories.length === 0 ? (
+            <div className="settings-search-empty" role="status">
+              <Search size={18} />
+              <strong>{t("没有匹配的设置", "No matching settings")}</strong>
+              <span>{t("试试功能名称或更短的关键词", "Try a feature name or shorter keyword")}</span>
+            </div>
+          ) : null}
         </div>
       </aside>
       <div
         className="settings-sidebar-resizer"
         onPointerDown={beginSidebarDrag}
+        onKeyDown={resizeSettingsSidebarWithKeyboard}
+        onDoubleClick={() => setSettingsSidebarWidth(224)}
         role="separator"
         aria-orientation="vertical"
-        title={t("拖动调整设置侧边栏宽度", "Drag to resize settings sidebar")}
+        aria-controls="settings-navigation"
+        aria-valuemin={180}
+        aria-valuemax={340}
+        aria-valuenow={Math.round(sidebarWidth)}
+        tabIndex={0}
+        title={t("拖动或使用方向键调整设置侧栏宽度；双击恢复默认", "Drag or use arrow keys to resize the settings sidebar; double-click to reset")}
       />
-      <section className="settings-content" style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+      <section className="settings-content" aria-labelledby="settings-page-title">
         <SettingsFileWarning
           status={settingsFileStatus ?? { loaded: true, path: "" }}
           isZh={isZh}
@@ -364,10 +475,16 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
           onRetry={() => void refreshSettingsFileStatus()}
           onRestore={() => void handleRestoreSettingsFile()}
         />
-        <div style={{ width: "100%", maxWidth: "720px" }}>
-          <div className="settings-heading" style={{ marginBottom: "24px", paddingTop: "8px" }}>
-            <div>
-              <h1 style={{ margin: 0, fontSize: "22px", fontWeight: "600", letterSpacing: "-0.2px", color: "var(--text)" }}>{activeTab}</h1>
+        <div className="settings-container">
+          <div className="settings-heading settings-page-heading">
+            <div className="settings-heading-copy">
+              <div className="settings-heading-title-row">
+                <h1 id="settings-page-title">{activeItem?.label ?? activeTab}</h1>
+                {activeItem?.comingSoon ? (
+                  <span className="settings-page-badge">{t("即将推出", "Coming soon")}</span>
+                ) : null}
+              </div>
+              {activeItem?.description ? <p>{activeItem.description}</p> : null}
             </div>
           </div>
 
@@ -435,7 +552,7 @@ export function SettingsShell({ bootstrap, onClose }: { bootstrap: Bootstrap; on
             <div className="settings-group compact">
               <div className="empty-state">
                 <Bot size={20} />
-                <span>{activeTab} 模块的设置面板将在后续批次中接入</span>
+                <span>{t(`${activeItem?.label ?? activeTab} 模块正在打磨中`, `${activeItem?.label ?? activeTab} is being polished`)}</span>
               </div>
             </div>
           )}

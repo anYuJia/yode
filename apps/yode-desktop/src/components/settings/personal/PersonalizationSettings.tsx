@@ -51,6 +51,7 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
             <span className="row-desc">{t("选择 Yode 对话时的默认语气风格", "Choose a default tone for Yode responses")}</span>
           </div>
           <CustomSelect
+            ariaLabel={t("人设风格", "Personality")}
             value={personality}
             onChange={(val) => {
               setPersonality(val);
@@ -79,14 +80,12 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
           {t("自定义指令", "Custom instructions")}
         </span>
         <span style={{ fontSize: "11px", color: "var(--text-soft)", marginBottom: "4px" }}>
-          {t("为这台主机上的所有任务向 Yode 提供额外指令和上下文。", "Give Yode extra instructions and context for all tasks on this host.")}{" "}
-          <a href="#learn" style={{ color: "var(--accent)", textDecoration: "none" }}>
-            {t("了解更多", "Learn more")}
-          </a>
+          {t("为这台主机上的所有任务提供额外指令；保存后会自动应用到新对话。", "Give every task on this host extra instructions; saved changes apply to new chats automatically.")}
         </span>
         <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
           <textarea
             placeholder={t("添加您的自定义全局指令...", "Add your custom instructions...")}
+            aria-label={t("自定义全局指令", "Custom global instructions")}
             value={customInstructions}
             onChange={(e) => {
               setCustomInstructions(e.target.value);
@@ -133,10 +132,7 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
           {t("长期记忆（实验性）", "Memory (experimental)")}
         </span>
         <span style={{ fontSize: "11px", color: "var(--text-soft)", marginBottom: "4px" }}>
-          {t("配置 Yode 如何收集、保留和整合对话记忆。", "Configure how Yode collects, retains, and consolidates memories.")}{" "}
-          <a href="#learn" style={{ color: "var(--accent)", textDecoration: "none" }}>
-            {t("了解更多", "Learn more")}
-          </a>
+          {t("控制 Yode 是否从历史对话生成长期记忆；可随时关闭并清除。", "Control whether Yode creates long-term memories from chat history; you can disable and clear them at any time.")}
         </span>
         <div className="theme-card">
           <div className="form-row">
@@ -150,6 +146,7 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
               <input
                 type="checkbox"
                 checked={enableMemories}
+                aria-label={t("启用长期记忆", "Enable memories")}
                 onChange={(e) => {
                   setEnableMemories(e.target.checked);
                   void savePersonalizationSetting("enableMemories", e.target.checked);
@@ -172,6 +169,7 @@ export function PersonalizationSettings({ isZh, t }: { isZh: boolean; t: (zh: st
               <input
                 type="checkbox"
                 checked={skipToolChats}
+                aria-label={t("跳过包含工具的对话", "Skip tool-assisted chats")}
                 onChange={(e) => {
                   setSkipToolChats(e.target.checked);
                   void savePersonalizationSetting("skipToolChats", e.target.checked);

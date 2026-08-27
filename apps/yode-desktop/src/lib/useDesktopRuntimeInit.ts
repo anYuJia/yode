@@ -366,7 +366,9 @@ export function useDesktopRuntimeInit() {
         return;
       }
       setBootstrap(nextBootstrap);
-      setPermissionMode(nextBootstrap.permissionMode);
+      // effectivePermissionMode 是后端唯一权威状态；兼容字段 permissionMode
+      // 不得被前端用来推导或覆盖实际权限。
+      setPermissionMode(nextBootstrap.effectivePermissionMode);
       setSelectedProjectRoot((current) =>
         current === undefined || current === fallbackBootstrap.workspacePath
           ? nextBootstrap.workspacePath

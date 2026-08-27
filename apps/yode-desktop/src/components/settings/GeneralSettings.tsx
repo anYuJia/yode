@@ -77,7 +77,6 @@ export function GeneralSettings({
   const [workMode, setWorkMode] = useState(initialGeneralSettings.workMode);
   const [defPerm, setDefPerm] = useState(initialGeneralSettings.defaultFilePermission);
   const [autoReview, setAutoReview] = useState(initialGeneralSettings.autoReview);
-  const [fullAccess, setFullAccess] = useState(initialGeneralSettings.fullAccess);
   const [openDest, setOpenDest] = useState(initialGeneralSettings.openDestination);
   const [showInMenuBar, setShowInMenuBar] = useState(initialGeneralSettings.showInMenuBar);
   const [bottomPanel, setBottomPanel] = useState(initialGeneralSettings.bottomPanel);
@@ -99,6 +98,8 @@ export function GeneralSettings({
   const licenseTriggerRef = useRef<HTMLButtonElement>(null);
   const licenseDialogRef = useRef<HTMLDivElement>(null);
   const licenseCloseRef = useRef<HTMLButtonElement>(null);
+  // 完全信任是后端运行时的短生命周期状态，绝不能由 localStorage 推导。
+  const fullAccessActive = bootstrap.effectivePermissionMode.trim().toLowerCase() === "bypass";
 
   const updateGeneralVal = (key: string, value: string | boolean) => {
     saveGeneralSettingValue(key, value);
@@ -201,6 +202,7 @@ export function GeneralSettings({
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
                 <button
                   type="button"
+                  aria-pressed={workMode === "coding"}
                   onClick={() => {
                     setWorkMode("coding");
                     updateGeneralVal("yode-work-mode", "coding");
@@ -208,8 +210,8 @@ export function GeneralSettings({
                   style={{
                     padding: "10px 14px",
                     borderRadius: "var(--radius)",
-                    background: "var(--field)",
-                    border: "1px solid var(--line-soft)",
+                    background: workMode === "coding" ? "color-mix(in oklch, var(--accent), transparent 92%)" : "var(--field)",
+                    border: `1px solid ${workMode === "coding" ? "color-mix(in oklch, var(--accent), transparent 45%)" : "var(--line-soft)"}`,
                     textAlign: "left",
                     cursor: "pointer",
                     display: "flex",
@@ -237,6 +239,7 @@ export function GeneralSettings({
 
                 <button
                   type="button"
+                  aria-pressed={workMode === "everyday"}
                   onClick={() => {
                     setWorkMode("everyday");
                     updateGeneralVal("yode-work-mode", "everyday");
@@ -244,8 +247,8 @@ export function GeneralSettings({
                   style={{
                     padding: "10px 14px",
                     borderRadius: "var(--radius)",
-                    background: "var(--field)",
-                    border: "1px solid var(--line-soft)",
+                    background: workMode === "everyday" ? "color-mix(in oklch, var(--accent), transparent 92%)" : "var(--field)",
+                    border: `1px solid ${workMode === "everyday" ? "color-mix(in oklch, var(--accent), transparent 45%)" : "var(--line-soft)"}`,
                     textAlign: "left",
                     cursor: "pointer",
                     display: "flex",
@@ -288,6 +291,7 @@ export function GeneralSettings({
                     <input
                       type="checkbox"
                       checked={defPerm}
+                      aria-label={t("默认文件权限", "Default permissions")}
                       onChange={(e) => {
                         setDefPerm(e.target.checked);
                         updateGeneralVal("yode-def-perm", e.target.checked);
@@ -306,6 +310,7 @@ export function GeneralSettings({
                     <input
                       type="checkbox"
                       checked={autoReview}
+                      aria-label={t("自动代码审查", "Auto-review")}
                       onChange={(e) => {
                         setAutoReview(e.target.checked);
                         updateGeneralVal("yode-auto-review", e.target.checked);
@@ -317,20 +322,25 @@ export function GeneralSettings({
                 <div className="divider" />
                 <div className="form-row">
                   <div className="row-info">
-                    <span className="row-label">{t("完整系统访问权限", "Full access")}</span>
-                    <span className="row-desc">{t("允许 Yode 编辑系统文件并执行本地终端指令", "Allows Yode to run shell commands and modify local files")}</span>
+                    <span className="row-label">{t("完全信任状态", "Full access status")}</span>
+                    <span className="row-desc">
+                      {fullAccessActive
+                        ? t(
+                            "仅当前应用会话正在使用完全信任；关闭应用后会恢复默认权限。",
+                            "Full access is active only for this app session and resets when the app closes."
+                          )
+                        : t(
+                            "当前未启用完全信任。请在聊天输入框的权限菜单中启用并确认。",
+                            "Full access is inactive. Enable and confirm it from the chat permission menu."
+                          )}
+                    </span>
                   </div>
-                  <label className="switch-wrapper">
-                    <input
-                      type="checkbox"
-                      checked={fullAccess}
-                      onChange={(e) => {
-                        setFullAccess(e.target.checked);
-                        updateGeneralVal("yode-full-access", e.target.checked);
-                      }}
-                    />
-                    <span className="switch-slider" />
-                  </label>
+                  <span
+                    className={`permission-mode-status ${fullAccessActive ? "is-active" : ""}`}
+                    role="status"
+                  >
+                    {fullAccessActive ? t("当前会话已启用", "Active for this session") : t("未启用", "Inactive")}
+                  </span>
                 </div>
               </div>
             </div>
@@ -347,6 +357,7 @@ export function GeneralSettings({
                     <span className="row-desc">{t("默认情况下打开文件和文件夹的位置", "Where files and folders open by default")}</span>
                   </div>
                   <CustomSelect
+                    ariaLabel={t("默认打开目标", "Default open destination")}
                     value={openDest}
                     onChange={(val) => {
                       setOpenDest(val);
@@ -376,6 +387,7 @@ export function GeneralSettings({
                     <span className="row-desc">{t("设置 Yode 的界面显示语言", "Language for the app UI")}</span>
                   </div>
                   <CustomSelect
+                    ariaLabel={t("界面语言", "Interface language")}
                     value={currentLang}
                     onChange={(val) => {
                       setCurrentLang(saveAppLanguage(val));
@@ -398,6 +410,7 @@ export function GeneralSettings({
                     <input
                       type="checkbox"
                       checked={showInMenuBar}
+                      aria-label={t("在菜单栏中显示", "Show in menu bar")}
                       onChange={(e) => {
                         setShowInMenuBar(e.target.checked);
                         updateGeneralVal("yode-show-menu-bar", e.target.checked);
@@ -417,6 +430,7 @@ export function GeneralSettings({
                     <input
                       type="checkbox"
                       checked={bottomPanel}
+                      aria-label={t("底部控制面板", "Bottom panel")}
                       onChange={(e) => {
                         setBottomPanel(e.target.checked);
                         updateGeneralVal("yode-bottom-panel", e.target.checked);
@@ -440,6 +454,7 @@ export function GeneralSettings({
                         updateGeneralVal("yode-term-loc", "bottom");
                       }}
                       type="button"
+                      aria-pressed={termLoc === "bottom"}
                     >
                       {t("底部", "Bottom")}
                     </button>
@@ -450,6 +465,7 @@ export function GeneralSettings({
                         updateGeneralVal("yode-term-loc", "right");
                       }}
                       type="button"
+                      aria-pressed={termLoc === "right"}
                     >
                       {t("右侧", "Right")}
                     </button>
@@ -466,6 +482,7 @@ export function GeneralSettings({
                     <input
                       type="checkbox"
                       checked={preventSleep}
+                      aria-label={t("运行期间阻止休眠", "Prevent sleep while running")}
                       onChange={(e) => {
                         setPreventSleep(e.target.checked);
                         updateGeneralVal("yode-prevent-sleep", e.target.checked);
@@ -489,6 +506,7 @@ export function GeneralSettings({
                         updateGeneralVal("yode-code-review-policy", "inline");
                       }}
                       type="button"
+                      aria-pressed={codeReviewPolicy === "inline"}
                     >
                       {t("内联", "Inline")}
                     </button>
@@ -499,6 +517,7 @@ export function GeneralSettings({
                         updateGeneralVal("yode-code-review-policy", "detached");
                       }}
                       type="button"
+                      aria-pressed={codeReviewPolicy === "detached"}
                     >
                       {t("独立对话", "Detached")}
                     </button>
@@ -515,6 +534,7 @@ export function GeneralSettings({
                     <input
                       type="checkbox"
                       checked={suggestedPrompts}
+                      aria-label={t("智能提示建议", "Suggested prompts")}
                       onChange={(e) => {
                         setSuggestedPrompts(e.target.checked);
                         updateGeneralVal("yode-suggested-prompts", e.target.checked);
@@ -578,6 +598,7 @@ export function GeneralSettings({
                     <input
                       type="checkbox"
                       checked={contextUsage}
+                      aria-label={t("显示上下文窗口用量", "Show context window usage")}
                       onChange={(e) => {
                         setContextUsage(e.target.checked);
                         updateGeneralVal("yode-context-usage", e.target.checked);
@@ -600,6 +621,7 @@ export function GeneralSettings({
                         updateGeneralVal("yode-follow-up-behavior", "queue");
                       }}
                       type="button"
+                      aria-pressed={followUpBehavior === "queue"}
                     >
                       {t("队列式", "Queue")}
                     </button>
@@ -615,6 +637,7 @@ export function GeneralSettings({
                     <input
                       type="checkbox"
                       checked={requireOptEnter}
+                      aria-label={t("回车发送长指令", "Require option plus enter to send long prompts")}
                       onChange={(e) => {
                         setRequireOptEnter(e.target.checked);
                         updateGeneralVal("yode-require-opt-enter", e.target.checked);
@@ -638,6 +661,7 @@ export function GeneralSettings({
                     <span className="row-desc">{t("设置当 Yode 任务执行完成时发送弹窗通知", "Set when Yode alerts you that it's finished")}</span>
                   </div>
                   <CustomSelect
+                    ariaLabel={t("任务完成通知", "Turn completion notifications")}
                     value={completionNotif}
                     onChange={(val) => {
                       setCompletionNotif(val);
@@ -661,6 +685,7 @@ export function GeneralSettings({
                     <input
                       type="checkbox"
                       checked={permNotif}
+                      aria-label={t("启用权限请求提示", "Enable permission notifications")}
                       onChange={(e) => {
                         setPermNotif(e.target.checked);
                         updateGeneralVal("yode-perm-notif", e.target.checked);
@@ -679,6 +704,7 @@ export function GeneralSettings({
                     <input
                       type="checkbox"
                       checked={questionNotif}
+                      aria-label={t("启用追问输入提示", "Enable question notifications")}
                       onChange={(e) => {
                         setQuestionNotif(e.target.checked);
                         updateGeneralVal("yode-question-notif", e.target.checked);

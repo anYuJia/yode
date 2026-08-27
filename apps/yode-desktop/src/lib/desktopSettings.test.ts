@@ -66,7 +66,8 @@ describe("desktop settings helpers", () => {
         "yode-work-mode": "planning",
         "yode-def-perm": "false",
         "yode-auto-review": "false",
-        "yode-full-access": "false",
+        // 旧本地值不得再伪造后端完全信任状态。
+        "yode-full-access": "true",
         "yode-open-dest": "Cursor",
         "yode-show-menu-bar": "false",
         "yode-bottom-panel": "false",
@@ -103,6 +104,12 @@ describe("desktop settings helpers", () => {
       permissionNotification: false,
       questionNotification: false
     });
+  });
+
+  it("does not derive full access from the legacy local storage toggle", () => {
+    stubLocalStorage((key) => (key === "yode-full-access" ? "true" : null));
+
+    expect(loadGeneralSettingsPayload().fullAccess).toBe(false);
   });
 
   it("falls back from the removed steer behavior to queue", () => {

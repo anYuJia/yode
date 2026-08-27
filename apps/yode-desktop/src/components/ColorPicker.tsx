@@ -3,13 +3,15 @@ import React, { useState, useRef, useEffect } from "react";
 interface ColorPickerProps {
   value: string;
   onChange: (value: string) => void;
+  label?: string;
   className?: string;
   style?: React.CSSProperties;
 }
 
-export function ColorPicker({ value, onChange, className = "", style }: ColorPickerProps) {
+export function ColorPicker({ value, onChange, label = "颜色", className = "", style }: ColorPickerProps) {
   const [isOpen, setIsOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const saturationRef = useRef<HTMLDivElement>(null);
   const hueRef = useRef<HTMLDivElement>(null);
 
@@ -95,16 +97,37 @@ export function ColorPicker({ value, onChange, className = "", style }: ColorPic
   }, [value]);
 
   useEffect(() => {
+    if (!isOpen) return;
+
     function handleClickOutside(event: MouseEvent) {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setIsOpen(false);
       }
     }
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setIsOpen(false);
+      triggerRef.current?.focus();
+    }
     document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
     };
-  }, []);
+  }, [isOpen]);
+
+  const commitHsv = (next: { h: number; s: number; v: number }) => {
+    const normalized = {
+      h: Math.max(0, Math.min(360, next.h)),
+      s: Math.max(0, Math.min(100, next.s)),
+      v: Math.max(0, Math.min(100, next.v))
+    };
+    setHsv(normalized);
+    onChange(hsvToHex(normalized.h, normalized.s, normalized.v));
+  };
 
   const handleSaturationMouseDown = (e: React.MouseEvent) => {
     const move = (moveEvent: MouseEvent) => {
@@ -182,21 +205,25 @@ export function ColorPicker({ value, onChange, className = "", style }: ColorPic
         border: "1px solid var(--line-soft)",
         borderRadius: "var(--radius)",
         padding: "0 8px",
-        height: "28px",
-        width: "110px",
+        height: "32px",
+        width: "126px",
         ...style
       }}
     >
       <button
+        ref={triggerRef}
         type="button"
         className="color-preview-btn"
         onClick={() => setIsOpen(!isOpen)}
+        aria-label={`打开${label}选择器`}
+        aria-haspopup="dialog"
+        aria-expanded={isOpen}
         style={{
-          width: "14px",
-          height: "14px",
+          width: "20px",
+          height: "20px",
           borderRadius: "50%",
           backgroundColor: value,
-          marginRight: "8px",
+          marginRight: "6px",
           border: "1px solid var(--line-soft)",
           cursor: "pointer",
           flexShrink: 0
@@ -206,6 +233,7 @@ export function ColorPicker({ value, onChange, className = "", style }: ColorPic
         type="text"
         className="text-input color-text"
         value={value}
+        aria-label={`${label}十六进制值`}
         onChange={(e) => {
           const val = e.target.value;
           onChange(val);
@@ -227,6 +255,8 @@ export function ColorPicker({ value, onChange, className = "", style }: ColorPic
       {isOpen && (
         <div
           className="color-picker-popover"
+          role="dialog"
+          aria-label={`${label}选择器`}
           style={{
             position: "absolute",
             bottom: "auto",
@@ -248,6 +278,22 @@ export function ColorPicker({ value, onChange, className = "", style }: ColorPic
           <div
             ref={saturationRef}
             onMouseDown={handleSaturationMouseDown}
+            tabIndex={0}
+            role="slider"
+            aria-label={`${label}饱和度与亮度`}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(hsv.s)}
+            aria-valuetext={`饱和度 ${Math.round(hsv.s)}%，亮度 ${Math.round(hsv.v)}%`}
+            onKeyDown={(event) => {
+              const step = event.shiftKey ? 10 : 2;
+              if (event.key === "ArrowLeft") commitHsv({ ...hsv, s: hsv.s - step });
+              else if (event.key === "ArrowRight") commitHsv({ ...hsv, s: hsv.s + step });
+              else if (event.key === "ArrowUp") commitHsv({ ...hsv, v: hsv.v + step });
+              else if (event.key === "ArrowDown") commitHsv({ ...hsv, v: hsv.v - step });
+              else return;
+              event.preventDefault();
+            }}
             style={{
               position: "relative",
               height: "130px",
@@ -277,6 +323,27 @@ export function ColorPicker({ value, onChange, className = "", style }: ColorPic
           <div
             ref={hueRef}
             onMouseDown={handleHueMouseDown}
+            tabIndex={0}
+            role="slider"
+            aria-label={`${label}色相`}
+            aria-valuemin={0}
+            aria-valuemax={360}
+            aria-valuenow={Math.round(hsv.h)}
+            onKeyDown={(event) => {
+              const step = event.shiftKey ? 15 : 3;
+              if (event.key === "ArrowLeft" || event.key === "ArrowDown") {
+                commitHsv({ ...hsv, h: hsv.h - step });
+              } else if (event.key === "ArrowRight" || event.key === "ArrowUp") {
+                commitHsv({ ...hsv, h: hsv.h + step });
+              } else if (event.key === "Home") {
+                commitHsv({ ...hsv, h: 0 });
+              } else if (event.key === "End") {
+                commitHsv({ ...hsv, h: 360 });
+              } else {
+                return;
+              }
+              event.preventDefault();
+            }}
             style={{
               position: "relative",
               height: "12px",

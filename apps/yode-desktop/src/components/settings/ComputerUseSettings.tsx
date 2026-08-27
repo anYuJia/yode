@@ -195,6 +195,11 @@ export function ComputerUseSettingsSettings({
               disabled={anyAppStatus === "installing"}
               type="button"
               className="secondary-button"
+              aria-label={
+                anyAppStatus === "installed"
+                  ? t("卸载 Any App 控制", "Uninstall Any App control")
+                  : t("安装 Any App 控制", "Install Any App control")
+              }
               style={{
                 paddingInline: "16px",
                 height: "26px",
@@ -263,6 +268,11 @@ export function ComputerUseSettingsSettings({
               disabled={chromeStatus === "installing"}
               type="button"
               className="secondary-button"
+              aria-label={
+                chromeStatus === "installed"
+                  ? t("断开 Google Chrome", "Disconnect Google Chrome")
+                  : t("安装 Google Chrome 连接", "Install Google Chrome connection")
+              }
               style={{
                 paddingInline: "16px",
                 height: "26px",
@@ -386,6 +396,11 @@ export function ComputerUseSettingsSettings({
         >
           <div
             className="theme-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="allowed-app-dialog-title"
+            data-settings-dialog="true"
+            tabIndex={-1}
             style={{
               width: "360px",
               background: "var(--panel)",
@@ -406,7 +421,7 @@ export function ComputerUseSettingsSettings({
                 background: "var(--chrome)"
               }}
             >
-              <span style={{ fontWeight: "600", fontSize: "13px", color: "var(--text)" }}>
+              <span id="allowed-app-dialog-title" style={{ fontWeight: "600", fontSize: "13px", color: "var(--text)" }}>
                 {t("添加始终允许的应用", "Add Always-Allowed App")}
               </span>
               <button
@@ -415,6 +430,8 @@ export function ComputerUseSettingsSettings({
                   setShowAppModal(false);
                 }}
                 type="button"
+                data-dialog-close
+                aria-label={t("关闭应用弹窗", "Close app dialog")}
                 style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-soft)", display: "flex" }}
               >
                 <X size={14} />
@@ -425,6 +442,7 @@ export function ComputerUseSettingsSettings({
               <input
                 type="text"
                 value={newAppName}
+                aria-label={t("应用名称", "App name")}
                 onChange={(e) => setNewAppName(e.target.value)}
                 placeholder="e.g. Slack, VS Code, Finder"
                 style={{
@@ -463,6 +481,7 @@ export function ComputerUseSettingsSettings({
                   setShowAppModal(false);
                 }}
                 type="button"
+                data-dialog-close
                 style={{ background: "transparent", border: "none", fontSize: "12px", color: "var(--text-soft)", cursor: "pointer" }}
               >
                 {t("取消", "Cancel")}

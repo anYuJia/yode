@@ -1,18 +1,16 @@
 import React, { useState, useRef, useMemo, useLayoutEffect, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
+  Archive,
   Pin,
-  Trash2,
   Folder,
   ChevronDown,
   Plus,
   MessageSquarePlus,
   Search,
-  Code2,
-  Workflow,
-  Clock3,
   FolderPlus,
-  Settings
+  Settings,
+  X
 } from "lucide-react";
 import { SessionSummary, ViewMode } from "../lib/desktopTypes";
 import { storageReadJson, storageWriteJson } from "../lib/storageAdapter";
@@ -27,6 +25,7 @@ import { projectLabelFromPath } from "../lib/timelineUtils";
 const PINNED_SESSIONS_STORAGE_KEY = "yode-pinned-sessions";
 
 interface SidebarProps {
+  isOpen: boolean;
   sessions: SessionSummary[];
   projectOptions: Array<{ label: string; root: string | null }>;
   activeSessionId: string | null;
@@ -40,6 +39,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({
+  isOpen,
   sessions,
   projectOptions,
   activeSessionId,
@@ -60,8 +60,11 @@ export function Sidebar({
     return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === "string") : [];
   });
   const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [expandedProjectIds, setExpandedProjectIds] = useState<string[]>([]);
   const [draggingProjectId, setDraggingProjectId] = useState<string | null>(null);
+  const [projectReorderAnnouncement, setProjectReorderAnnouncement] = useState("");
   const [pet, setPet] = useState(() => loadPetName());
   const [dragGhost, setDragGhost] = useState<{
     name: string;
@@ -78,6 +81,8 @@ export function Sidebar({
   const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null);
   const [hoverPosition, setHoverPosition] = useState<{ top: number; left: number } | null>(null);
   const hoverTimerRef = useRef<number | null>(null);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const projectGroupsRef = useRef<Array<{ id: string; name: string; sessions: SessionSummary[] }>>([]);
   const projectNodeRefs = useRef(new Map<string, HTMLDivElement>());
   const projectFlipRectsRef = useRef(new Map<string, DOMRect>());
@@ -97,13 +102,19 @@ export function Sidebar({
   } | null>(null);
   const suppressProjectClickRef = useRef(false);
 
+  useLayoutEffect(() => {
+    const sidebar = sidebarRef.current;
+    if (!sidebar) return;
+    sidebar.toggleAttribute("inert", !isOpen);
+  }, [isOpen]);
+
   const handleMouseEnter = (sessionId: string, e: React.MouseEvent) => {
     if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
     
     const rect = e.currentTarget.getBoundingClientRect();
     const pos = {
-      top: rect.top,
-      left: 240
+      top: Math.max(12, Math.min(rect.top, window.innerHeight - 156)),
+      left: Math.max(12, Math.min(rect.right + 8, window.innerWidth - 232))
     };
 
     hoverTimerRef.current = window.setTimeout(() => {
@@ -126,6 +137,24 @@ export function Sidebar({
       if (hoverTimerRef.current) window.clearTimeout(hoverTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!searchOpen) return;
+    const frame = window.requestAnimationFrame(() => searchInputRef.current?.focus());
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (searchQuery) {
+        setSearchQuery("");
+      } else {
+        setSearchOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [searchOpen, searchQuery]);
 
   useEffect(() => {
     const handlePetChange = (event: Event) => {
@@ -211,6 +240,41 @@ export function Sidebar({
     };
   }, [pinnedSessionIds, projectOptions, sessions]);
 
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
+  const visibleProjectGroups = useMemo(() => {
+    if (!normalizedSearch) return projectGroups;
+    return projectGroups
+      .map((group) => {
+        const projectMatches = group.name.toLocaleLowerCase().includes(normalizedSearch);
+        return {
+          ...group,
+          sessions: projectMatches
+            ? group.sessions
+            : group.sessions.filter((session) =>
+                session.title.toLocaleLowerCase().includes(normalizedSearch)
+              )
+        };
+      })
+      .filter((group) =>
+        group.name.toLocaleLowerCase().includes(normalizedSearch) || group.sessions.length > 0
+      );
+  }, [normalizedSearch, projectGroups]);
+  const visibleStandaloneSessions = useMemo(
+    () =>
+      normalizedSearch
+        ? standaloneSessions.filter((session) =>
+            session.title.toLocaleLowerCase().includes(normalizedSearch)
+          )
+        : standaloneSessions,
+    [normalizedSearch, standaloneSessions]
+  );
+  const visibleSearchResultCount = useMemo(
+    () =>
+      visibleProjectGroups.reduce((total, group) => total + group.sessions.length, 0) +
+      visibleStandaloneSessions.length,
+    [visibleProjectGroups, visibleStandaloneSessions]
+  );
+
   projectGroupsRef.current = projectGroups;
   const projectLayoutKey = useMemo(
     () => projectGroups.map((group) => group.id).join("\n"),
@@ -282,6 +346,8 @@ export function Sidebar({
           className={`session-button ${isActive ? "active" : ""}`}
           onClick={() => onSelectSession(session.id)}
           type="button"
+          aria-current={isActive ? "page" : undefined}
+          title={session.title}
         >
           <span className="session-title">{session.title}</span>
           {!isDeleting ? <span className="session-time">{session.updatedAt}</span> : null}
@@ -293,8 +359,21 @@ export function Sidebar({
               onClick={(e) => handleConfirmDelete(session.id, e)}
               type="button"
               className="confirm-delete-btn"
+              aria-label={t(`确认归档「${session.title}」`, `Confirm archiving “${session.title}”`)}
             >
               {t("确认", "Confirm")}
+            </button>
+            <button
+              onClick={(event) => {
+                event.stopPropagation();
+                setDeletingSessionId(null);
+              }}
+              type="button"
+              className="cancel-delete-btn"
+              aria-label={t("取消归档", "Cancel archive")}
+              title={t("取消", "Cancel")}
+            >
+              <X size={12} />
             </button>
           </div>
         ) : (
@@ -304,6 +383,7 @@ export function Sidebar({
               type="button"
               className="action-icon-btn"
               title={isPinned ? t("取消置顶", "Unpin") : t("置顶", "Pin")}
+              aria-label={isPinned ? t("取消置顶", "Unpin") : t("置顶", "Pin")}
             >
               <Pin size={13} style={{ transform: isPinned ? "rotate(45deg)" : "none" }} />
             </button>
@@ -312,8 +392,9 @@ export function Sidebar({
               type="button"
               className="action-icon-btn"
               title={t("归档（可在归档记录中恢复）", "Archive (recoverable from archive)")}
+              aria-label={t(`归档「${session.title}」`, `Archive “${session.title}”`)}
             >
-              <Trash2 size={13} />
+              <Archive size={13} />
             </button>
           </div>
         )}
@@ -405,7 +486,7 @@ export function Sidebar({
   };
 
   const renderProjectGroup = (group: { id: string; name: string; sessions: SessionSummary[] }) => {
-    const expanded = expandedProjectIds.includes(group.id);
+    const expanded = Boolean(normalizedSearch) || expandedProjectIds.includes(group.id);
     const hasActiveSession = group.sessions.some((session) => session.id === activeSessionId);
     const isDragging = draggingProjectId === group.id;
 
@@ -444,8 +525,34 @@ export function Sidebar({
                   : [...current, group.id]
               );
             }}
+            onKeyDown={(event) => {
+              if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+              const currentIndex = projectGroups.findIndex((item) => item.id === group.id);
+              const targetIndex = event.key === "ArrowUp" ? currentIndex - 1 : currentIndex + 1;
+              const target = projectGroups[targetIndex];
+              if (!target) return;
+
+              event.preventDefault();
+              onProjectReorder(
+                group.id,
+                target.id,
+                event.key === "ArrowUp" ? "before" : "after"
+              );
+              setProjectReorderAnnouncement(
+                t(
+                  `已将项目 ${group.name} 移到第 ${targetIndex + 1} 位`,
+                  `Moved project ${group.name} to position ${targetIndex + 1}`
+                )
+              );
+            }}
             type="button"
             aria-expanded={expanded}
+            aria-describedby="project-order-help"
+            aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+            aria-label={t(
+              `${expanded ? "收起" : "展开"}项目 ${group.name}，${group.sessions.length} 个对话`,
+              `${expanded ? "Collapse" : "Expand"} project ${group.name}, ${group.sessions.length} chats`
+            )}
           >
             <Folder size={16} />
             <span>
@@ -463,6 +570,7 @@ export function Sidebar({
               type="button"
               className="action-icon-btn"
               title={t("新建对话", "New chat")}
+              aria-label={t(`在 ${group.name} 中新建对话`, `Start a new chat in ${group.name}`)}
             >
               <Plus size={13} />
             </button>
@@ -495,16 +603,24 @@ export function Sidebar({
   }[pet as "Yode" | "Cat" | "Dog"];
 
   return (
-    <aside className="sidebar" style={{ position: "relative" }}>
+    <aside
+      className="sidebar"
+      id="app-sidebar"
+      style={{ position: "relative" }}
+      ref={sidebarRef}
+      aria-hidden={!isOpen}
+    >
       <div className="brand-row" data-tauri-drag-region>
-        <div className="brand-mark">Y</div>
+        <div className="brand-mark" aria-hidden="true">
+          <img src="/icon.svg" alt="" />
+        </div>
         <div data-tauri-drag-region>
           <div className="brand-title" data-tauri-drag-region>Yode</div>
-          <div className="brand-subtitle" data-tauri-drag-region>local agent runtime</div>
+          <div className="brand-subtitle" data-tauri-drag-region>{t("本地智能编程助手", "Local coding agent")}</div>
         </div>
       </div>
 
-      <button className="primary-action" onClick={() => onCreateSession()} type="button">
+      <button className="primary-action" onClick={() => onCreateSession()} type="button" aria-label={t("新建对话", "New chat")}>
         <MessageSquarePlus size={17} />
         {t("新对话", "New chat")}
       </button>
@@ -512,46 +628,70 @@ export function Sidebar({
       <nav className="nav-block" aria-label="主导航">
         <NavButton
           icon={<Search size={16} />}
-          label={t("搜索", "Search")}
-          disabled
-          title={t("搜索功能尚未实现", "Search is not available yet")}
+          label={t("搜索对话", "Search chats")}
+          active={searchOpen}
+          expanded={searchOpen}
+          onClick={() => {
+            setSearchOpen((current) => !current);
+            if (searchOpen) setSearchQuery("");
+          }}
         />
-        <NavButton
-          icon={<Code2 size={16} />}
-          label={t("技能", "Skills")}
-          disabled
-          title={t("技能管理尚未实现", "Skills management is not available yet")}
-        />
-        <NavButton
-          icon={<Workflow size={16} />}
-          label={t("插件", "Plugins")}
-          disabled
-          title={t("插件管理尚未实现", "Plugins management is not available yet")}
-        />
-        <NavButton
-          icon={<Clock3 size={16} />}
-          label={t("自动化", "Autopilot")}
-          disabled
-          title={t("自动化尚未实现", "Autopilot is not available yet")}
-        />
+        {searchOpen ? (
+          <div className="sidebar-search-field">
+            <Search size={14} aria-hidden="true" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder={t("按标题或项目搜索…", "Search titles or projects…")}
+              aria-label={t("搜索对话", "Search chats")}
+            />
+            {searchQuery ? (
+              <button
+                type="button"
+                onClick={() => setSearchQuery("")}
+                aria-label={t("清空搜索", "Clear search")}
+                title={t("清空搜索", "Clear search")}
+              >
+                <X size={12} />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </nav>
 
       <div className="sidebar-section sessions">
         <div className="section-head">
           <div className="section-label">{t("项目与对话", "Projects & Chats")}</div>
-          <button className="section-action" type="button" onClick={() => void onAddProject()}>
+          <button className="section-action" type="button" onClick={() => void onAddProject()} aria-label={t("添加项目", "Add project")}>
             <FolderPlus size={14} />
             {t("添加项目", "Add project")}
           </button>
         </div>
         <div className="sessions-list">
-          {projectGroups.map(renderProjectGroup)}
-          <div className="standalone-group">
-            <div className="standalone-label">{t("独立对话", "Standalone")}</div>
-            {standaloneSessions.length > 0
-              ? standaloneSessions.map(renderSessionItem)
-              : <div className="standalone-empty">{t("暂无独立对话", "No standalone chats")}</div>}
-          </div>
+          <span className="sr-only" id="project-order-help">
+            {t("按 Alt 加上、下方向键调整项目顺序", "Press Alt plus Up or Down Arrow to reorder the project")}
+          </span>
+          <span className="sr-only" role="status" aria-live="polite">
+            {projectReorderAnnouncement}
+          </span>
+          {visibleProjectGroups.map(renderProjectGroup)}
+          {(!normalizedSearch || visibleStandaloneSessions.length > 0) ? (
+            <div className="standalone-group">
+              <div className="standalone-label">{t("独立对话", "Standalone")}</div>
+              {visibleStandaloneSessions.length > 0
+                ? visibleStandaloneSessions.map(renderSessionItem)
+                : <div className="standalone-empty">{t("暂无独立对话", "No standalone chats")}</div>}
+            </div>
+          ) : null}
+          {normalizedSearch && visibleSearchResultCount === 0 ? (
+            <div className="sidebar-search-empty" role="status">
+              <Search size={18} />
+              <strong>{t("没有匹配的对话", "No matching chats")}</strong>
+              <span>{t("试试更短的关键词", "Try a shorter keyword")}</span>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -653,9 +793,26 @@ export function Sidebar({
   );
 }
 
-function NavButton({ icon, label, disabled, title }: { icon: React.ReactNode; label: string; disabled?: boolean; title?: string }) {
+function NavButton({
+  icon,
+  label,
+  active,
+  expanded,
+  onClick
+}: {
+  icon: React.ReactNode;
+  label: string;
+  active?: boolean;
+  expanded?: boolean;
+  onClick?: () => void;
+}) {
   return (
-    <button className="nav-button" type="button" disabled={disabled} title={title} aria-disabled={disabled}>
+    <button
+      className={`nav-button ${active ? "active" : ""}`}
+      type="button"
+      onClick={onClick}
+      aria-expanded={expanded}
+    >
       {icon}
       <span>{label}</span>
     </button>

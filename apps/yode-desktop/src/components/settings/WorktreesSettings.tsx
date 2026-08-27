@@ -143,6 +143,7 @@ export function WorktreesSettingsSettings({
               void saveWorktreesSetting("baseDir", e.target.value);
             }}
             placeholder="~/.yode/worktrees"
+            aria-label={t("工作树根目录", "Worktree root directory")}
           />
         </div>
       </section>
@@ -165,6 +166,7 @@ export function WorktreesSettingsSettings({
               <input
                 type="checkbox"
                 checked={autoDeleteOnSessionEnd}
+                aria-label={t("会话结束时自动清理", "Auto-delete on session end")}
                 onChange={(e) => {
                   setAutoDeleteOnSessionEnd(e.target.checked);
                   void saveWorktreesSetting("autoDeleteOnSessionEnd", e.target.checked);
@@ -186,6 +188,7 @@ export function WorktreesSettingsSettings({
               <input
                 type="checkbox"
                 checked={preserveUncommitted}
+                aria-label={t("保留未提交的修改", "Preserve uncommitted changes")}
                 onChange={(e) => {
                   setPreserveUncommitted(e.target.checked);
                   void saveWorktreesSetting("preserveUncommitted", e.target.checked);
@@ -207,6 +210,7 @@ export function WorktreesSettingsSettings({
               <input
                 type="checkbox"
                 checked={cleanUnusedCache}
+                aria-label={t("清理包管理器缓存", "Clean package caches")}
                 onChange={(e) => {
                   setCleanUnusedCache(e.target.checked);
                   void saveWorktreesSetting("cleanUnusedCache", e.target.checked);

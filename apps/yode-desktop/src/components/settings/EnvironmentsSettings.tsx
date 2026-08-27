@@ -106,10 +106,7 @@ export function EnvironmentsSettingsSettings({
     <div className="appearance-container" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       <div style={{ fontSize: "12px", color: "var(--text-soft)", display: "flex", flexDirection: "column", gap: "4px" }}>
         <span>
-          {t("本地环境告诉 Yode 如何为项目配置和拉起工作树。", "Local environments tell Yode how to set up worktrees for a project.")}{" "}
-          <a href="#learn-environments" style={{ color: "var(--accent)", textDecoration: "none" }}>
-            {t("了解更多", "Learn more.")}
-          </a>
+          {t("本地环境定义 Yode 为项目创建工作树时执行的安装与启动步骤。", "Local environments define the install and launch steps Yode runs when creating project worktrees.")}
         </span>
       </div>
 
@@ -265,6 +262,11 @@ export function EnvironmentsSettingsSettings({
         >
           <div
             className="theme-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="environment-project-dialog-title"
+            data-settings-dialog="true"
+            tabIndex={-1}
             style={{
               width: "400px",
               background: "var(--panel)",
@@ -285,10 +287,12 @@ export function EnvironmentsSettingsSettings({
                 background: "var(--chrome)"
               }}
             >
-              <span style={{ fontWeight: "600", fontSize: "13.5px", color: "var(--text)" }}>{t("添加本地项目", "Add Project")}</span>
+              <span id="environment-project-dialog-title" style={{ fontWeight: "600", fontSize: "13.5px", color: "var(--text)" }}>{t("添加本地项目", "Add Project")}</span>
               <button
                 onClick={() => setIsModalOpen(false)}
                 type="button"
+                data-dialog-close
+                aria-label={t("关闭项目弹窗", "Close project dialog")}
                 style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-soft)", display: "flex" }}
               >
                 <X size={14} />
@@ -301,6 +305,7 @@ export function EnvironmentsSettingsSettings({
                 <input
                   type="text"
                   value={formName}
+                  aria-label={t("项目名称", "Project name")}
                   onChange={(e) => setFormName(e.target.value)}
                   placeholder="e.g. langchain-study"
                   style={{
@@ -322,6 +327,7 @@ export function EnvironmentsSettingsSettings({
                 <input
                   type="text"
                   value={formSubtext}
+                  aria-label={t("子文本或拥有者", "Owner or subtext")}
                   onChange={(e) => setFormSubtext(e.target.value)}
                   placeholder="e.g. orgName"
                   style={{
@@ -343,6 +349,7 @@ export function EnvironmentsSettingsSettings({
                 <input
                   type="text"
                   value={formPath}
+                  aria-label={t("本地绝对路径", "Local absolute path")}
                   onChange={(e) => setFormPath(e.target.value)}
                   placeholder="e.g. /Users/username/code/project"
                   style={{
@@ -372,6 +379,7 @@ export function EnvironmentsSettingsSettings({
               <button
                 onClick={() => setIsModalOpen(false)}
                 type="button"
+                data-dialog-close
                 style={{ background: "transparent", border: "none", fontSize: "12px", color: "var(--text-soft)", cursor: "pointer" }}
               >
                 {t("取消", "Cancel")}

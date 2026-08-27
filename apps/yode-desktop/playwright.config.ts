@@ -23,7 +23,8 @@ function existingBrowserExecutable(): string | undefined {
       "Contents",
       "MacOS",
       "Google Chrome for Testing"
-    )
+    ),
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
   ];
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;

@@ -109,6 +109,7 @@ export function GitSettingsSettings({
               void applyGitSettings({ ...currentSettings(), branchPrefix: e.target.value });
             }}
             placeholder="yode/"
+            aria-label={t("工作分支前缀", "Work branch prefix")}
             style={{
               background: "var(--field)",
               border: "1px solid var(--line-soft)",
@@ -138,6 +139,7 @@ export function GitSettingsSettings({
                 void applyGitSettings({ ...currentSettings(), mergeMethod: "merge" });
               }}
               type="button"
+              aria-pressed={mergeMethod === "merge"}
             >
               {t("合并", "Merge")}
             </button>
@@ -148,6 +150,7 @@ export function GitSettingsSettings({
                 void applyGitSettings({ ...currentSettings(), mergeMethod: "squash" });
               }}
               type="button"
+              aria-pressed={mergeMethod === "squash"}
             >
               {t("扁平化合并", "Squash")}
             </button>
@@ -165,6 +168,7 @@ export function GitSettingsSettings({
             <input
               type="checkbox"
               checked={showPrIcons}
+              aria-label={t("在侧边栏显示 PR 图标", "Show PR icons in sidebar")}
               onChange={(e) => {
                 setShowPrIcons(e.target.checked);
                 void applyGitSettings({ ...currentSettings(), showPrIcons: e.target.checked });
@@ -185,6 +189,7 @@ export function GitSettingsSettings({
             <input
               type="checkbox"
               checked={alwaysForcePush}
+              aria-label={t("始终强制推送", "Always force push")}
               onChange={(e) => {
                 setAlwaysForcePush(e.target.checked);
                 void applyGitSettings({ ...currentSettings(), alwaysForcePush: e.target.checked });
@@ -205,6 +210,7 @@ export function GitSettingsSettings({
             <input
               type="checkbox"
               checked={createDraftPrs}
+              aria-label={t("创建草稿拉取请求", "Create draft pull requests")}
               onChange={(e) => {
                 setCreateDraftPrs(e.target.checked);
                 void applyGitSettings({ ...currentSettings(), createDraftPrs: e.target.checked });
@@ -230,6 +236,7 @@ export function GitSettingsSettings({
             <input
               type="checkbox"
               checked={autoDeleteWorktrees}
+              aria-label={t("自动删除旧工作树", "Automatically delete old worktrees")}
               onChange={(e) => {
                 setAutoDeleteWorktrees(e.target.checked);
                 void applyGitSettings({ ...currentSettings(), autoDeleteWorktrees: e.target.checked });
@@ -254,6 +261,7 @@ export function GitSettingsSettings({
           <input
             type="number"
             value={autoDeleteLimit}
+            aria-label={t("自动删除上限", "Auto-delete limit")}
             onChange={(e) => {
               const val = Number(e.target.value) || 1;
               setAutoDeleteLimit(val);
@@ -283,6 +291,7 @@ export function GitSettingsSettings({
             onClick={handleSaveCommitInstructions}
             type="button"
             className="secondary-button"
+            aria-label={t("保存提交说明", "Save commit instructions")}
             style={{
               paddingInline: "12px",
               height: "24px",
@@ -300,6 +309,7 @@ export function GitSettingsSettings({
           value={commitInstructions}
           onChange={(e) => setCommitInstructions(e.target.value)}
           placeholder={t("添加提交信息指南...", "Add commit message guidance...")}
+          aria-label={t("提交信息指南", "Commit message guidance")}
           style={{
             width: "100%",
             height: "100px",
@@ -325,6 +335,7 @@ export function GitSettingsSettings({
             onClick={handleSavePrInstructions}
             type="button"
             className="secondary-button"
+            aria-label={t("保存拉取请求说明", "Save pull request instructions")}
             style={{
               paddingInline: "12px",
               height: "24px",
@@ -342,6 +353,7 @@ export function GitSettingsSettings({
           value={prInstructions}
           onChange={(e) => setPrInstructions(e.target.value)}
           placeholder={t("添加 PR 标题/描述指南...", "Add PR title/description guidance...")}
+          aria-label={t("PR 标题和描述指南", "PR title and description guidance")}
           style={{
             width: "100%",
             height: "100px",

@@ -62,6 +62,7 @@ export function ArchivedChatsSettingsSettings({
         <input
           type="text"
           placeholder={t("搜索已归档对话...", "Search archived chats...")}
+          aria-label={t("搜索已归档对话", "Search archived chats")}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           style={{

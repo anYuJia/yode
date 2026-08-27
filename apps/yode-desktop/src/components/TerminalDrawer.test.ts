@@ -18,7 +18,9 @@ describe("TerminalDrawer tab controls", () => {
       workspacePath: "/workspace",
       conversationId: "conversation-1",
       height: 320,
-      onResizeStart: vi.fn()
+      onResizeStart: vi.fn(),
+      onResizeKeyDown: vi.fn(),
+      onResizeReset: vi.fn()
     }));
     const selectStart = markup.indexOf('class="terminal-tab-select"');
     const selectEnd = markup.indexOf("</button>", selectStart);

@@ -271,10 +271,7 @@ export function McpSettingsSettings({
     <div className="appearance-container" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
         <p style={{ margin: 0, fontSize: "12px", color: "var(--text-soft)" }}>
-          {t("连接外部工具和数据源。", "Connect external tools and data sources.")}{" "}
-          <a href="#learn-mcp" style={{ color: "var(--accent)", textDecoration: "none" }}>
-            {t("了解更多", "Learn more.")}
-          </a>
+          {t("连接外部工具和数据源；启用前可先测试服务器配置。", "Connect external tools and data sources, and test each server before enabling it.")}
         </p>
       </div>
 
@@ -358,6 +355,8 @@ export function McpSettingsSettings({
                     <button
                       onClick={() => openEditModal(server)}
                       type="button"
+                      aria-label={t(`编辑 MCP 服务器 ${server.name}`, `Edit MCP server ${server.name}`)}
+                      title={t("编辑服务器", "Edit server")}
                       style={{
                         background: "transparent",
                         border: "none",
@@ -375,7 +374,15 @@ export function McpSettingsSettings({
                     </button>
 
                     <label className="switch-wrapper">
-                      <input type="checkbox" checked={!server.disabled} onChange={() => handleToggleServer(server.name)} />
+                      <input
+                        type="checkbox"
+                        checked={!server.disabled}
+                        onChange={() => handleToggleServer(server.name)}
+                        aria-label={t(
+                          `启用 MCP 服务器 ${server.name}`,
+                          `Enable MCP server ${server.name}`
+                        )}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -419,6 +426,11 @@ export function McpSettingsSettings({
         >
           <div
             className="theme-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="mcp-server-dialog-title"
+            data-settings-dialog="true"
+            tabIndex={-1}
             style={{
               width: "480px",
               maxHeight: "85vh",
@@ -441,12 +453,14 @@ export function McpSettingsSettings({
                 background: "var(--chrome)"
               }}
             >
-              <span style={{ fontWeight: "600", fontSize: "14.5px", color: "var(--text)" }}>
+              <span id="mcp-server-dialog-title" style={{ fontWeight: "600", fontSize: "14.5px", color: "var(--text)" }}>
                 {modalMode === "add" ? t("添加 MCP 服务器", "Add MCP Server") : t("配置 MCP 服务器", "Configure MCP Server")}
               </span>
               <button
                 onClick={() => setIsModalOpen(false)}
                 type="button"
+                data-dialog-close
+                aria-label={t("关闭 MCP 服务器弹窗", "Close MCP server dialog")}
                 style={{
                   background: "transparent",
                   border: "none",
@@ -469,6 +483,7 @@ export function McpSettingsSettings({
                 <input
                   type="text"
                   value={formName}
+                  aria-label={t("服务器名称", "Server name")}
                   onChange={(e) => setFormName(e.target.value)}
                   disabled={modalMode === "edit"}
                   placeholder="e.g. node_repl"
@@ -491,6 +506,7 @@ export function McpSettingsSettings({
                   {t("传输协议", "Transport Protocol")}
                 </label>
                 <CustomSelect
+                  ariaLabel={t("传输协议", "Transport protocol")}
                   value={formTransport}
                   onChange={(value) => {
                     if (isMcpTransport(value)) setFormTransport(value);
@@ -514,6 +530,7 @@ export function McpSettingsSettings({
                     <input
                       type="text"
                       value={formCommand}
+                      aria-label={t("执行指令", "Command")}
                       onChange={(e) => setFormCommand(e.target.value)}
                       placeholder="e.g. node, python, npx"
                       style={{
@@ -536,6 +553,7 @@ export function McpSettingsSettings({
                     <input
                       type="text"
                       value={formArgs}
+                      aria-label={t("运行参数", "Arguments")}
                       onChange={(e) => setFormArgs(e.target.value)}
                       placeholder="e.g. path/to/server.js --arg1 value"
                       style={{
@@ -578,6 +596,7 @@ export function McpSettingsSettings({
                           <input
                             type="text"
                             placeholder="KEY"
+                            aria-label={t(`环境变量 ${idx + 1} 名称`, `Environment variable ${idx + 1} name`)}
                             value={pair.key}
                             onChange={(e) => handleEnvChange(idx, "key", e.target.value)}
                             style={{
@@ -595,6 +614,7 @@ export function McpSettingsSettings({
                           <input
                             type="password"
                             placeholder={pair.hasValue ? t("已设置，留空保持不变", "Set; leave blank to keep") : t("值", "Value")}
+                            aria-label={t(`环境变量 ${idx + 1} 值`, `Environment variable ${idx + 1} value`)}
                             value={pair.value}
                             onChange={(e) => handleEnvChange(idx, "value", e.target.value)}
                             style={{
@@ -612,6 +632,7 @@ export function McpSettingsSettings({
                           <button
                             onClick={() => handleRemoveEnv(idx)}
                             type="button"
+                            aria-label={t(`移除环境变量 ${idx + 1}`, `Remove environment variable ${idx + 1}`)}
                             style={{
                               background: "transparent",
                               border: "none",
@@ -644,6 +665,7 @@ export function McpSettingsSettings({
                   <input
                     type="text"
                     value={formUrl}
+                    aria-label={t("服务器 URL", "Server URL")}
                     onChange={(e) => setFormUrl(e.target.value)}
                     placeholder="e.g. http://localhost:3000/mcp"
                     style={{
@@ -707,6 +729,7 @@ export function McpSettingsSettings({
                 <button
                   onClick={() => setIsModalOpen(false)}
                   type="button"
+                  data-dialog-close
                   style={{
                     background: "transparent",
                     border: "none",

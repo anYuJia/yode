@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from "react";
+import React, { useState, useRef, useMemo, useEffect, useLayoutEffect } from "react";
 import {
   Paperclip,
   Folder,
@@ -15,7 +15,7 @@ import {
 import { PROVIDERS_META } from "./settings/ProvidersSettings";
 import { TopbarProviderIcon } from "./Topbar";
 import { ImageAttachment } from "../lib/desktopTypes";
-import { completeSlashCommands } from "../lib/localSlashCommands";
+import { completeSlashCommands, slashCommandRegistry } from "../lib/localSlashCommands";
 import {
   LLM_PROVIDERS_CHANGE_EVENT,
   modelsForProviderFromStorage
@@ -36,7 +36,9 @@ interface ComposerProps {
   isProcessing: boolean;
   onCancelMessage: () => void;
   permissionMode: string;
-  onPermissionModeChange: (mode: string) => void;
+  onPermissionModeChange: (mode: string) => Promise<boolean>;
+  permissionModeUpdating: boolean;
+  permissionModeError: string | null;
   appLang: string;
   projectOptions: Array<{ label: string; root: string | null }>;
   selectedProjectRoot: string | null;
@@ -60,6 +62,8 @@ export function Composer({
   onCancelMessage,
   permissionMode,
   onPermissionModeChange,
+  permissionModeUpdating,
+  permissionModeError,
   appLang,
   projectOptions,
   selectedProjectRoot,
@@ -83,10 +87,14 @@ export function Composer({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const projectDropdownRef = useRef<HTMLDivElement>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
+  const permissionTriggerRef = useRef<HTMLButtonElement>(null);
+  const projectTriggerRef = useRef<HTMLButtonElement>(null);
+  const modelTriggerRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const isZh = appLang === "zh";
+  const canSend = draft.trim().length > 0 || images.length > 0;
 
   const modelOptions = useMemo(() => {
     return modelsForProviderFromStorage(currentProvider, PROVIDERS_META);
@@ -128,7 +136,9 @@ export function Composer({
     const trimmed = value.trim();
     const hasSpace = /\s/.test(trimmed.slice(1));
     if (trimmed.startsWith("/") && !hasSpace) {
-      const suggestions = completeSlashCommands(trimmed);
+      const suggestions = trimmed === "/"
+        ? Object.keys(slashCommandRegistry).sort().map((name) => `/${name}`)
+        : completeSlashCommands(trimmed);
       setSlashSuggestions(suggestions);
       setSlashHighlight(0);
     } else {
@@ -158,6 +168,46 @@ export function Composer({
           root: selectedProjectRoot ?? null
         };
 
+  const handlePopupNavigation = (
+    event: React.KeyboardEvent,
+    isOpen: boolean,
+    setOpen: React.Dispatch<React.SetStateAction<boolean>>,
+    popupRef: React.RefObject<HTMLDivElement>
+  ) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const focusItem = (position: "first" | "last" | "next" | "previous") => {
+      const items = Array.from(
+        popupRef.current?.querySelectorAll<HTMLButtonElement>(
+          '[role="option"]:not([disabled]), [role="menuitem"]:not([disabled]), [role="menuitemradio"]:not([disabled])'
+        ) ?? []
+      );
+      if (items.length === 0) return;
+      const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+      const targetIndex = position === "first"
+        ? 0
+        : position === "last"
+          ? items.length - 1
+          : position === "next"
+            ? currentIndex < 0 ? 0 : (currentIndex + 1) % items.length
+            : currentIndex < 0
+              ? items.length - 1
+              : (currentIndex - 1 + items.length) % items.length;
+      items[targetIndex]?.focus();
+    };
+
+    if (!isOpen) {
+      setOpen(true);
+      window.requestAnimationFrame(() => {
+        focusItem(event.key === "ArrowUp" || event.key === "End" ? "last" : "first");
+      });
+      return;
+    }
+    if (event.key === "Home") focusItem("first");
+    else if (event.key === "End") focusItem("last");
+    else focusItem(event.key === "ArrowDown" ? "next" : "previous");
+  };
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
@@ -183,6 +233,16 @@ export function Composer({
       document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [dropdownOpen, projectDropdownOpen, modelDropdownOpen]);
+
+  useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const maxHeight = window.innerHeight <= 720 ? 64 : window.innerHeight <= 768 ? 84 : 144;
+    textarea.style.height = "0px";
+    const nextHeight = Math.max(44, Math.min(textarea.scrollHeight, maxHeight));
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+  }, [draft]);
 
   const addImageFiles = async (files: FileList | File[]) => {
     const allFiles = Array.from(files);
@@ -254,6 +314,22 @@ export function Composer({
     <footer
       className={`composer ${isDraggingImage ? "dragging-image" : ""}`}
       style={{ position: "relative" }}
+      onKeyDownCapture={(event) => {
+        if (event.key !== "Escape") return;
+        if (dropdownOpen || projectDropdownOpen || modelDropdownOpen) {
+          const returnTarget = projectDropdownOpen
+            ? projectTriggerRef.current
+            : dropdownOpen
+              ? permissionTriggerRef.current
+              : modelTriggerRef.current;
+          setDropdownOpen(false);
+          setProjectDropdownOpen(false);
+          setModelDropdownOpen(false);
+          event.preventDefault();
+          event.stopPropagation();
+          window.requestAnimationFrame(() => returnTarget?.focus());
+        }
+      }}
       onDragEnter={(event) => {
         if (Array.from(event.dataTransfer.items).some((item) => item.type.startsWith("image/"))) {
           event.preventDefault();
@@ -291,6 +367,7 @@ export function Composer({
                 type="button"
                 className="composer-image-remove"
                 title={isZh ? "移除图片" : "Remove image"}
+                aria-label={isZh ? `移除图片 ${image.name}` : `Remove image ${image.name}`}
                 onClick={() => onImagesChange(images.filter((item) => item.id !== image.id))}
               >
                 <X size={12} />
@@ -300,14 +377,22 @@ export function Composer({
         </div>
       )}
       {attachmentNotice && (
-        <div className="composer-attachment-notice" role="status">
+        <div className="composer-attachment-notice" role="status" aria-live="polite">
           {attachmentNotice}
         </div>
       )}
       <textarea
-        aria-label="消息"
+        id="message-composer"
+        aria-label={isZh ? "消息" : "Message"}
+        aria-describedby="composer-keyboard-hint"
+        aria-autocomplete="list"
+        aria-controls={slashSuggestions.length > 0 ? "composer-slash-listbox" : undefined}
+        aria-expanded={slashSuggestions.length > 0}
+        aria-activedescendant={slashSuggestions.length > 0 ? `composer-slash-option-${slashHighlight}` : undefined}
         ref={textareaRef}
-        placeholder={isZh ? "输入仓库任务..." : "Enter repository task..."}
+        rows={1}
+        autoFocus
+        placeholder={isZh ? "描述任务，输入 / 查看命令…" : "Describe a task, or type / for commands…"}
         value={draft}
         onChange={(event) => {
           onDraftChange(event.target.value);
@@ -336,7 +421,12 @@ export function Composer({
               );
               return;
             }
-            if (event.key === "Tab" || (event.key === "Enter" && slashSuggestions.length === 1)) {
+            if (event.key === "Home" || event.key === "End") {
+              event.preventDefault();
+              setSlashHighlight(event.key === "Home" ? 0 : slashSuggestions.length - 1);
+              return;
+            }
+            if (event.key === "Tab" || event.key === "Enter") {
               event.preventDefault();
               applySlashSuggestion(slashSuggestions[slashHighlight] ?? slashSuggestions[0]);
               return;
@@ -374,9 +464,10 @@ export function Composer({
         }}
       />
       {slashSuggestions.length > 0 ? (
-        <div className="context-dropdown slash-suggestions" role="listbox" aria-label="命令补全">
+        <div id="composer-slash-listbox" className="context-dropdown slash-suggestions" role="listbox" aria-label="命令补全">
           {slashSuggestions.map((suggestion, index) => (
             <button
+              id={`composer-slash-option-${index}`}
               key={suggestion}
               type="button"
               role="option"
@@ -409,36 +500,55 @@ export function Composer({
             className="icon-button"
             type="button"
             title={isZh ? "添加图片" : "Attach image"}
+            aria-label={isZh ? "添加图片" : "Attach image"}
             onClick={() => fileInputRef.current?.click()}
             style={{ outline: "none", boxShadow: "none" }}
           >
             <Paperclip size={17} />
           </button>
 
-          <div ref={projectDropdownRef} style={{ display: "inline-block", position: "relative" }}>
+          <div
+            ref={projectDropdownRef}
+            style={{ display: "inline-block", position: "relative" }}
+            onKeyDown={(event) => handlePopupNavigation(
+              event,
+              projectDropdownOpen,
+              setProjectDropdownOpen,
+              projectDropdownRef
+            )}
+          >
             <button
+              ref={projectTriggerRef}
               className="mode-chip"
               type="button"
               onClick={() => setProjectDropdownOpen(!projectDropdownOpen)}
               title={currentProject.root ?? (isZh ? "独立对话" : "Standalone")}
+              aria-label={`${isZh ? "项目" : "Project"}：${currentProject.label}`}
+              aria-haspopup="menu"
+              aria-expanded={projectDropdownOpen}
+              aria-controls="composer-project-listbox"
               style={{ outline: "none", boxShadow: "none", cursor: "pointer" }}
             >
               <Folder size={15} />
               {currentProject.label}
+              <ChevronDown size={11} className={projectDropdownOpen ? "is-open" : ""} />
             </button>
 
             {projectDropdownOpen && (
-              <div className="context-dropdown project-dropdown">
+              <div id="composer-project-listbox" className="context-dropdown project-dropdown" role="menu" aria-label={isZh ? "选择项目" : "Choose project"}>
                 {projectOptions.map((option) => {
                   const selected = option.root === selectedProjectRoot;
                   return (
                     <button
                       key={option.root ?? "__standalone__"}
                       type="button"
+                      role="menuitemradio"
+                      aria-checked={selected}
                       className={`context-option ${selected ? "selected" : ""}`}
                       onClick={() => {
                         onProjectRootChange(option.root);
                         setProjectDropdownOpen(false);
+                        window.requestAnimationFrame(() => projectTriggerRef.current?.focus());
                       }}
                     >
                       <Folder size={14} />
@@ -447,12 +557,14 @@ export function Composer({
                     </button>
                   );
                 })}
-                <div className="context-dropdown-divider" />
+                <div className="context-dropdown-divider" role="separator" />
                 <button
                   type="button"
+                  role="menuitem"
                   className="context-option context-option-action"
                   onClick={() => {
                     setProjectDropdownOpen(false);
+                    window.requestAnimationFrame(() => projectTriggerRef.current?.focus());
                     void onAddProject();
                   }}
                 >
@@ -463,11 +575,27 @@ export function Composer({
             )}
           </div>
           
-          <div ref={dropdownRef} style={{ display: "inline-block" }}>
+          <div
+            ref={dropdownRef}
+            style={{ display: "inline-block" }}
+            onKeyDown={(event) => handlePopupNavigation(
+              event,
+              dropdownOpen,
+              setDropdownOpen,
+              dropdownRef
+            )}
+          >
             <button
+              ref={permissionTriggerRef}
               className="mode-chip"
               type="button"
               onClick={() => setDropdownOpen(!dropdownOpen)}
+              disabled={permissionModeUpdating}
+              aria-haspopup="dialog"
+              aria-expanded={dropdownOpen}
+              aria-controls="composer-permission-popup"
+              aria-busy={permissionModeUpdating}
+              aria-label={`${isZh ? "权限模式" : "Permission mode"}：${currentOption.label}`}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -480,11 +608,15 @@ export function Composer({
             >
               {currentOption.icon}
               {currentOption.label}
+              <ChevronDown size={11} className={dropdownOpen ? "is-open" : ""} />
             </button>
 
             {dropdownOpen && (
               <div
+                id="composer-permission-popup"
                 className="permission-dropdown"
+                role="dialog"
+                aria-label={isZh ? "选择权限模式" : "Choose permission mode"}
                 style={{
                   position: "absolute",
                   bottom: "100%",
@@ -518,29 +650,33 @@ export function Composer({
                   >
                     {isZh ? "如何授权 Yode 的操作？" : "How should Yode actions be approved?"}
                   </span>
-                  <a
-                    href="#"
-                    onClick={(e) => e.preventDefault()}
-                    style={{
-                      fontSize: "12px",
-                      color: "var(--text-soft)",
-                      textDecoration: "underline"
-                    }}
-                  >
-                    {isZh ? "了解更多" : "Learn more"}
-                  </a>
+                  <span className="permission-dropdown-note">
+                    {isZh ? "可随时切换" : "Change anytime"}
+                  </span>
                 </div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                <div
+                  id="composer-permission-listbox"
+                  role="listbox"
+                  aria-label={isZh ? "权限模式" : "Permission mode"}
+                  style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+                >
                   {OPTIONS.map((option) => {
                     const isSelected = option.key.toLowerCase() === currentOption.key.toLowerCase();
                     return (
                       <button
                         key={option.key}
                         type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        disabled={permissionModeUpdating}
                         onClick={() => {
-                          onPermissionModeChange(option.key);
-                          setDropdownOpen(false);
+                          void onPermissionModeChange(option.key).then((accepted) => {
+                            if (accepted) {
+                              setDropdownOpen(false);
+                              window.requestAnimationFrame(() => permissionTriggerRef.current?.focus());
+                            }
+                          });
                         }}
                         style={{
                           display: "flex",
@@ -577,15 +713,34 @@ export function Composer({
                     );
                   })}
                 </div>
+                {permissionModeError ? (
+                  <p className="permission-error" role="alert">
+                    {permissionModeError}
+                  </p>
+                ) : null}
               </div>
             )}
           </div>
 
-          <div ref={modelDropdownRef} style={{ display: "inline-block", position: "relative" }}>
+          <div
+            ref={modelDropdownRef}
+            style={{ display: "inline-block", position: "relative" }}
+            onKeyDown={(event) => handlePopupNavigation(
+              event,
+              modelDropdownOpen,
+              setModelDropdownOpen,
+              modelDropdownRef
+            )}
+          >
             <button
+              ref={modelTriggerRef}
               className="mode-chip"
               type="button"
               onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
+              aria-label={`${isZh ? "模型" : "Model"}：${currentModel || (isZh ? "未选择" : "Not selected")}`}
+              aria-haspopup={modelOptions.length > 0 ? "listbox" : undefined}
+              aria-expanded={modelDropdownOpen}
+              aria-controls="composer-model-listbox"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -601,17 +756,26 @@ export function Composer({
             </button>
 
             {modelDropdownOpen && (
-              <div className="context-dropdown model-dropdown">
+              <div
+                id="composer-model-listbox"
+                className="context-dropdown model-dropdown"
+                role={modelOptions.length > 0 ? "listbox" : "status"}
+                aria-label={modelOptions.length > 0 ? (isZh ? "选择模型" : "Choose model") : undefined}
+                aria-live={modelOptions.length === 0 ? "polite" : undefined}
+              >
                 {modelOptions.map((model: string) => {
                   const selected = model === currentModel;
                   return (
                     <button
                       key={model}
                       type="button"
+                      role="option"
+                      aria-selected={selected}
                       className={`context-option ${selected ? "selected" : ""}`}
                       onClick={() => {
                         onModelChange(model);
                         setModelDropdownOpen(false);
+                        window.requestAnimationFrame(() => modelTriggerRef.current?.focus());
                       }}
                     >
                       <TopbarProviderIcon id={currentProvider} />
@@ -620,12 +784,24 @@ export function Composer({
                     </button>
                   );
                 })}
+                {modelOptions.length === 0 ? (
+                  <div className="context-dropdown-empty">
+                    {currentProvider
+                      ? (isZh ? "请先在设置中为此提供商添加模型" : "Add a model for this provider in Settings first")
+                      : (isZh ? "请先从顶部选择模型提供商" : "Choose a model provider from the top bar first")}
+                  </div>
+                ) : null}
               </div>
             )}
           </div>
         </div>
         ) : <div />}
         <div className="composer-actions">
+          <span className="composer-keyboard-hint" id="composer-keyboard-hint">
+            {requireOptEnter
+              ? (isZh ? "⌥ Enter 发送" : "⌥ Enter to send")
+              : (isZh ? "Enter 发送 · Shift Enter 换行" : "Enter to send · Shift Enter for new line")}
+          </span>
           {showContextUsage ? (
             <span className="context-usage-chip" title={isZh ? "当前输入估算用量" : "Estimated current input usage"}>
               {isZh ? `${draft.length.toLocaleString()} 字` : `${draft.length.toLocaleString()} chars`}
@@ -637,6 +813,7 @@ export function Composer({
               onClick={onCancelMessage} 
               type="button" 
               title={isZh ? "终止" : "Stop"} 
+              aria-label={isZh ? "终止当前运行" : "Stop current run"}
               style={{ 
                 background: "transparent", 
                 border: "none", 
@@ -659,7 +836,16 @@ export function Composer({
               <Square size={13} fill="currentColor" style={{ borderRadius: "1px" }} />
             </button>
           ) : (
-            <button className="send-button" onClick={onSendMessage} type="button" title={isZh ? "发送" : "Send"} style={{ outline: "none", boxShadow: "none" }}>
+            <button
+              className="send-button"
+              onClick={onSendMessage}
+              type="button"
+              title={isZh ? "发送" : "Send"}
+              aria-label={isZh ? "发送消息" : "Send message"}
+              disabled={!canSend}
+              style={{ outline: "none", boxShadow: "none" }}
+            >
+              <span className="sr-only">{isZh ? "发送消息" : "Send message"}</span>
               <Send size={17} />
             </button>
           )}

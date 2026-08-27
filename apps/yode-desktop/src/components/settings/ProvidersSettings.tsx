@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   AlertCircle,
@@ -419,6 +419,9 @@ export function ProvidersSettings({
   });
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isAddMenuOpen, setIsAddMenuOpen] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+  const addMenuButtonRef = useRef<HTMLButtonElement>(null);
   const [modalMode, setModalMode] = useState<"add" | "edit">("add");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formName, setFormName] = useState("");
@@ -436,6 +439,26 @@ export function ProvidersSettings({
     provider: bootstrap.provider,
     model: bootstrap.model
   });
+
+  useEffect(() => {
+    if (!isAddMenuOpen) return;
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!addMenuRef.current?.contains(event.target as Node)) setIsAddMenuOpen(false);
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setIsAddMenuOpen(false);
+      addMenuButtonRef.current?.focus();
+    };
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [isAddMenuOpen]);
 
   useEffect(() => {
     if (deletingId) {
@@ -520,6 +543,7 @@ export function ProvidersSettings({
   };
 
   const openCustomModal = () => {
+    setIsAddMenuOpen(false);
     resetForm();
     setModalMode("add");
     setEditingId(null);
@@ -527,6 +551,7 @@ export function ProvidersSettings({
   };
 
   const openTemplateModal = (preset: ProviderTemplate) => {
+    setIsAddMenuOpen(false);
     resetForm();
     setModalMode("add");
     setEditingId(null);
@@ -677,6 +702,11 @@ export function ProvidersSettings({
     setNewModelInput("");
   };
 
+  const copyModelName = (model: string) => {
+    void navigator.clipboard.writeText(model);
+    setToastMessage(t(`已复制模型名称 “${model}”`, `Model name "${model}" copied`));
+  };
+
   const availableTemplates = BUILT_IN_PROVIDERS.filter((preset) => !providers.some((p) => p.id === preset.id));
   const defaultModelLabel =
     defaultLlm.provider && defaultLlm.model
@@ -695,14 +725,55 @@ export function ProvidersSettings({
             )}
           </p>
         </div>
-        <div className="provider-add-menu">
-          <button onClick={openCustomModal} type="button" className="primary-button providers-add-button">
+        <div
+          className="provider-add-menu"
+          ref={addMenuRef}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setIsAddMenuOpen(false);
+          }}
+          onKeyDown={(event) => {
+            if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const focusItem = (position: "first" | "last" | "next" | "previous") => {
+              const items = Array.from(addMenuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? []);
+              if (items.length === 0) return;
+              const currentIndex = items.indexOf(document.activeElement as HTMLButtonElement);
+              const nextIndex = position === "first"
+                ? 0
+                : position === "last"
+                  ? items.length - 1
+                  : position === "next"
+                    ? (currentIndex + 1 + items.length) % items.length
+                    : (currentIndex - 1 + items.length) % items.length;
+              items[nextIndex]?.focus();
+            };
+            if (!isAddMenuOpen) {
+              setIsAddMenuOpen(true);
+              window.requestAnimationFrame(() => focusItem(event.key === "ArrowUp" || event.key === "End" ? "last" : "first"));
+              return;
+            }
+            if (event.key === "Home") focusItem("first");
+            else if (event.key === "End") focusItem("last");
+            else focusItem(event.key === "ArrowDown" ? "next" : "previous");
+          }}
+        >
+          <button
+            ref={addMenuButtonRef}
+            onClick={() => setIsAddMenuOpen((open) => !open)}
+            type="button"
+            className="primary-button providers-add-button"
+            aria-haspopup="menu"
+            aria-expanded={isAddMenuOpen}
+            aria-controls="provider-add-menu"
+            aria-label={t("添加模型提供商", "Add model provider")}
+          >
             <Plus size={14} />
             <span>{t("添加", "Add")}</span>
-            <ChevronDown size={13} />
+            <ChevronDown size={13} className={isAddMenuOpen ? "is-open" : ""} />
           </button>
-          <div className="provider-add-dropdown">
-            <button type="button" className="provider-add-option custom" onClick={openCustomModal}>
+          {isAddMenuOpen ? (
+          <div id="provider-add-menu" className="provider-add-dropdown open" role="menu" aria-label={t("选择模型提供商", "Choose model provider")}>
+            <button type="button" role="menuitem" className="provider-add-option custom" onClick={openCustomModal}>
               <span className="provider-mark custom">
                 <Plus size={14} />
               </span>
@@ -727,7 +798,7 @@ export function ProvidersSettings({
                         {t(group.labelZh, group.labelEn)}
                       </div>
                       {groupTemplates.map((preset) => (
-                        <button key={preset.id} type="button" className="provider-add-option" onClick={() => openTemplateModal(preset)}>
+                        <button key={preset.id} type="button" role="menuitem" className="provider-add-option" onClick={() => openTemplateModal(preset)}>
                           <ProviderMark provider={preset} />
                           <span className="provider-add-option-body">
                             <span className="provider-add-option-title">
@@ -747,6 +818,7 @@ export function ProvidersSettings({
               </>
             )}
           </div>
+          ) : null}
         </div>
       </div>
 
@@ -755,6 +827,7 @@ export function ProvidersSettings({
         <input
           type="text"
           placeholder={t("搜索名称、模型或接口地址", "Search name, model, or base URL")}
+          aria-label={t("搜索模型提供商", "Search model providers")}
           value={searchQuery}
           onChange={(event) => setSearchQuery(event.target.value)}
         />
@@ -838,13 +911,26 @@ export function ProvidersSettings({
 
       {isModalOpen && (
         <div className="provider-modal-backdrop">
-          <div className="provider-modal">
+          <div
+            className="provider-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="provider-dialog-title"
+            data-settings-dialog="true"
+            tabIndex={-1}
+          >
             <div className="provider-modal-header">
               <div>
-                <h2>{modalMode === "add" ? t("添加提供商", "Add provider") : t("编辑提供商", "Edit provider")}</h2>
+                <h2 id="provider-dialog-title">{modalMode === "add" ? t("添加提供商", "Add provider") : t("编辑提供商", "Edit provider")}</h2>
                 <p>{t("保存后会写入本机配置。", "Saved locally to your configuration.")}</p>
               </div>
-              <button type="button" className="provider-icon-button" onClick={() => setIsModalOpen(false)}>
+              <button
+                type="button"
+                className="provider-icon-button"
+                onClick={() => setIsModalOpen(false)}
+                data-dialog-close
+                aria-label={t("关闭提供商弹窗", "Close provider dialog")}
+              >
                 <X size={15} />
               </button>
             </div>
@@ -852,11 +938,18 @@ export function ProvidersSettings({
             <div className="provider-form">
               <div className="form-group">
                 <span><Bot size={12} />{t("名称", "Name")}</span>
-                <input value={formName} onChange={(event) => setFormName(event.target.value)} disabled={modalMode === "edit"} placeholder="Moonshot AI" />
+                <input
+                  value={formName}
+                  onChange={(event) => setFormName(event.target.value)}
+                  disabled={modalMode === "edit"}
+                  placeholder="Moonshot AI"
+                  aria-label={t("提供商名称", "Provider name")}
+                />
               </div>
               <div className="form-group">
                 <span><Globe size={12} />{t("接口格式", "Format")}</span>
                 <CustomSelect
+                  ariaLabel={t("接口格式", "API format")}
                   value={formFormat}
                   onChange={(value) => {
                     if (isProviderFormat(value)) setFormFormat(value);
@@ -871,7 +964,12 @@ export function ProvidersSettings({
               </div>
               <div className="form-group">
                 <span><Globe size={12} />{t("接口地址", "Base URL")}</span>
-                <input value={formBaseUrl} onChange={(event) => setFormBaseUrl(event.target.value)} placeholder="https://api.example.com/v1" />
+                <input
+                  value={formBaseUrl}
+                  onChange={(event) => setFormBaseUrl(event.target.value)}
+                  placeholder="https://api.example.com/v1"
+                  aria-label={t("接口地址", "Base URL")}
+                />
               </div>
               <div className="form-group">
                 <span><KeyRound size={12} />API Key</span>
@@ -879,6 +977,7 @@ export function ProvidersSettings({
                   <input
                     type={visibleKey ? "text" : "password"}
                     value={formApiKey}
+                    aria-label="API Key"
                     onChange={(event) => setFormApiKey(event.target.value)}
                     placeholder={
                       modalMode === "edit" &&
@@ -887,7 +986,12 @@ export function ProvidersSettings({
                         : t("留空则使用环境变量", "Leave blank to use environment variables")
                     }
                   />
-                  <button type="button" onClick={() => setVisibleKey(!visibleKey)}>
+                  <button
+                    type="button"
+                    onClick={() => setVisibleKey(!visibleKey)}
+                    aria-label={visibleKey ? t("隐藏 API Key", "Hide API key") : t("显示 API Key", "Show API key")}
+                    aria-pressed={visibleKey}
+                  >
                     {visibleKey ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
@@ -902,20 +1006,20 @@ export function ProvidersSettings({
                 {formModels.length > 0 && (
                   <div className="provider-model-editor">
                     {formModels.map((model) => (
-                      <code
-                        key={model}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          e.stopPropagation();
-                          navigator.clipboard.writeText(model);
-                          setToastMessage(t(`已复制模型名称 “${model}”`, `Model name "${model}" copied`));
-                        }}
-                        title={t("点击复制到剪贴板", "Click to copy to clipboard")}
-                        style={{ cursor: "pointer" }}
-                      >
-                        {model}
+                      <span className="provider-model-chip" key={model}>
                         <button
                           type="button"
+                          className="provider-model-copy"
+                          onClick={() => copyModelName(model)}
+                          title={t("点击复制到剪贴板", "Click to copy to clipboard")}
+                          aria-label={t(`复制模型名称 ${model}`, `Copy model name ${model}`)}
+                        >
+                          <code>{model}</code>
+                        </button>
+                        <button
+                          type="button"
+                          className="provider-model-remove"
+                          aria-label={t(`移除模型 ${model}`, `Remove model ${model}`)}
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -924,13 +1028,14 @@ export function ProvidersSettings({
                         >
                           <X size={10} />
                         </button>
-                      </code>
+                      </span>
                     ))}
                   </div>
                 )}
                 <div className="provider-model-add">
                   <input
                     value={newModelInput}
+                    aria-label={t("添加模型名称", "Model name to add")}
                     onChange={(event) => setNewModelInput(event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
@@ -944,7 +1049,12 @@ export function ProvidersSettings({
                     autoCapitalize="off"
                     spellCheck={false}
                   />
-                  <button type="button" className="secondary-button" onClick={handleAddModelTag}>
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={handleAddModelTag}
+                    aria-label={t("添加模型", "Add model")}
+                  >
                     <Plus size={13} />
                   </button>
                 </div>
@@ -964,7 +1074,7 @@ export function ProvidersSettings({
                 <span>{checkState === "checking" ? t("检查中", "Checking") : t("检查配置", "Check")}</span>
               </button>
               <div>
-                <button type="button" className="ghost-button" onClick={() => setIsModalOpen(false)}>
+                <button type="button" className="ghost-button" onClick={() => setIsModalOpen(false)} data-dialog-close>
                   {t("取消", "Cancel")}
                 </button>
                 <button type="button" className="primary-button" onClick={handleSaveProvider}>

@@ -138,11 +138,7 @@ export function BrowserSettingsSettings({
     <div className="appearance-container" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
       <div style={{ fontSize: "12px", color: "var(--text-soft)", display: "flex", flexDirection: "column", gap: "2px" }}>
         <span>
-          {t("管理 Yode 的浏览器。Google Chrome 可以在", "Manage Yode's browser. Google Chrome can be set up in")}{" "}
-          <a href="#computer-use" style={{ color: "var(--accent)", textDecoration: "none" }}>
-            {t("计算机使用设置", "computer use settings")}
-          </a>{" "}
-          {t("中进行配置。", "settings.")}
+          {t("管理 Yode 的内置浏览器；Google Chrome 可在“计算机使用”页中配置。", "Manage Yode's built-in browser; configure Google Chrome from the Computer Use page.")}
         </span>
       </div>
 
@@ -172,6 +168,7 @@ export function BrowserSettingsSettings({
             <input
               type="checkbox"
               checked={browserEnabled}
+              aria-label={t("启用浏览器控制", "Enable browser control")}
               onChange={(e) => {
                 void applyBrowserSettings({ ...currentSettings(), enabled: e.target.checked });
               }}
@@ -214,6 +211,7 @@ export function BrowserSettingsSettings({
               </span>
             </div>
             <CustomSelect
+              ariaLabel={t("网页标注截图", "Annotation screenshots")}
               value={annotationScreenshots}
               onChange={(val) => {
                 void applyBrowserSettings({ ...currentSettings(), annotationScreenshots: val });
@@ -238,13 +236,11 @@ export function BrowserSettingsSettings({
             <div className="row-info">
               <span className="row-label">{t("授权审批", "Approval")}</span>
               <span className="row-desc">
-                {t("选择 Yode 在打开网站前是否需要征求您的同意。", "Choose if Yode asks for approval before opening websites.")}{" "}
-                <a href="#learn-approval" style={{ color: "var(--accent)", textDecoration: "none" }}>
-                  {t("了解更多", "Learn more")}
-                </a>
+                {t("选择 Yode 在打开网站前是否需要征求您的同意。受阻止域名始终不会打开。", "Choose whether Yode asks before opening websites. Blocked domains are never opened.")}
               </span>
             </div>
             <CustomSelect
+              ariaLabel={t("授权审批", "Browser approval")}
               value={approvalPolicy}
               onChange={(val) => {
                 void applyBrowserSettings({ ...currentSettings(), approvalPolicy: val });
@@ -277,6 +273,7 @@ export function BrowserSettingsSettings({
             }}
             type="button"
             className="secondary-button"
+            aria-label={t("添加拦截域名", "Add blocked domain")}
             style={{
               display: "flex",
               alignItems: "center",
@@ -338,6 +335,7 @@ export function BrowserSettingsSettings({
             }}
             type="button"
             className="secondary-button"
+            aria-label={t("添加允许域名", "Add allowed domain")}
             style={{
               display: "flex",
               alignItems: "center",
@@ -405,6 +403,11 @@ export function BrowserSettingsSettings({
         >
           <div
             className="theme-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="browser-domain-dialog-title"
+            data-settings-dialog="true"
+            tabIndex={-1}
             style={{
               width: "360px",
               background: "var(--panel)",
@@ -425,7 +428,7 @@ export function BrowserSettingsSettings({
                 background: "var(--chrome)"
               }}
             >
-              <span style={{ fontWeight: "600", fontSize: "13px", color: "var(--text)" }}>
+              <span id="browser-domain-dialog-title" style={{ fontWeight: "600", fontSize: "13px", color: "var(--text)" }}>
                 {domainModalType === "blocked" ? t("拦截新域名", "Block Domain") : t("允许新域名", "Allow Domain")}
               </span>
               <button
@@ -434,6 +437,8 @@ export function BrowserSettingsSettings({
                   setDomainModalType(null);
                 }}
                 type="button"
+                data-dialog-close
+                aria-label={t("关闭域名弹窗", "Close domain dialog")}
                 style={{ background: "transparent", border: "none", cursor: "pointer", color: "var(--text-soft)", display: "flex" }}
               >
                 <X size={14} />
@@ -444,6 +449,7 @@ export function BrowserSettingsSettings({
               <input
                 type="text"
                 value={newDomainInput}
+                aria-label={domainModalType === "blocked" ? t("要拦截的域名", "Domain to block") : t("要允许的域名", "Domain to allow")}
                 onChange={(e) => setNewDomainInput(e.target.value)}
                 placeholder="e.g. example.com"
                 style={{
@@ -483,6 +489,7 @@ export function BrowserSettingsSettings({
                   setDomainModalType(null);
                 }}
                 type="button"
+                data-dialog-close
                 style={{ background: "transparent", border: "none", fontSize: "12px", color: "var(--text-soft)", cursor: "pointer" }}
               >
                 {t("取消", "Cancel")}

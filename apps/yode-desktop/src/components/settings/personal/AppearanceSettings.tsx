@@ -211,6 +211,7 @@ export function AppearanceSettings() {
           max={max}
           step={step}
           value={value}
+          aria-label={`${label}${t("滑块", " slider")}`}
           onChange={(e) => onChange(clampNumber(Number(e.target.value), min, max))}
           className="range-input font-size-range"
         />
@@ -221,6 +222,7 @@ export function AppearanceSettings() {
             max={max}
             step={step}
             value={value}
+            aria-label={`${label}${t("数值", " value")}`}
             onChange={(e) => onChange(clampNumber(Number(e.target.value), min, max))}
             className="number-input"
           />
@@ -288,6 +290,8 @@ export function AppearanceSettings() {
               className={`mode-btn ${themeMode === "light" ? "active" : ""}`}
               onClick={() => setThemeMode("light")}
               type="button"
+              aria-pressed={themeMode === "light"}
+              aria-label={t("主题模式：亮色", "Theme mode: Light")}
             >
               <Sun size={14} />
               <span>{t("亮色", "Light")}</span>
@@ -296,6 +300,8 @@ export function AppearanceSettings() {
               className={`mode-btn ${themeMode === "dark" ? "active" : ""}`}
               onClick={() => setThemeMode("dark")}
               type="button"
+              aria-pressed={themeMode === "dark"}
+              aria-label={t("主题模式：暗色", "Theme mode: Dark")}
             >
               <Moon size={14} />
               <span>{t("暗色", "Dark")}</span>
@@ -304,6 +310,8 @@ export function AppearanceSettings() {
               className={`mode-btn ${themeMode === "system" ? "active" : ""}`}
               onClick={() => setThemeMode("system")}
               type="button"
+              aria-pressed={themeMode === "system"}
+              aria-label={t("主题模式：跟随系统", "Theme mode: System")}
             >
               <Monitor size={14} />
               <span>{t("系统", "System")}</span>
@@ -327,6 +335,7 @@ export function AppearanceSettings() {
               <span>{t("复制配置", "Copy theme")}</span>
             </button>
             <CustomSelect
+              ariaLabel={t("当前主题", "Theme preset")}
               value={themeName}
               onChange={setThemeName}
               options={[
@@ -350,17 +359,17 @@ export function AppearanceSettings() {
 
         <div className="form-row flex-row">
           <span className="row-label">{t("主题主色", "Accent color")}</span>
-          <ColorPicker value={accentColor} onChange={setAccentColor} />
+          <ColorPicker label={t("主题主色", "Accent color")} value={accentColor} onChange={setAccentColor} />
         </div>
 
         <div className="form-row flex-row">
           <span className="row-label">{t("背景色", "Background color")}</span>
-          <ColorPicker value={backgroundColor} onChange={setBackgroundColor} />
+          <ColorPicker label={t("背景色", "Background color")} value={backgroundColor} onChange={setBackgroundColor} />
         </div>
 
         <div className="form-row flex-row">
           <span className="row-label">{t("前景色", "Foreground color")}</span>
-          <ColorPicker value={foregroundColor} onChange={setForegroundColor} />
+          <ColorPicker label={t("前景色", "Foreground color")} value={foregroundColor} onChange={setForegroundColor} />
         </div>
 
         <div className="form-row flex-row">
@@ -369,6 +378,7 @@ export function AppearanceSettings() {
             type="text"
             className="text-input text-field-font"
             value={uiFont}
+            aria-label={t("UI 界面字体", "UI font")}
             onChange={(e) => setUiFont(e.target.value)}
           />
         </div>
@@ -379,6 +389,7 @@ export function AppearanceSettings() {
             type="text"
             className="text-input text-field-font"
             value={codeFont}
+            aria-label={t("代码编辑器字体", "Code font")}
             onChange={(e) => setCodeFont(e.target.value)}
           />
         </div>
@@ -495,6 +506,7 @@ export function AppearanceSettings() {
             <input
               type="checkbox"
               checked={translucentSidebar}
+              aria-label={t("毛玻璃模糊侧边栏", "Translucent sidebar")}
               onChange={(e) => setTranslucentSidebar(e.target.checked)}
             />
             <span className="switch-slider" />
@@ -509,6 +521,7 @@ export function AppearanceSettings() {
               min="0"
               max="100"
               value={contrast}
+              aria-label={t("全局对比度", "Global contrast")}
               onChange={(e) => setContrast(Number(e.target.value))}
               className="range-input"
             />
@@ -529,6 +542,7 @@ export function AppearanceSettings() {
             <input
               type="checkbox"
               checked={usePointerCursors}
+              aria-label={t("使用手型指针", "Use pointer cursors")}
               onChange={(e) => setUsePointerCursors(e.target.checked)}
             />
             <span className="switch-slider" />
@@ -549,6 +563,14 @@ export function AppearanceSettings() {
                 onClick={() => setReduceMotion(opt)}
                 className={`segmented-btn ${reduceMotion === opt ? "active" : ""}`}
                 type="button"
+                aria-pressed={reduceMotion === opt}
+                aria-label={
+                  opt === "system"
+                    ? t("减少动画：跟随系统", "Reduce motion: System")
+                    : opt === "on"
+                      ? t("减少动画：开启", "Reduce motion: On")
+                      : t("减少动画：关闭", "Reduce motion: Off")
+                }
               >
                 {opt === "system" ? t("系统", "System") : opt === "on" ? t("开启", "On") : t("关闭", "Off")}
               </button>
@@ -570,6 +592,7 @@ export function AppearanceSettings() {
               onClick={() => setDiffMarkers("color")}
               className={`segmented-btn ${diffMarkers === "color" ? "active" : ""}`}
               type="button"
+              aria-pressed={diffMarkers === "color"}
             >
               {t("彩色背景", "Color")}
             </button>
@@ -577,6 +600,7 @@ export function AppearanceSettings() {
               onClick={() => setDiffMarkers("symbols")}
               className={`segmented-btn ${diffMarkers === "symbols" ? "active" : ""}`}
               type="button"
+              aria-pressed={diffMarkers === "symbols"}
             >
               {t("显示 +/-", "+/-")}
             </button>
@@ -594,6 +618,7 @@ export function AppearanceSettings() {
             <input
               type="checkbox"
               checked={fontSmoothing}
+              aria-label={t("字体平滑", "Font smoothing")}
               onChange={(e) => setFontSmoothing(e.target.checked)}
             />
             <span className="switch-slider" />
@@ -608,6 +633,7 @@ export function AppearanceSettings() {
             <span className="row-desc">{t("选择后会显示在主侧边栏底部", "Shows in the main sidebar footer")}</span>
           </div>
           <CustomSelect
+            ariaLabel={t("电子宠物", "Pet")}
             value={pet}
             onChange={setPet}
             options={[
@@ -621,7 +647,7 @@ export function AppearanceSettings() {
         </div>
       </div>
       {statusText && (
-        <div style={{ fontSize: "11px", color: "var(--text-soft)" }}>
+        <div role="status" aria-live="polite" style={{ fontSize: "11px", color: "var(--text-soft)" }}>
           {statusText}
         </div>
       )}

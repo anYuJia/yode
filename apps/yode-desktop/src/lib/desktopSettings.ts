@@ -354,7 +354,9 @@ export function loadGeneralSettingsPayload(): GeneralSettingsPayload {
     workMode: storageReadString("yode-work-mode", "coding"),
     defaultFilePermission: storageReadString("yode-def-perm", "true") !== "false",
     autoReview: storageReadString("yode-auto-review", "true") !== "false",
-    fullAccess: storageReadString("yode-full-access", "true") !== "false",
+    // 旧版曾把完全信任写入 localStorage，造成 UI 与后端真实权限不一致。
+    // 协议字段仅为兼容后端通用设置载荷保留；后端会以运行时有效模式覆盖它。
+    fullAccess: false,
     openDestination: storageReadString("yode-open-dest", "VS Code"),
     showInMenuBar: storageReadString("yode-show-menu-bar", "true") !== "false",
     bottomPanel: storageReadString("yode-bottom-panel", "true") !== "false",

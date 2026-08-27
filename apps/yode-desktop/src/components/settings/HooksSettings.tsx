@@ -221,6 +221,7 @@ export function HooksSettingsSettings({
             <input
               type="checkbox"
               checked={hooksEnabled}
+              aria-label={t("启用钩子系统", "Enable hooks")}
               onChange={(e) => {
                 void applyHooksSettings({ ...currentSettings(), enabled: e.target.checked });
               }}
@@ -321,6 +322,8 @@ export function HooksSettingsSettings({
                     <button
                       onClick={() => openEditModal(hook, idx)}
                       type="button"
+                      aria-label={t(`编辑钩子 ${hook.command}`, `Edit hook ${hook.command}`)}
+                      title={t("编辑钩子", "Edit hook")}
                       style={{
                         background: "transparent",
                         border: "none",
@@ -338,7 +341,12 @@ export function HooksSettingsSettings({
                     </button>
 
                     <label className="switch-wrapper">
-                      <input type="checkbox" checked={!hook.disabled} onChange={() => handleToggleHook(idx)} />
+                      <input
+                        type="checkbox"
+                        checked={!hook.disabled}
+                        onChange={() => handleToggleHook(idx)}
+                        aria-label={t(`启用钩子 ${hook.command}`, `Enable hook ${hook.command}`)}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -368,6 +376,11 @@ export function HooksSettingsSettings({
         >
           <div
             className="theme-card"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="hook-dialog-title"
+            data-settings-dialog="true"
+            tabIndex={-1}
             style={{
               width: "500px",
               maxHeight: "85vh",
@@ -390,12 +403,14 @@ export function HooksSettingsSettings({
                 background: "var(--chrome)"
               }}
             >
-              <span style={{ fontWeight: "600", fontSize: "14.5px", color: "var(--text)" }}>
+              <span id="hook-dialog-title" style={{ fontWeight: "600", fontSize: "14.5px", color: "var(--text)" }}>
                 {modalMode === "add" ? t("添加事件钩子", "Add Lifecycle Hook") : t("配置事件钩子", "Configure Lifecycle Hook")}
               </span>
               <button
                 onClick={() => setIsModalOpen(false)}
                 type="button"
+                data-dialog-close
+                aria-label={t("关闭钩子弹窗", "Close hook dialog")}
                 style={{
                   background: "transparent",
                   border: "none",
@@ -418,6 +433,7 @@ export function HooksSettingsSettings({
                 <input
                   type="text"
                   value={formName}
+                  aria-label={t("钩子名称", "Hook name")}
                   onChange={(e) => setFormName(e.target.value)}
                   placeholder="e.g. Run Linter"
                   style={{
@@ -439,6 +455,7 @@ export function HooksSettingsSettings({
                 <input
                   type="text"
                   value={formCommand}
+                  aria-label={t("执行指令", "Command")}
                   onChange={(e) => setFormCommand(e.target.value)}
                   placeholder="e.g. npm run test"
                   style={{
@@ -513,6 +530,7 @@ export function HooksSettingsSettings({
                     type="number"
                     value={formTimeout}
                     min={1}
+                    aria-label={t("超时时间（秒）", "Timeout in seconds")}
                     onChange={(e) => setFormTimeout(Number(e.target.value))}
                     style={{
                       background: "var(--field)",
@@ -532,7 +550,12 @@ export function HooksSettingsSettings({
                   </span>
                   <div style={{ display: "flex", alignItems: "center", height: "34px" }}>
                     <label className="switch-wrapper">
-                      <input type="checkbox" checked={formCanBlock} onChange={(e) => setFormCanBlock(e.target.checked)} />
+                      <input
+                        type="checkbox"
+                        checked={formCanBlock}
+                        aria-label={t("允许阻塞执行", "Can block execution")}
+                        onChange={(e) => setFormCanBlock(e.target.checked)}
+                      />
                       <span className="switch-slider" />
                     </label>
                   </div>
@@ -546,6 +569,7 @@ export function HooksSettingsSettings({
                 <input
                   type="text"
                   value={formToolFilter}
+                  aria-label={t("工具过滤器", "Tool filter")}
                   onChange={(e) => setFormToolFilter(e.target.value)}
                   placeholder="e.g. view_file, replace_file_content"
                   style={{
@@ -605,6 +629,7 @@ export function HooksSettingsSettings({
                 <button
                   onClick={() => setIsModalOpen(false)}
                   type="button"
+                  data-dialog-close
                   style={{
                     background: "transparent",
                     border: "none",

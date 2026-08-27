@@ -13,6 +13,7 @@ interface CustomSelectProps {
   value: string;
   onChange: (value: string) => void;
   options: CustomSelectOption[];
+  ariaLabel?: string;
   className?: string;
   style?: React.CSSProperties;
 }
@@ -47,7 +48,7 @@ export function customSelectKeyboardAction(
   return { type: "none" };
 }
 
-export function CustomSelect({ value, onChange, options, className = "", style }: CustomSelectProps) {
+export function CustomSelect({ value, onChange, options, ariaLabel, className = "", style }: CustomSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -142,7 +143,7 @@ export function CustomSelect({ value, onChange, options, className = "", style }
         aria-expanded={isOpen}
         aria-controls={listboxId}
         aria-activedescendant={activeOptionId}
-        aria-label={selectedOption?.label}
+        aria-label={ariaLabel ? `${ariaLabel}：${selectedOption?.label ?? ""}` : selectedOption?.label}
         style={{
           display: "flex",
           alignItems: "center",
@@ -201,7 +202,7 @@ export function CustomSelect({ value, onChange, options, className = "", style }
           id={listboxId}
           className="custom-select-dropdown"
           role="listbox"
-          aria-label="选项列表"
+          aria-label={ariaLabel ? `${ariaLabel}选项` : "选项列表"}
           style={{
             position: "absolute",
             bottom: "auto",

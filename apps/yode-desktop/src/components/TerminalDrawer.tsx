@@ -36,6 +36,8 @@ type TerminalDrawerProps = {
   conversationId: string | null;
   height: number;
   onResizeStart: (event: React.PointerEvent) => void;
+  onResizeKeyDown: (event: React.KeyboardEvent) => void;
+  onResizeReset: () => void;
 };
 
 type XtermHandle = {
@@ -141,7 +143,7 @@ function clearAllTerminalSelections(handles: Record<string, XtermHandle>) {
   }
 }
 
-export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId, height, onResizeStart }: TerminalDrawerProps) {
+export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId, height, onResizeStart, onResizeKeyDown, onResizeReset }: TerminalDrawerProps) {
   const sessionKey = conversationId || "__draft__";
   const [sessions, setSessions] = useState<Record<string, TerminalSession>>(() => ({
     [sessionKey]: createSession(workspacePath)
@@ -530,15 +532,24 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
   return (
     <div
       className={`terminal-drawer ${isOpen ? "open" : ""}`}
+      id="terminal-drawer"
       style={{ "--terminal-height": `${height}px` } as React.CSSProperties}
       ref={drawerRef}
+      aria-hidden={!isOpen}
     >
       <div
         className="pane-resizer terminal-resizer"
         onPointerDown={onResizeStart}
+        onKeyDown={onResizeKeyDown}
+        onDoubleClick={onResizeReset}
         role="separator"
         aria-orientation="horizontal"
-        title="拖动调整终端高度"
+        aria-controls="terminal-drawer"
+        aria-valuemin={180}
+        aria-valuemax={520}
+        aria-valuenow={Math.round(height)}
+        tabIndex={isOpen ? 0 : -1}
+        title="拖动或使用方向键调整终端高度；双击恢复默认"
       />
       <div className="terminal-header">
         <div className="terminal-title">
@@ -557,6 +568,7 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
                 type="button"
                 role="tab"
                 aria-selected={tab.id === activeTabId}
+                aria-label={tab.title || `bash ${index + 1}`}
                 title={`${tab.title} - ${displayCwd(tab.cwd)}`}
                 style={{
                   display: "flex",
@@ -596,7 +608,13 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
               </button>
             </div>
           ))}
-          <button className="terminal-add-tab" onClick={addTab} type="button" title="新增终端">
+          <button
+            className="terminal-add-tab"
+            onClick={addTab}
+            type="button"
+            title="新增终端"
+            aria-label="新增终端"
+          >
             <Plus size={13} />
           </button>
         </div>
@@ -608,10 +626,17 @@ export function TerminalDrawer({ isOpen, onClose, workspacePath, conversationId,
             }}
             type="button"
             title="删除当前终端"
+            aria-label="删除当前终端"
           >
             <Trash2 size={13} />
           </button>
-          <button className="terminal-action-btn" onClick={onClose} type="button" title="收起终端">
+          <button
+            className="terminal-action-btn"
+            onClick={onClose}
+            type="button"
+            title="收起终端"
+            aria-label="从标题栏收起终端面板"
+          >
             <X size={14} />
           </button>
         </div>
