@@ -233,6 +233,19 @@ pub fn annotate_tool_result(result: &mut ToolResult, info: &SandboxLaunchInfo) {
 fn plain_shell(command: &str) -> (PathBuf, Vec<String>) {
     #[cfg(target_os = "windows")]
     {
+        if command_requires_posix_shell(command) {
+            if let Some(bash) = windows_bash_executable() {
+                return (
+                    bash,
+                    vec![
+                        "--noprofile".to_string(),
+                        "--norc".to_string(),
+                        "-c".to_string(),
+                        command.to_string(),
+                    ],
+                );
+            }
+        }
         return (
             PathBuf::from("cmd.exe"),
             vec![
@@ -250,6 +263,68 @@ fn plain_shell(command: &str) -> (PathBuf, Vec<String>) {
             vec!["-c".to_string(), command.to_string()],
         )
     }
+}
+
+#[cfg(target_os = "windows")]
+fn command_requires_posix_shell(command: &str) -> bool {
+    let trimmed = command.trim_start();
+    let explicit_shell = [
+        "sh -c ",
+        "sh -lc ",
+        "bash -c ",
+        "bash -lc ",
+        "'sh' -c ",
+        "'sh' -lc ",
+        "'bash' -c ",
+        "'bash' -lc ",
+        "\"sh\" -c ",
+        "\"sh\" -lc ",
+        "\"bash\" -c ",
+        "\"bash\" -lc ",
+    ]
+    .iter()
+    .any(|prefix| trimmed.starts_with(prefix));
+
+    explicit_shell
+        || command.contains("IFS= read ")
+        || command.contains("IFS=read ")
+        || command.contains("${")
+        || command.contains("$(")
+}
+
+#[cfg(target_os = "windows")]
+fn windows_bash_executable() -> Option<PathBuf> {
+    if let Some(explicit) = env::var_os("YODE_WINDOWS_BASH") {
+        let explicit = PathBuf::from(explicit);
+        if explicit.is_file() {
+            return Some(explicit);
+        }
+    }
+
+    if let Some(paths) = env::var_os("PATH") {
+        if let Some(found) = env::split_paths(&paths)
+            .map(|dir| dir.join("bash.exe"))
+            .find(|candidate| candidate.is_file())
+        {
+            return Some(found);
+        }
+    }
+
+    let mut candidates = Vec::new();
+    for variable in ["ProgramFiles", "ProgramFiles(x86)"] {
+        if let Some(root) = env::var_os(variable) {
+            let root = PathBuf::from(root);
+            candidates.push(root.join("Git").join("bin").join("bash.exe"));
+            candidates.push(root.join("Git").join("usr").join("bin").join("bash.exe"));
+        }
+    }
+    if let Some(local_app_data) = env::var_os("LOCALAPPDATA") {
+        let root = PathBuf::from(local_app_data).join("Programs").join("Git");
+        candidates.push(root.join("bin").join("bash.exe"));
+        candidates.push(root.join("usr").join("bin").join("bash.exe"));
+    }
+
+    candidates.into_iter().find(|candidate| candidate.is_file())
 }
 
 #[cfg(target_os = "linux")]
@@ -352,6 +427,16 @@ mod tests {
         assert_eq!(prepared.executable, PathBuf::from("cmd.exe"));
         #[cfg(not(target_os = "windows"))]
         assert_eq!(prepared.executable, PathBuf::from("sh"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_posix_detection_does_not_reclassify_normal_cmd_commands() {
+        assert!(command_requires_posix_shell("'sh' -c 'printf shell-ok'"));
+        assert!(command_requires_posix_shell(
+            "printf 'ready\\n'; IFS= read line; printf 'got:%s\\n' \"$line\""
+        ));
+        assert!(!command_requires_posix_shell("echo ok && dir"));
     }
 
     #[cfg(target_os = "linux")]
