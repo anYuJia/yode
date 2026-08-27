@@ -220,83 +220,42 @@ fn read_artifact_beneath(root: &Path, relative: &Path) -> Result<String> {
     let mut file = unsafe { std::fs::File::from_raw_fd(file_fd as RawFd) };
     let metadata = file.metadata()?;
     if !metadata.is_file() {
-        anyhow::bail!("diff artifact path is not a regular file");
+        anyhow::bail!("diff artifact is not a regular file");
     }
-    let mut content = String::new();
-    file.read_to_string(&mut content)?;
-    Ok(content)
+    if metadata.len() > 2 * 1024 * 1024 {
+        anyhow::bail!("diff artifact is too large to display");
+    }
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok(contents)
 }
 
-#[cfg(windows)]
+#[cfg(not(unix))]
 fn read_artifact_beneath(root: &Path, relative: &Path) -> Result<String> {
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::io::FromRawHandle;
-    use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
-    use windows_sys::Win32::Storage::FileSystem::{
-        CreateFileW, GetFinalPathNameByHandleW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_OPEN_REPARSE_POINT,
-        FILE_GENERIC_READ, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
-        VOLUME_NAME_DOS,
-    };
-
-    fn wide(value: &OsStr) -> Vec<u16> {
-        value.encode_wide().chain(std::iter::once(0)).collect()
-    }
-
-    fn final_path(handle: isize) -> Result<PathBuf> {
-        let mut buffer = vec![0u16; 32_768];
-        let len = unsafe {
-            GetFinalPathNameByHandleW(
-                handle,
-                buffer.as_mut_ptr(),
-                buffer.len() as u32,
-                VOLUME_NAME_DOS,
-            )
+    use std::io::Read;
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let name = match component {
+            Component::Normal(name) => name,
+            _ => anyhow::bail!("diff artifact path contains unsafe components"),
         };
-        if len == 0 || len as usize >= buffer.len() {
-            anyhow::bail!("无法解析 diff 工件最终路径");
+        current.push(name);
+        if std::fs::symlink_metadata(&current)?
+            .file_type()
+            .is_symlink()
+        {
+            anyhow::bail!("diff artifact path contains a symlink");
         }
-        let path = String::from_utf16_lossy(&buffer[..len as usize]);
-        Ok(PathBuf::from(path.trim_start_matches(r"\\?\")))
     }
-
-    let root_canonical = std::fs::canonicalize(root)?;
-    let target = root.join(relative);
-    let target_wide = wide(target.as_os_str());
-    let handle = unsafe {
-        CreateFileW(
-            target_wide.as_ptr(),
-            FILE_GENERIC_READ,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            std::ptr::null(),
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
-            0,
-        )
-    };
-    if handle == INVALID_HANDLE_VALUE {
-        return Err(std::io::Error::last_os_error().into());
-    }
-
-    let final_path = match final_path(handle) {
-        Ok(path) => path,
-        Err(err) => {
-            unsafe { CloseHandle(handle) };
-            return Err(err);
-        }
-    };
-    if !final_path.starts_with(&root_canonical) {
-        unsafe { CloseHandle(handle) };
-        anyhow::bail!("diff artifact path resolves outside .yode/edit-diffs");
-    }
-
-    let mut file = unsafe { std::fs::File::from_raw_handle(handle as *mut std::ffi::c_void) };
+    let mut file = std::fs::File::open(&current)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
-        anyhow::bail!("diff artifact path is not a regular file");
+        anyhow::bail!("diff artifact is not a regular file");
     }
-    use std::io::Read;
-    let mut content = String::new();
-    file.read_to_string(&mut content)?;
-    Ok(content)
+    if metadata.len() > 2 * 1024 * 1024 {
+        anyhow::bail!("diff artifact is too large to display");
+    }
+    let mut contents = String::new();
+    file.read_to_string(&mut contents)?;
+    Ok(contents)
 }
