@@ -11,11 +11,18 @@ impl BashTool {
         command: &str,
         working_dir: &Path,
         ctx: &ToolContext,
+        dangerously_disable_sandbox: bool,
     ) -> Result<ToolResult> {
-        crate::builtin::shell_runtime::execute_background_shell(
+        let prepared = crate::sandbox::prepare_shell(
+            command,
+            working_dir,
+            dangerously_disable_sandbox,
+        )?;
+        let sandbox_info = prepared.info.clone();
+        let mut result = crate::builtin::shell_runtime::execute_background_shell(
             crate::builtin::shell_runtime::BackgroundShellSpec {
-                executable: Path::new("sh"),
-                args: vec!["-c".to_string(), command.to_string()],
+                executable: &prepared.executable,
+                args: prepared.args,
                 command_display: command,
                 task_kind: "bash",
                 description_prefix: "Background bash",
@@ -24,6 +31,8 @@ impl BashTool {
             working_dir,
             ctx,
         )
-        .await
+        .await?;
+        crate::sandbox::annotate_tool_result(&mut result, &sandbox_info);
+        Ok(result)
     }
 }

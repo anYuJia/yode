@@ -35,37 +35,16 @@ const DESTRUCTIVE_COMMAND_PATTERNS: &[&str] = &[
 ];
 
 const INTERACTIVE_PROMPT_PATTERNS: &[&str] = &[
-    "password:",
-    "Password:",
-    "passphrase",
-    "[y/n]",
-    "[Y/n]",
-    "[yes/no]",
-    "Are you sure",
-    "are you sure",
-    "Continue?",
-    "continue?",
-    "Press any key",
-    "press any key",
-    "Enter ",
-    "enter ",
-    "Username:",
-    "username:",
-    "(yes/no)",
-    "(Y/N)",
-    "Do you want to",
-    "do you want to",
-    "> ",
-    "$ ",
-    "# ",
+    "password:", "Password:", "passphrase", "[y/n]", "[Y/n]", "[yes/no]",
+    "Are you sure", "are you sure", "Continue?", "continue?", "Press any key",
+    "press any key", "Enter ", "enter ", "Username:", "username:", "(yes/no)",
+    "(Y/N)", "Do you want to", "do you want to", "> ", "$ ", "# ",
 ];
 
 static DESTRUCTIVE_COMMAND_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     DESTRUCTIVE_COMMAND_PATTERNS
         .iter()
-        .map(|pattern| {
-            Regex::new(pattern).expect("destructive bash command pattern should compile")
-        })
+        .map(|pattern| Regex::new(pattern).expect("destructive bash command pattern should compile"))
         .collect()
 });
 
@@ -73,13 +52,9 @@ pub struct BashTool;
 
 #[async_trait]
 impl Tool for BashTool {
-    fn name(&self) -> &str {
-        "bash"
-    }
+    fn name(&self) -> &str { "bash" }
 
-    fn user_facing_name(&self) -> &str {
-        "Bash"
-    }
+    fn user_facing_name(&self) -> &str { "Bash" }
 
     fn activity_description(&self, params: &Value) -> String {
         let command = params.get("command").and_then(|v| v.as_str()).unwrap_or("");
@@ -89,86 +64,45 @@ impl Tool for BashTool {
     fn description(&self) -> &str {
         r#"Executes a given bash command and returns its output.
 
-The working directory persists between commands, but shell state does not. The shell environment is initialized from the user's profile (bash or zsh).
+The working directory persists between commands, but shell state does not. Commands are executed through Yode's OS sandbox by default when a supported backend is available.
 
-IMPORTANT: Avoid using this tool to run `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool as this will provide a much better experience for the user:
-- File search: Use `glob` (NOT find or ls)
-- Content search: Use `grep` (NOT grep or rg)
-- Read files: Use `read_file` (NOT cat/head/tail)
-- Edit files: Use `edit_file` (NOT sed/awk)
-- Write files: Use `write_file` (NOT echo >/cat <<EOF)
-- Communication: Output text directly (NOT echo/printf)
-
-While the bash tool can do similar things, it's better to use the built-in tools as they provide a better user experience and make it easier to review tool calls and give permission.
+IMPORTANT: Avoid using this tool to run `find`, `grep`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool:
+- File search: Use `glob`
+- Content search: Use `grep`
+- Read files: Use `read_file`
+- Edit files: Use `edit_file`
+- Write files: Use `write_file`
+- Communication: Output text directly
 
 # Instructions
-- If your command will create new directories or files, first use this tool to run `ls` to verify the parent directory exists and is the correct location.
-- Always quote file paths that contain spaces with double quotes in your command (e.g., cd "path with spaces/file.txt")
-- Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the User explicitly requests it.
-- You may specify an optional timeout in milliseconds (up to 600000ms / 10 minutes). By default, your command will timeout after 120000ms (2 minutes).
-- You can use the `run_in_background` parameter to run the command in the background. Only use this if you don't need the result immediately and are OK being notified when the command completes later. You do not need to use '&' at the end of the command when using this parameter.
-- When issuing multiple commands:
-  - If the commands are independent and can run in parallel, make multiple bash tool calls in a single message. Example: if you need to run "git status" and "git diff", send a single message with two bash tool calls in parallel.
-  - If the commands depend on each other and must run sequentially, use a single bash call with '&&' to chain them together.
-  - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail.
-  - DO NOT use newlines to separate commands (newlines are ok in quoted strings).
-
-# For git commands:
-- Prefer to create a new commit rather than amending an existing commit.
-- Before running destructive operations (e.g., git reset --hard, git push --force, git checkout --), consider whether there is a safer alternative that achieves the same goal. Only use destructive operations when they are truly the best approach.
-- Never skip hooks (--no-verify) or bypass signing (--no-gpg-sign, -c commit.gpgsign=false) unless the user has explicitly asked for it. If a hook fails, investigate and fix the underlying issue.
-- In order to ensure good formatting, ALWAYS pass the commit message via a HEREDOC, e.g.:
-  git commit -m "$(cat <<'EOF'
-  Commit message here.
-  EOF
-  )"
-
-# Avoid unnecessary `sleep` commands:
-- Do not sleep between commands that can run immediately — just run them.
-- If your command is long running and you would like to be notified when it finishes — use `run_in_background`. No sleep needed.
-- Do not retry failing commands in a sleep loop — diagnose the root cause.
-- If waiting for a background task you started with `run_in_background`, you will be notified when it completes — do not poll.
-- If you must poll an external process, use a check command (e.g. `gh run view`) rather than sleeping first.
-- If you must sleep, keep the duration short (1-5 seconds) to avoid blocking the user."#
+- If your command will create new directories or files, first use `ls` to verify the parent directory exists and is correct.
+- Always quote file paths that contain spaces.
+- Prefer absolute paths and avoid changing the working directory unless needed.
+- Timeout defaults to 120000ms and may be raised to 600000ms.
+- Use `run_in_background` only when the result is not immediately required.
+- Independent commands should be separate parallel tool calls; dependent commands should use `&&`.
+- Prefer dedicated Git tools and reversible operations. Never bypass hooks unless explicitly requested.
+- The sandbox is controlled by `YODE_SANDBOX_MODE=auto|strict|off` and `YODE_SANDBOX_NETWORK=inherit|deny`. `strict` fails closed if no supported OS backend exists.
+- `dangerously_disable_sandbox` must only be used after sandbox restrictions are proven to block a legitimate command; Yode's destructive-command guard still remains active.
+"#
     }
 
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "The bash command to execute"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "A short (3-5 word) description of the task being performed by the command"
-                },
-                "run_in_background": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Whether to run the command in the background."
-                },
-                "timeout_ms": {
-                    "type": "integer",
-                    "description": timeout_ms_description()
-                },
-                "dangerously_disable_sandbox": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Whether to disable the command sandbox. Only use this if the command fails due to sandbox restrictions."
-                }
+                "command": { "type": "string", "description": "The bash command to execute" },
+                "description": { "type": "string", "description": "A short (3-5 word) description of the task being performed" },
+                "run_in_background": { "type": "boolean", "default": false, "description": "Whether to run the command in the background." },
+                "timeout_ms": { "type": "integer", "description": timeout_ms_description() },
+                "dangerously_disable_sandbox": { "type": "boolean", "default": false, "description": "Disable the OS sandbox for this command after a proven sandbox incompatibility. The destructive-command guard remains active." }
             },
             "required": ["command"]
         })
     }
 
     fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities {
-            requires_confirmation: true,
-            supports_auto_execution: false,
-            read_only: false,
-        }
+        ToolCapabilities { requires_confirmation: true, supports_auto_execution: false, read_only: false }
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
@@ -176,23 +110,17 @@ While the bash tool can do similar things, it's better to use the built-in tools
             .get("command")
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing required parameter: command"))?;
-
         let working_dir = ctx.working_dir.as_deref().unwrap_or_else(|| Path::new("."));
         let dangerously_disable_sandbox = params
             .get("dangerously_disable_sandbox")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         if dangerously_disable_sandbox {
-            tracing::warn!(
-                "bash dangerously_disable_sandbox requested, but local command guard remains active"
-            );
+            tracing::warn!("bash OS sandbox explicitly disabled; destructive command guard remains active");
         }
         if let Some(reason) = destructive_command_reason(command) {
             return Ok(ToolResult::error_typed(
-                format!(
-                    "Refusing to run potentially destructive bash command: {}\nCommand: {}",
-                    reason, command
-                ),
+                format!("Refusing to run potentially destructive bash command: {}\nCommand: {}", reason, command),
                 ToolErrorType::Permission,
                 false,
                 Some("Use a narrower, reversible command or ask the user for an explicit manual recovery action.".to_string()),
@@ -200,33 +128,28 @@ While the bash tool can do similar things, it's better to use the built-in tools
         }
 
         let timeout_secs = command_timeout_secs(&params);
-
         let run_in_background = params
             .get("run_in_background")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
 
-        tracing::debug!(
-            command = %command,
-            timeout_secs = timeout_secs,
-            background = run_in_background,
-            "Executing bash command"
-        );
+        tracing::debug!(command = %command, timeout_secs, background = run_in_background, "Executing bash command");
 
         if run_in_background {
-            return self.execute_background(command, working_dir, ctx).await;
+            return self
+                .execute_background(command, working_dir, ctx, dangerously_disable_sandbox)
+                .await;
         }
 
         let before_changes = GitChangeSnapshot::capture(working_dir).await;
         let timeout_duration = Duration::from_secs(timeout_secs);
-
-        let mut cmd = Command::new("sh");
-        cmd.arg("-c")
-            .arg(command)
+        let prepared = crate::sandbox::prepare_shell(command, working_dir, dangerously_disable_sandbox)?;
+        let sandbox_info = prepared.info.clone();
+        let mut cmd = Command::new(&prepared.executable);
+        cmd.args(&prepared.args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .current_dir(working_dir);
-        // 独立进程组：超时/取消时能连同全部后代进程一起终止。
         crate::process_env::spawn_in_new_process_group(&mut cmd);
         let mut child = cmd.spawn()?;
 
@@ -234,7 +157,7 @@ While the bash tool can do similar things, it's better to use the built-in tools
             .run_with_stall_watchdog(&mut child, timeout_duration, ctx.progress_tx.clone())
             .await;
 
-        match stall_check {
+        let mut result = match stall_check {
             watchdog::StallResult::Completed(output) => {
                 let modified_files = if output.status.success() {
                     if let Some(before) = before_changes.as_ref() {
@@ -245,52 +168,39 @@ While the bash tool can do similar things, it's better to use the built-in tools
                 } else {
                     Vec::new()
                 };
-                self.format_output(command, working_dir, output, modified_files)
-                    .await
+                self.format_output(command, working_dir, output, modified_files).await?
             }
             watchdog::StallResult::Stalled(partial_output) => {
                 kill_child_after_bash_interruption(&mut child, command, "stalled").await;
-                Ok(ToolResult::error_typed(
-                    format!(
-                        "Command appears to be stalled (waiting for interactive input).\n\
-                         Last output:\n{}\n\n\
-                         The command was killed. If it requires interactive input, \
-                         try using 'yes |' prefix or pass flags like '-y' or '--yes'.",
-                        partial_output
-                    ),
+                ToolResult::error_typed(
+                    format!("Command appears to be stalled (waiting for interactive input).\nLast output:\n{}\n\nThe command was killed. Add non-interactive flags or pipe explicit input.", partial_output),
                     ToolErrorType::Timeout,
                     true,
                     Some("Add non-interactive flags or pipe input to avoid stalling.".to_string()),
-                ))
+                )
             }
             watchdog::StallResult::Timeout => {
                 kill_child_after_bash_interruption(&mut child, command, "timeout").await;
-                Ok(ToolResult::error_typed(
+                ToolResult::error_typed(
                     format!("Command timed out after {} seconds", timeout_secs),
                     ToolErrorType::Timeout,
                     true,
                     Some("Increase timeout or reduce scope.".to_string()),
-                ))
+                )
             }
             watchdog::StallResult::Error(e) => {
                 kill_child_after_bash_interruption(&mut child, command, "watchdog_error").await;
-                Ok(ToolResult::error(format!(
-                    "Failed to execute command: {}",
-                    e
-                )))
+                ToolResult::error(format!("Failed to execute command: {}", e))
             }
-        }
+        };
+        crate::sandbox::annotate_tool_result(&mut result, &sandbox_info);
+        Ok(result)
     }
 }
 
 async fn kill_child_after_bash_interruption(child: &mut Child, command: &str, reason: &str) {
     if let Err(err) = crate::process_env::kill_process_group(child).await {
-        tracing::warn!(
-            command = %command,
-            reason,
-            error = %err,
-            "Failed to kill interrupted bash command"
-        );
+        tracing::warn!(command = %command, reason, error = %err, "Failed to kill interrupted bash command");
     }
 }
 
