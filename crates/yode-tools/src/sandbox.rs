@@ -1,5 +1,9 @@
 use std::env;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "linux")]
+use std::process::Command as StdCommand;
+#[cfg(target_os = "linux")]
+use std::sync::OnceLock;
 
 use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
@@ -113,49 +117,52 @@ pub fn prepare_shell(
     }
 
     #[cfg(target_os = "linux")]
-    if let Some(bwrap) = find_executable("bwrap") {
-        let cwd = working_dir
-            .canonicalize()
-            .unwrap_or_else(|_| working_dir.to_path_buf());
-        let mut args = vec![
-            "--die-with-parent".to_string(),
-            "--new-session".to_string(),
-            "--ro-bind".to_string(),
-            "/".to_string(),
-            "/".to_string(),
-            "--bind".to_string(),
-            cwd.display().to_string(),
-            cwd.display().to_string(),
-            "--chdir".to_string(),
-            cwd.display().to_string(),
-            "--proc".to_string(),
-            "/proc".to_string(),
-            "--dev".to_string(),
-            "/dev".to_string(),
-            "--tmpfs".to_string(),
-            "/tmp".to_string(),
-        ];
-        if network == SandboxNetworkPolicy::Deny {
-            args.push("--unshare-net".to_string());
+    let linux_bwrap_error = match usable_bwrap() {
+        Ok(bwrap) => {
+            let cwd = working_dir
+                .canonicalize()
+                .unwrap_or_else(|_| working_dir.to_path_buf());
+            let mut args = vec![
+                "--die-with-parent".to_string(),
+                "--new-session".to_string(),
+                "--ro-bind".to_string(),
+                "/".to_string(),
+                "/".to_string(),
+                "--bind".to_string(),
+                cwd.display().to_string(),
+                cwd.display().to_string(),
+                "--chdir".to_string(),
+                cwd.display().to_string(),
+                "--proc".to_string(),
+                "/proc".to_string(),
+                "--dev".to_string(),
+                "/dev".to_string(),
+                "--tmpfs".to_string(),
+                "/tmp".to_string(),
+            ];
+            if network == SandboxNetworkPolicy::Deny {
+                args.push("--unshare-net".to_string());
+            }
+            args.extend([
+                "--".to_string(),
+                "sh".to_string(),
+                "-c".to_string(),
+                command.to_string(),
+            ]);
+            return Ok(PreparedShell {
+                executable: bwrap,
+                args,
+                info: SandboxLaunchInfo {
+                    mode,
+                    backend: SandboxBackend::Bubblewrap,
+                    sandboxed: true,
+                    network,
+                    degraded_reason: None,
+                },
+            });
         }
-        args.extend([
-            "--".to_string(),
-            "sh".to_string(),
-            "-c".to_string(),
-            command.to_string(),
-        ]);
-        return Ok(PreparedShell {
-            executable: bwrap,
-            args,
-            info: SandboxLaunchInfo {
-                mode,
-                backend: SandboxBackend::Bubblewrap,
-                sandboxed: true,
-                network,
-                degraded_reason: None,
-            },
-        });
-    }
+        Err(reason) => reason,
+    };
 
     #[cfg(target_os = "macos")]
     if let Some(sandbox_exec) = find_executable("sandbox-exec") {
@@ -188,6 +195,9 @@ pub fn prepare_shell(
         });
     }
 
+    #[cfg(target_os = "linux")]
+    let reason = linux_bwrap_error;
+    #[cfg(not(target_os = "linux"))]
     let reason = platform_unavailable_reason();
     if mode == SandboxMode::Strict {
         bail!("OS sandbox required but unavailable: {reason}");
@@ -242,6 +252,61 @@ fn plain_shell(command: &str) -> (PathBuf, Vec<String>) {
     }
 }
 
+#[cfg(target_os = "linux")]
+static BWRAP_PROBE: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+
+#[cfg(target_os = "linux")]
+fn usable_bwrap() -> Result<PathBuf, String> {
+    BWRAP_PROBE
+        .get_or_init(|| resolve_bwrap_candidate(find_executable("bwrap"), probe_bwrap))
+        .clone()
+}
+
+#[cfg(target_os = "linux")]
+fn resolve_bwrap_candidate<F>(candidate: Option<PathBuf>, probe: F) -> Result<PathBuf, String>
+where
+    F: FnOnce(&Path) -> Result<(), String>,
+{
+    let bwrap = candidate
+        .ok_or_else(|| "bubblewrap (bwrap) is not installed or not on PATH".to_string())?;
+    probe(&bwrap)?;
+    Ok(bwrap)
+}
+
+#[cfg(target_os = "linux")]
+fn probe_bwrap(bwrap: &Path) -> Result<(), String> {
+    let output = StdCommand::new(bwrap)
+        .args([
+            "--die-with-parent",
+            "--new-session",
+            "--ro-bind",
+            "/",
+            "/",
+            "--proc",
+            "/proc",
+            "--dev",
+            "/dev",
+            "--",
+            "sh",
+            "-c",
+            "true",
+        ])
+        .output()
+        .map_err(|error| format!("bubblewrap probe could not start: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let detail = stderr
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(|line| line.chars().take(240).collect::<String>())
+        .unwrap_or_else(|| format!("probe exited with {}", output.status));
+    Err(format!("bubblewrap is installed but unusable: {detail}"))
+}
+
 fn platform_unavailable_reason() -> String {
     #[cfg(target_os = "linux")]
     {
@@ -289,6 +354,18 @@ mod tests {
         assert_eq!(prepared.executable, PathBuf::from("cmd.exe"));
         #[cfg(not(target_os = "windows"))]
         assert_eq!(prepared.executable, PathBuf::from("sh"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn unusable_bwrap_candidate_is_rejected_before_command_execution() {
+        let candidate = PathBuf::from("/usr/bin/bwrap");
+        let error = resolve_bwrap_candidate(Some(candidate), |_| {
+            Err("bubblewrap is installed but unusable: uid map denied".to_string())
+        })
+        .unwrap_err();
+        assert!(error.contains("unusable"));
+        assert!(error.contains("uid map denied"));
     }
 
     #[test]
