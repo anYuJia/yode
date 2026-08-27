@@ -312,6 +312,16 @@ pub fn builtin_capabilities(provider: &str, model: &str) -> ModelCapabilities {
         } else {
             ModelCostClass::Standard
         };
+    } else if model.contains("gpt-3.5") {
+        // Preserve the legacy context budget used before context management
+        // migrated to the shared capability registry. Falling through to the
+        // 128K default silently disables compaction for GPT-3.5 sessions.
+        caps.context_window = 16_385;
+        caps.max_output_tokens = 4_096;
+        caps.supports_tools = true;
+        caps.quality_score = 58;
+        caps.speed_score = 82;
+        caps.cost_class = ModelCostClass::Economy;
     } else if model.contains("gpt-4o") || model.contains("gpt-4.1") {
         caps.context_window = 128_000;
         caps.max_output_tokens = 8_192;
@@ -386,6 +396,16 @@ mod tests {
             provider: provider.to_string(),
             model: model.to_string(),
             enabled: true,
+        }
+    }
+
+    #[test]
+    fn legacy_gpt35_context_budget_is_preserved() {
+        let registry = ModelCapabilityRegistry::new();
+        for model in ["gpt-3.5", "gpt-3.5-turbo"] {
+            let caps = registry.resolve("openai", model);
+            assert_eq!(caps.context_window, 16_385);
+            assert_eq!(caps.max_output_tokens, 4_096);
         }
     }
 
