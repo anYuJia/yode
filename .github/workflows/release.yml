@@ -13,8 +13,6 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # RELEASE-001：发布前在同一 tag commit 上重跑完整质量门禁。
-  # 该 job 失败时不应继续 publish（通过 publish 的 needs 依赖强制）。
   quality-gate:
     name: Release Quality Gate
     runs-on: ubuntu-latest
@@ -26,8 +24,9 @@ jobs:
           fetch-depth: 0
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # pinned action commit
         with:
+          toolchain: stable
           components: clippy, rustfmt
 
       - name: Cache cargo artifacts
@@ -89,8 +88,9 @@ jobs:
             patchelf
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # pinned action commit
         with:
+          toolchain: stable
           targets: ${{ matrix.target }}
 
       - name: Setup pnpm
@@ -108,8 +108,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: apps/yode-desktop
-        run: |
-          pnpm install --frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: Build and publish desktop app
         uses: tauri-apps/tauri-action@fce9c6108b31ea247710505d3aaaa893ee6768d4 # v0
