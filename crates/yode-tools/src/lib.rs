@@ -6,6 +6,7 @@ pub mod process_env;
 pub mod registry;
 pub mod runtime_tasks;
 pub mod sandbox;
+pub mod semantic_router;
 pub mod session_artifact;
 pub mod state;
 pub mod tool;
@@ -21,6 +22,7 @@ pub use runtime_tasks::{
     RuntimeTaskStore,
 };
 pub use sandbox::{SandboxBackend, SandboxLaunchInfo, SandboxMode, SandboxNetworkPolicy};
+pub use semantic_router::{SemanticToolMatch, SemanticToolRouter};
 pub use tool::{
     McpResource, McpResourceProvider, SubAgentRunner, Tool, ToolContext, ToolDefinition,
     ToolResult, UserQuery, WorktreeState,

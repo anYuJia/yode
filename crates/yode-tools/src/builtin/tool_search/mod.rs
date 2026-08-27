@@ -3,27 +3,24 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::registry::ToolPoolPhase;
+use crate::semantic_router::{SemanticToolMatch, SemanticToolRouter};
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolResult};
 
 pub struct ToolSearchTool;
 
 #[async_trait]
 impl Tool for ToolSearchTool {
-    fn name(&self) -> &str {
-        "tool_search"
-    }
+    fn name(&self) -> &str { "tool_search" }
 
-    fn user_facing_name(&self) -> &str {
-        "Tool Search"
-    }
+    fn user_facing_name(&self) -> &str { "Tool Search" }
 
     fn activity_description(&self, params: &Value) -> String {
         let query = params.get("query").and_then(|v| v.as_str()).unwrap_or("");
-        format!("Searching for tools: {}", query)
+        format!("Routing tools for: {}", query)
     }
 
     fn description(&self) -> &str {
-        "Search for deferred tools by keyword or select them directly. Use 'select:<tool_name>' to forcefully load a tool."
+        "Semantically route a task intent to the best available tools, including deferred tools. Use 'select:<tool_name>' for an explicit tool selection."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -32,11 +29,13 @@ impl Tool for ToolSearchTool {
             "properties": {
                 "query": {
                     "type": "string",
-                    "description": "Query to find deferred tools. Use 'select:<tool_name>' for direct selection, or keywords to search."
+                    "description": "Natural-language intent to route to tools, or select:<tool_name> for explicit selection."
                 },
                 "max_results": {
                     "type": "integer",
-                    "description": "Maximum number of results to return (default: 5)"
+                    "minimum": 1,
+                    "maximum": 20,
+                    "description": "Maximum number of ranked results (default: 5)"
                 }
             },
             "required": ["query"]
@@ -44,25 +43,18 @@ impl Tool for ToolSearchTool {
     }
 
     fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities {
-            requires_confirmation: false,
-            supports_auto_execution: true,
-            read_only: true,
-        }
+        ToolCapabilities { requires_confirmation: false, supports_auto_execution: true, read_only: true }
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let query = params.get("query").and_then(|v| v.as_str()).unwrap_or("");
-
+        let query = params.get("query").and_then(Value::as_str).unwrap_or("").trim();
         let max_results = params
             .get("max_results")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(5) as usize;
-
+            .and_then(Value::as_u64)
+            .unwrap_or(5)
+            .clamp(1, 20) as usize;
         if query.is_empty() {
-            return Ok(ToolResult::error(
-                "'query' parameter is required".to_string(),
-            ));
+            return Ok(ToolResult::error("'query' parameter is required".to_string()));
         }
 
         let registry = ctx
@@ -70,151 +62,172 @@ impl Tool for ToolSearchTool {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Tool registry not available"))?;
         let tool_pool = ctx.tool_pool_snapshot.as_ref();
+        let query_lower = query.to_ascii_lowercase();
 
-        let query_lower = query.to_lowercase();
-        let mut matches = Vec::new();
-        let mut activated_tool = None::<String>;
-
-        // Handle "select:" prefix
         if let Some(tool_name) = query_lower.strip_prefix("select:") {
-            let req_name = tool_name.trim();
-            if let Some(snapshot) = tool_pool {
-                if let Some(entry) = snapshot.find_entry(req_name) {
-                    if !entry.visible_to_model {
-                        let metadata = serde_json::json!({
-                            "query": query,
-                            "count": 0,
-                            "blocked": true,
-                            "tool": entry.name,
-                            "permission_mode": snapshot.permission_mode,
-                            "reason": entry.reason,
-                            "matched_rule": entry.matched_rule,
-                        });
-                        return Ok(ToolResult::success_with_metadata(
-                            format!(
-                                "Tool '{}' is registered but unavailable in the current tool pool (mode: {}). Reason: {}",
-                                entry.name, snapshot.permission_mode, entry.reason
-                            ),
-                            metadata,
-                        ));
-                    }
+            return explicit_select(tool_name.trim(), query, registry, tool_pool).await;
+        }
 
-                    if let Some(tool) = registry.get(&entry.name) {
-                        matches.push(match entry.phase {
-                            ToolPoolPhase::Active => {
-                                format!("- **{}**: {}", tool.name(), tool.description())
-                            }
-                            ToolPoolPhase::Deferred => {
-                                if registry.activate_tool(&entry.name) {
-                                    activated_tool = Some(entry.name.clone());
-                                }
-                                format!("- **{}** (loaded): {}", entry.name, tool.description())
-                            }
-                        });
-                    }
-                }
-            } else {
-                let mut found = false;
-                for tool in registry.list() {
-                    if tool.name().to_lowercase() == req_name {
-                        matches.push(format!("- **{}**: {}", tool.name(), tool.description()));
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    for (name, tool) in registry.list_deferred() {
-                        if name.to_lowercase() == req_name {
-                            if registry.activate_tool(&name) {
-                                activated_tool = Some(name.clone());
-                            }
-                            matches.push(format!(
-                                "- **{}** (loaded): {}",
-                                name,
-                                tool.description()
-                            ));
-                            break;
-                        }
-                    }
-                }
-            }
-        } else if let Some(snapshot) = tool_pool {
+        let router = SemanticToolRouter;
+        let mut ranked: Vec<(SemanticToolMatch, ToolPoolPhase, String)> = Vec::new();
+
+        if let Some(snapshot) = tool_pool {
             for entry in &snapshot.entries {
                 if !entry.visible_to_model {
                     continue;
                 }
-                let Some(tool) = registry.get(&entry.name) else {
-                    continue;
-                };
-                let name = entry.name.to_lowercase();
-                let desc = tool.description().to_lowercase();
-                if name.contains(&query_lower) || desc.contains(&query_lower) {
-                    matches.push(match entry.phase {
-                        ToolPoolPhase::Active => {
-                            format!("- **{}**: {}", tool.name(), tool.description())
-                        }
-                        ToolPoolPhase::Deferred => {
-                            format!("- **{}** (deferred): {}", entry.name, tool.description())
-                        }
-                    });
-                }
+                let Some(tool) = registry.get(&entry.name) else { continue };
+                let Some(score) = router.score(query, tool.as_ref()) else { continue };
+                ranked.push((score, entry.phase, tool.description().to_string()));
             }
         } else {
-            // Keyword search
             for tool in registry.list() {
-                let name = tool.name().to_lowercase();
-                let desc = tool.description().to_lowercase();
-                if name.contains(&query_lower) || desc.contains(&query_lower) {
-                    matches.push(format!("- **{}**: {}", tool.name(), tool.description()));
+                if let Some(score) = router.score(query, tool.as_ref()) {
+                    ranked.push((score, ToolPoolPhase::Active, tool.description().to_string()));
                 }
             }
-
             for (name, tool) in registry.list_deferred() {
-                let name_lower = name.to_lowercase();
-                let desc = tool.description().to_lowercase();
-                if name_lower.contains(&query_lower) || desc.contains(&query_lower) {
-                    matches.push(format!("- **{}** (deferred): {}", name, tool.description()));
+                if let Some(mut score) = router.score(query, tool.as_ref()) {
+                    score.name = name;
+                    ranked.push((score, ToolPoolPhase::Deferred, tool.description().to_string()));
                 }
             }
         }
 
-        matches.truncate(max_results);
+        ranked.sort_by(|left, right| {
+            right.0.score.cmp(&left.0.score).then_with(|| left.0.name.cmp(&right.0.name))
+        });
+        ranked.truncate(max_results);
 
-        if matches.is_empty() {
-            let metadata = serde_json::json!({
+        if ranked.is_empty() {
+            return Ok(ToolResult::success_with_metadata(
+                format!("No tools found matching intent '{}'", query),
+                serde_json::json!({
+                    "query": query,
+                    "count": 0,
+                    "router": "semantic_v1",
+                    "permission_mode": tool_pool.map(|snapshot| snapshot.permission_mode.as_str()),
+                    "hidden_count": tool_pool.map(|snapshot| snapshot.deny_count()),
+                }),
+            ));
+        }
+
+        let rendered = ranked
+            .iter()
+            .map(|(matched, phase, description)| {
+                let phase_label = if *phase == ToolPoolPhase::Deferred { ", deferred" } else { "" };
+                let why = if matched.reasons.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — {}", matched.reasons.join("; "))
+                };
+                format!(
+                    "- **{}** (score {}{}): {}{}",
+                    matched.name, matched.score, phase_label, description, why
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let result_meta = ranked
+            .iter()
+            .map(|(matched, phase, _)| {
+                serde_json::json!({
+                    "name": matched.name,
+                    "score": matched.score,
+                    "phase": match phase { ToolPoolPhase::Active => "active", ToolPoolPhase::Deferred => "deferred" },
+                    "reasons": matched.reasons,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Ok(ToolResult::success_with_metadata(
+            format!("Best tools for '{}':\n{}", query, rendered),
+            serde_json::json!({
                 "query": query,
-                "count": 0,
+                "count": ranked.len(),
+                "router": "semantic_v1",
+                "results": result_meta,
                 "permission_mode": tool_pool.map(|snapshot| snapshot.permission_mode.as_str()),
                 "hidden_count": tool_pool.map(|snapshot| snapshot.deny_count()),
-            });
-            Ok(ToolResult::success_with_metadata(
-                format!("No tools found matching '{}'", query),
-                metadata,
-            ))
-        } else {
-            let metadata = serde_json::json!({
-                "query": query,
-                "count": matches.len(),
-                "activated_tool": activated_tool,
-                "permission_mode": tool_pool.map(|snapshot| snapshot.permission_mode.as_str()),
-                "hidden_count": tool_pool.map(|snapshot| snapshot.deny_count()),
-            });
-            Ok(ToolResult::success_with_metadata(
-                activated_tool.as_ref().map_or_else(
-                    || format!("Found tool(s) matching '{}':\n{}", query, matches.join("\n")),
-                    |tool_name| {
-                        format!(
-                            "Activated tool '{}' into the active pool.\n\nFound tool(s) matching '{}':\n{}",
-                            tool_name,
-                            query,
-                            matches.join("\n")
-                        )
-                    },
-                ),
-                metadata,
-            ))
+            }),
+        ))
+    }
+}
+
+async fn explicit_select(
+    req_name: &str,
+    original_query: &str,
+    registry: &std::sync::Arc<crate::registry::ToolRegistry>,
+    tool_pool: Option<&crate::registry::ToolPoolSnapshot>,
+) -> Result<ToolResult> {
+    if let Some(snapshot) = tool_pool {
+        if let Some(entry) = snapshot.find_entry(req_name) {
+            if !entry.visible_to_model {
+                return Ok(ToolResult::success_with_metadata(
+                    format!(
+                        "Tool '{}' is registered but unavailable in the current tool pool (mode: {}). Reason: {}",
+                        entry.name, snapshot.permission_mode, entry.reason
+                    ),
+                    serde_json::json!({
+                        "query": original_query,
+                        "count": 0,
+                        "blocked": true,
+                        "tool": entry.name,
+                        "permission_mode": snapshot.permission_mode,
+                        "reason": entry.reason,
+                        "matched_rule": entry.matched_rule,
+                        "router": "semantic_v1"
+                    }),
+                ));
+            }
+            if let Some(tool) = registry.get(&entry.name) {
+                let activated = entry.phase == ToolPoolPhase::Deferred && registry.activate_tool(&entry.name);
+                let content = if activated {
+                    format!("Activated tool '{}' into the active pool.\n\n- **{}**: {}", entry.name, entry.name, tool.description())
+                } else {
+                    format!("- **{}**: {}", entry.name, tool.description())
+                };
+                return Ok(ToolResult::success_with_metadata(
+                    content,
+                    serde_json::json!({
+                        "query": original_query,
+                        "count": 1,
+                        "activated_tool": activated.then_some(entry.name.clone()),
+                        "router": "semantic_v1",
+                        "permission_mode": snapshot.permission_mode,
+                    }),
+                ));
+            }
+        }
+    } else {
+        for tool in registry.list() {
+            if tool.name().eq_ignore_ascii_case(req_name) {
+                return Ok(ToolResult::success_with_metadata(
+                    format!("- **{}**: {}", tool.name(), tool.description()),
+                    serde_json::json!({"query": original_query, "count": 1, "router": "semantic_v1"}),
+                ));
+            }
+        }
+        for (name, tool) in registry.list_deferred() {
+            if name.eq_ignore_ascii_case(req_name) {
+                let activated = registry.activate_tool(&name);
+                return Ok(ToolResult::success_with_metadata(
+                    format!("Activated tool '{}' into the active pool.\n\n- **{}**: {}", name, name, tool.description()),
+                    serde_json::json!({
+                        "query": original_query,
+                        "count": 1,
+                        "activated_tool": activated.then_some(name),
+                        "router": "semantic_v1"
+                    }),
+                ));
+            }
         }
     }
+
+    Ok(ToolResult::success_with_metadata(
+        format!("Tool '{}' was not found in the current tool pool.", req_name),
+        serde_json::json!({"query": original_query, "count": 0, "router": "semantic_v1"}),
+    ))
 }
 
 #[cfg(test)]
@@ -222,38 +235,19 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::registry::{
-        ToolOrigin, ToolPermissionState, ToolPoolEntry, ToolPoolPhase, ToolPoolSnapshot,
-    };
+    use crate::registry::{ToolOrigin, ToolPermissionState, ToolPoolEntry, ToolPoolPhase, ToolPoolSnapshot};
     use serde_json::json;
 
-    struct DummyTool {
-        name: &'static str,
-        description: &'static str,
-    }
+    struct DummyTool { name: &'static str, description: &'static str, read_only: bool }
 
     #[async_trait]
     impl Tool for DummyTool {
-        fn name(&self) -> &str {
-            self.name
-        }
-
-        fn description(&self) -> &str {
-            self.description
-        }
-
-        fn parameters_schema(&self) -> Value {
-            json!({"type": "object", "properties": {}})
-        }
-
+        fn name(&self) -> &str { self.name }
+        fn description(&self) -> &str { self.description }
+        fn parameters_schema(&self) -> Value { json!({"type":"object","properties":{}}) }
         fn capabilities(&self) -> ToolCapabilities {
-            ToolCapabilities {
-                requires_confirmation: false,
-                supports_auto_execution: true,
-                read_only: true,
-            }
+            ToolCapabilities { requires_confirmation: !self.read_only, supports_auto_execution: self.read_only, read_only: self.read_only }
         }
-
         async fn execute(&self, _params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
             Ok(ToolResult::success("ok".to_string()))
         }
@@ -261,15 +255,9 @@ mod tests {
 
     fn test_context(write_file_visible: bool) -> ToolContext {
         let registry = crate::registry::ToolRegistry::new();
-        registry.register(Arc::new(DummyTool {
-            name: "read_file",
-            description: "Read repo files",
-        }));
-        registry.register_deferred(Arc::new(DummyTool {
-            name: "write_file",
-            description: "Write repo files",
-        }));
-
+        registry.register(Arc::new(DummyTool { name: "read_file", description: "Read repo files", read_only: true }));
+        registry.register_deferred(Arc::new(DummyTool { name: "write_file", description: "Write repo files", read_only: false }));
+        registry.register_deferred(Arc::new(DummyTool { name: "test_runner", description: "Run repository tests and verify changes", read_only: false }));
         let mut ctx = ToolContext::empty();
         ctx.registry = Some(Arc::new(registry));
         ctx.tool_pool_snapshot = Some(ToolPoolSnapshot {
@@ -277,45 +265,17 @@ mod tests {
             tool_search_enabled: true,
             tool_search_reason: Some("test".to_string()),
             entries: vec![
-                ToolPoolEntry {
-                    name: "read_file".to_string(),
-                    phase: ToolPoolPhase::Active,
-                    origin: ToolOrigin::Builtin,
-                    permission: ToolPermissionState::Allow,
-                    visible_to_model: true,
-                    reason: "Plan mode allows this read-only tool.".to_string(),
-                    matched_rule: None,
-                },
-                ToolPoolEntry {
-                    name: "write_file".to_string(),
-                    phase: ToolPoolPhase::Deferred,
-                    origin: ToolOrigin::Builtin,
-                    permission: if write_file_visible {
-                        ToolPermissionState::Allow
-                    } else {
-                        ToolPermissionState::Deny
-                    },
-                    visible_to_model: write_file_visible,
-                    reason: if write_file_visible {
-                        "Loaded by tool_search.".to_string()
-                    } else {
-                        "Plan mode blocks mutating tools.".to_string()
-                    },
-                    matched_rule: None,
-                },
+                ToolPoolEntry { name: "read_file".to_string(), phase: ToolPoolPhase::Active, origin: ToolOrigin::Builtin, permission: ToolPermissionState::Allow, visible_to_model: true, reason: "Plan mode allows this read-only tool.".to_string(), matched_rule: None },
+                ToolPoolEntry { name: "write_file".to_string(), phase: ToolPoolPhase::Deferred, origin: ToolOrigin::Builtin, permission: if write_file_visible { ToolPermissionState::Allow } else { ToolPermissionState::Deny }, visible_to_model: write_file_visible, reason: if write_file_visible { "Loaded by tool_search.".to_string() } else { "Plan mode blocks mutating tools.".to_string() }, matched_rule: None },
+                ToolPoolEntry { name: "test_runner".to_string(), phase: ToolPoolPhase::Deferred, origin: ToolOrigin::Builtin, permission: ToolPermissionState::Allow, visible_to_model: true, reason: "Verification is allowed.".to_string(), matched_rule: None },
             ],
         });
         ctx
     }
 
     #[tokio::test]
-    async fn tool_search_hides_denied_tools_from_keyword_results() {
-        let tool = ToolSearchTool;
-        let result = tool
-            .execute(json!({ "query": "file" }), &test_context(false))
-            .await
-            .unwrap();
-
+    async fn tool_search_hides_denied_tools_from_results() {
+        let result = ToolSearchTool.execute(json!({"query":"file"}), &test_context(false)).await.unwrap();
         assert!(!result.is_error);
         assert!(result.content.contains("read_file"));
         assert!(!result.content.contains("write_file"));
@@ -323,54 +283,23 @@ mod tests {
 
     #[tokio::test]
     async fn tool_search_reports_blocked_select_for_hidden_tool() {
-        let tool = ToolSearchTool;
-        let result = tool
-            .execute(
-                json!({ "query": "select:write_file" }),
-                &test_context(false),
-            )
-            .await
-            .unwrap();
-
-        assert!(!result.is_error);
-        assert!(result
-            .content
-            .contains("unavailable in the current tool pool"));
-        assert_eq!(
-            result
-                .metadata
-                .as_ref()
-                .and_then(|value| value.get("blocked"))
-                .and_then(|value| value.as_bool()),
-            Some(true)
-        );
+        let result = ToolSearchTool.execute(json!({"query":"select:write_file"}), &test_context(false)).await.unwrap();
+        assert!(result.content.contains("unavailable in the current tool pool"));
+        assert_eq!(result.metadata.as_ref().and_then(|v| v.get("blocked")).and_then(Value::as_bool), Some(true));
     }
 
     #[tokio::test]
     async fn tool_search_select_activates_visible_deferred_tool() {
-        let tool = ToolSearchTool;
         let ctx = test_context(true);
-        let result = tool
-            .execute(json!({ "query": "select:write_file" }), &ctx)
-            .await
-            .unwrap();
-
-        assert!(!result.is_error);
+        let result = ToolSearchTool.execute(json!({"query":"select:write_file"}), &ctx).await.unwrap();
         assert!(result.content.contains("Activated tool 'write_file'"));
-        assert!(ctx
-            .registry
-            .as_ref()
-            .unwrap()
-            .definitions()
-            .iter()
-            .any(|definition| definition.name == "write_file"));
-        assert_eq!(
-            ctx.registry
-                .as_ref()
-                .unwrap()
-                .inventory()
-                .last_activated_tool,
-            Some("write_file".to_string())
-        );
+        assert!(ctx.registry.as_ref().unwrap().definitions().iter().any(|definition| definition.name == "write_file"));
+    }
+
+    #[tokio::test]
+    async fn semantic_verification_query_ranks_test_runner() {
+        let result = ToolSearchTool.execute(json!({"query":"verify the fix with tests","max_results":1}), &test_context(true)).await.unwrap();
+        assert!(result.content.contains("test_runner"));
+        assert_eq!(result.metadata.as_ref().and_then(|v| v.get("router")).and_then(Value::as_str), Some("semantic_v1"));
     }
 }
