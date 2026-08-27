@@ -10,7 +10,6 @@ use yode_core::config::Config;
 use yode_core::db::Database;
 use yode_core::engine::ConfirmResponse;
 use yode_core::permission::PermissionRule;
-use yode_core::updater::Updater;
 use yode_llm::registry::ProviderRegistry;
 use yode_tools::registry::ToolRegistry;
 use yode_tools::tool::McpResourceProvider;
@@ -84,7 +83,6 @@ pub struct DesktopRuntime {
     pty_sessions: Arc<Mutex<HashMap<String, PtySessionState>>>,
     general_settings: Mutex<GeneralSettings>,
     sleep_guard: Arc<Mutex<Option<Child>>>,
-    updater: Updater,
 }
 
 type TurnKey = (String, String);
@@ -115,8 +113,7 @@ impl DesktopRuntime {
                 )
             })?,
         };
-        // 会话数据库路径必须遵守配置中的 `[session].db_path`，
-        // 与 CLI（同样调用 Config::session_db_path）指向同一数据库文件。
+        // 会话数据库路径统一由共享 Config 决定，Desktop 不维护第二套路径规则。
         let db_path = desktop_session_db_path(&config);
 
         let provider_registry = Mutex::new(bootstrap_providers(&config));
@@ -188,13 +185,6 @@ impl DesktopRuntime {
             pty_sessions: Arc::new(Mutex::new(HashMap::new())),
             general_settings: Mutex::new(default_general_settings()),
             sleep_guard: Arc::new(Mutex::new(None)),
-            updater: Updater::new(
-                dirs::home_dir()
-                    .unwrap_or_else(|| PathBuf::from("."))
-                    .join(".yode"),
-                true,
-                true,
-            ),
         })
     }
 
@@ -407,24 +397,6 @@ impl DesktopRuntime {
     fn project_config_path(&self) -> PathBuf {
         self.workspace_path.join(".yode").join("config.toml")
     }
-
-    pub async fn check_for_updates(&self) -> Result<Option<yode_core::updater::UpdateCheckResult>> {
-        self.updater.check_for_updates().await
-    }
-
-    pub async fn download_update(&self) -> Result<String> {
-        // UPDATE-001：桌面自更新暂停，等待 Tauri 签名 updater。
-        anyhow::bail!("桌面自更新已暂停：请从官方 Release 页面手动下载安装。")
-    }
-
-    pub async fn has_pending_update(&self) -> bool {
-        self.updater.has_pending_update().await
-    }
-
-    pub async fn apply_downloaded_update(&self) -> Result<bool> {
-        // UPDATE-001：桌面自更新暂停，等待 Tauri 签名 updater。
-        anyhow::bail!("桌面自更新已暂停：请从官方 Release 页面手动下载安装。")
-    }
 }
 
 fn default_user_config_path(workspace_path: &std::path::Path) -> PathBuf {
@@ -434,8 +406,7 @@ fn default_user_config_path(workspace_path: &std::path::Path) -> PathBuf {
         .join("config.toml")
 }
 
-/// 桌面端会话数据库路径：必须与 CLI 一致，遵守配置中的 `[session].db_path`，
-/// 不得硬编码默认路径（否则自定义 db_path 时桌面与 CLI 各用各的库）。
+/// Desktop 会话数据库路径统一遵守共享配置中的 `[session].db_path`。
 fn desktop_session_db_path(config: &Config) -> PathBuf {
     config.session_db_path()
 }
