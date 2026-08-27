@@ -1,9 +1,14 @@
+pub mod capabilities;
 pub mod mock;
 pub mod provider;
 pub mod providers;
 pub mod registry;
 pub mod types;
 
+pub use capabilities::{
+    builtin_capabilities, ModelCandidate, ModelCapabilities, ModelCapabilityRegistry,
+    ModelCostClass, ModelIdentity, ModelRole, ModelRouter, RouteDecision, RouteRequest,
+};
 pub use mock::MockProvider;
 pub use provider::LlmProvider;
 pub use providers::openai_compat;
