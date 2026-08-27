@@ -100,6 +100,7 @@ impl LearningStore {
         let lock_path = self.root.join("learning.lock");
         let lock = OpenOptions::new()
             .create(true)
+            .truncate(false)
             .read(true)
             .write(true)
             .open(&lock_path)
