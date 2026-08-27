@@ -7,8 +7,30 @@
 use tokio::process::Command;
 
 /// 基础白名单：子进程解析外部程序、定位用户目录、临时目录和本地化所必需。
+///
+/// Windows 的 `SystemRoot` / `WINDIR` / `COMSPEC` 等属于进程启动所需的系统
+/// 引导变量，不是应用凭据。Windows PowerShell / cmd 以及部分 Win32 运行时在
+/// `env_clear()` 后缺少这些变量时可能无法初始化，因此显式保留。这里仍然不会
+/// 继承 API key、token、代理、云凭据等敏感变量。
 pub const MINIMAL_ENV_ALLOWLIST: &[&str] = &[
-    "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TMP", "TEMP",
+    "PATH",
+    "HOME",
+    "USER",
+    "LOGNAME",
+    "LANG",
+    "LC_ALL",
+    "LC_CTYPE",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "SystemRoot",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+    "PROGRAMDATA",
 ];
 
 /// 清空继承环境并只放行白名单变量。调用方随后可以 `.env(...)` 显式补充
@@ -68,8 +90,19 @@ mod tests {
     async fn minimal_env_clears_inherited_variables() {
         std::env::set_var("YODE_SECRET_TEST_TOKEN", "super-secret");
 
+        #[cfg(windows)]
+        let mut cmd = Command::new("cmd.exe");
+        #[cfg(not(windows))]
         let mut cmd = Command::new("sh");
         apply_minimal_env(&mut cmd);
+        #[cfg(windows)]
+        cmd.args([
+            "/d",
+            "/s",
+            "/c",
+            "if defined YODE_SECRET_TEST_TOKEN (echo leaked) else (echo unset) && if defined PATH echo path-ok",
+        ]);
+        #[cfg(not(windows))]
         cmd.arg("-c")
             .arg(r#"printf '%s' "${YODE_SECRET_TEST_TOKEN:-unset} ${PATH:-no-path}" "$@""#)
             .arg("sh");
@@ -83,12 +116,41 @@ mod tests {
             "secret leaked into child env: {stdout}"
         );
         // 白名单变量（PATH）保留
+        #[cfg(windows)]
+        assert!(
+            stdout.contains("path-ok"),
+            "whitelisted PATH was not preserved: {stdout}"
+        );
+        #[cfg(not(windows))]
         assert!(
             stdout.contains('/'),
             "whitelisted PATH was not preserved: {stdout}"
         );
 
         std::env::remove_var("YODE_SECRET_TEST_TOKEN");
+    }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn minimal_env_keeps_windows_powershell_bootstrap() {
+        let mut cmd = Command::new("powershell.exe");
+        apply_minimal_env(&mut cmd);
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            "Write-Output ok",
+        ]);
+
+        let output = cmd.output().await.expect("powershell should start");
+        assert!(
+            output.status.success(),
+            "PowerShell failed under minimal environment: status={} stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }
 
