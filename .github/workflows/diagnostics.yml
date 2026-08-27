@@ -1,0 +1,45 @@
+name: Temporary CI Diagnostics
+
+on:
+  push:
+    branches:
+      - ci-diagnostics
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: never
+
+jobs:
+  capture:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+      - name: Install Linux desktop dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libappindicator3-dev librsvg2-dev libwebkit2gtk-4.1-dev patchelf
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
+          components: clippy, rustfmt
+      - name: Capture failures
+        shell: bash
+        run: |
+          mkdir -p .ci-diagnostics
+          set +e
+          cargo clippy --workspace --all-targets --no-deps -- -D warnings > .ci-diagnostics/clippy.log 2>&1
+          clippy_status=$?
+          cargo test --workspace -- --nocapture > .ci-diagnostics/tests.log 2>&1
+          test_status=$?
+          printf 'clippy=%s\ntests=%s\n' "$clippy_status" "$test_status" > .ci-diagnostics/status.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .ci-diagnostics
+          git commit -m "ci: capture diagnostic logs [skip ci]"
+          git push origin HEAD:ci-diagnostics
