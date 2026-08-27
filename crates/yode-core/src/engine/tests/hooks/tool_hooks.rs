@@ -20,20 +20,12 @@ fn hook_dump_context_command(path: &std::path::Path) -> String {
 
 #[cfg(windows)]
 fn hook_json_command(json: &str) -> String {
-    crate::test_support::powershell_encoded_command(&format!(
-        "Write-Output '{}'",
-        powershell_quote(json)
-    ))
+    format!("echo {json}")
 }
 
 #[cfg(not(windows))]
 fn hook_json_command(json: &str) -> String {
     format!("printf '%s' '{}'", json)
-}
-
-#[cfg(windows)]
-fn powershell_quote(value: &str) -> String {
-    value.replace('\'', "''")
 }
 
 #[cfg(windows)]
