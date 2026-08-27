@@ -23,9 +23,9 @@ impl AgentEngine {
             "review_pipeline",
             "review_then_commit",
         ];
-        self.current_tool_execution_traces.iter().any(|trace| {
-            trace.success && VERIFICATION_TOOLS.contains(&trace.tool_name.as_str())
-        })
+        self.current_tool_execution_traces
+            .iter()
+            .any(|trace| trace.success && VERIFICATION_TOOLS.contains(&trace.tool_name.as_str()))
     }
 
     fn verification_gate_marker_injected(&self) -> bool {

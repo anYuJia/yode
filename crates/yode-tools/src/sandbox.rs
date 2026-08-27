@@ -82,7 +82,11 @@ pub struct PreparedShell {
 /// macOS uses sandbox-exec with writes scoped to the workspace and temporary directory.
 /// Windows currently has no dependency-free native restricted-token backend in Yode; Strict
 /// therefore fails closed instead of pretending the command is isolated.
-pub fn prepare_shell(command: &str, working_dir: &Path, explicitly_disabled: bool) -> Result<PreparedShell> {
+pub fn prepare_shell(
+    command: &str,
+    working_dir: &Path,
+    explicitly_disabled: bool,
+) -> Result<PreparedShell> {
     let mode = if explicitly_disabled {
         SandboxMode::Off
     } else {
@@ -107,7 +111,9 @@ pub fn prepare_shell(command: &str, working_dir: &Path, explicitly_disabled: boo
 
     #[cfg(target_os = "linux")]
     if let Some(bwrap) = find_executable("bwrap") {
-        let cwd = working_dir.canonicalize().unwrap_or_else(|_| working_dir.to_path_buf());
+        let cwd = working_dir
+            .canonicalize()
+            .unwrap_or_else(|_| working_dir.to_path_buf());
         let mut args = vec![
             "--die-with-parent".to_string(),
             "--new-session".to_string(),
@@ -129,7 +135,12 @@ pub fn prepare_shell(command: &str, working_dir: &Path, explicitly_disabled: boo
         if network == SandboxNetworkPolicy::Deny {
             args.push("--unshare-net".to_string());
         }
-        args.extend(["--".to_string(), "sh".to_string(), "-c".to_string(), command.to_string()]);
+        args.extend([
+            "--".to_string(),
+            "sh".to_string(),
+            "-c".to_string(),
+            command.to_string(),
+        ]);
         return Ok(PreparedShell {
             executable: bwrap,
             args,
@@ -145,7 +156,9 @@ pub fn prepare_shell(command: &str, working_dir: &Path, explicitly_disabled: boo
 
     #[cfg(target_os = "macos")]
     if let Some(sandbox_exec) = find_executable("sandbox-exec") {
-        let cwd = working_dir.canonicalize().unwrap_or_else(|_| working_dir.to_path_buf());
+        let cwd = working_dir
+            .canonicalize()
+            .unwrap_or_else(|_| working_dir.to_path_buf());
         let cwd = escape_sandbox_literal(&cwd.display().to_string());
         let mut profile = format!(
             "(version 1)(deny default)(allow process*)(allow sysctl-read)(allow file-read*)(allow file-write* (subpath \"{cwd}\"))(allow file-write* (subpath \"/tmp\"))(allow file-write* (subpath \"/private/tmp\"))"
@@ -196,7 +209,10 @@ pub fn annotate_tool_result(result: &mut ToolResult, info: &SandboxLaunchInfo) {
         *metadata = json!({});
     }
     if let Some(object) = metadata.as_object_mut() {
-        object.insert("sandbox".to_string(), serde_json::to_value(info).unwrap_or_else(|_| json!({}))); 
+        object.insert(
+            "sandbox".to_string(),
+            serde_json::to_value(info).unwrap_or_else(|_| json!({})),
+        );
     }
 }
 
@@ -248,7 +264,8 @@ mod tests {
 
     #[test]
     fn annotation_preserves_result_metadata() {
-        let mut result = ToolResult::success_with_metadata("ok".to_string(), json!({"existing": true}));
+        let mut result =
+            ToolResult::success_with_metadata("ok".to_string(), json!({"existing": true}));
         annotate_tool_result(
             &mut result,
             &SandboxLaunchInfo {
@@ -259,7 +276,18 @@ mod tests {
                 degraded_reason: Some("test".to_string()),
             },
         );
-        assert_eq!(result.metadata.as_ref().and_then(|m| m.get("existing")).and_then(|v| v.as_bool()), Some(true));
-        assert!(result.metadata.as_ref().and_then(|m| m.get("sandbox")).is_some());
+        assert_eq!(
+            result
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("existing"))
+                .and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert!(result
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("sandbox"))
+            .is_some());
     }
 }

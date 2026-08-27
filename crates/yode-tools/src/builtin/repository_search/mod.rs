@@ -27,7 +27,11 @@ impl Tool for RepositorySearchTool {
     }
 
     fn activity_description(&self, params: &Value) -> String {
-        match params.get("action").and_then(Value::as_str).unwrap_or("search") {
+        match params
+            .get("action")
+            .and_then(Value::as_str)
+            .unwrap_or("search")
+        {
             "rebuild" => "Rebuilding repository intelligence index".to_string(),
             "stats" => "Inspecting repository intelligence index".to_string(),
             "update" => format!(
@@ -256,7 +260,11 @@ fn render_hits(query: &str, hits: &[SearchHit], rebuilt: bool) -> String {
     if hits.is_empty() {
         return format!(
             "No repository-index matches for `{query}`.{}",
-            if rebuilt { " The index was rebuilt first." } else { "" }
+            if rebuilt {
+                " The index was rebuilt first."
+            } else {
+                ""
+            }
         );
     }
 
@@ -287,7 +295,12 @@ fn render_hits(query: &str, hits: &[SearchHit], rebuilt: bool) -> String {
         if !hit.imports.is_empty() {
             output.push_str(&format!(
                 "   imports: {}\n",
-                hit.imports.iter().take(4).cloned().collect::<Vec<_>>().join(" | ")
+                hit.imports
+                    .iter()
+                    .take(4)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" | ")
             ));
         }
     }

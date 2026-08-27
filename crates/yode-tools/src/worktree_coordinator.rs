@@ -48,17 +48,32 @@ impl WorktreeCoordinator {
         let id = Uuid::new_v4().to_string();
         let short = &id[..8];
         let slug = sanitize_slug(task);
-        let branch = format!("yode/agent/{}-{}", if slug.is_empty() { "task" } else { &slug }, short);
+        let branch = format!(
+            "yode/agent/{}-{}",
+            if slug.is_empty() { "task" } else { &slug },
+            short
+        );
         let path = repo_root
             .join(".yode")
             .join("agent-worktrees")
-            .join(format!("{}-{}", if slug.is_empty() { "task" } else { &slug }, short));
+            .join(format!(
+                "{}-{}",
+                if slug.is_empty() { "task" } else { &slug },
+                short
+            ));
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
         git_status(
             &repo_root,
-            &["worktree", "add", "-b", &branch, &path.display().to_string(), "HEAD"],
+            &[
+                "worktree",
+                "add",
+                "-b",
+                &branch,
+                &path.display().to_string(),
+                "HEAD",
+            ],
         )
         .await
         .with_context(|| format!("failed to allocate worktree for {task}"))?;
@@ -100,7 +115,8 @@ impl WorktreeCoordinator {
         } else {
             commit_message.trim().to_string()
         };
-        git_status(&lease.path, &["commit", "-m", &message]).await
+        git_status(&lease.path, &["commit", "-m", &message])
+            .await
             .context("failed to commit isolated agent changes")?;
         let commit = git_output(&lease.path, &["rev-parse", "HEAD"]).await?;
         let commit = commit.trim().to_string();
@@ -111,7 +127,8 @@ impl WorktreeCoordinator {
                 status: WorktreeFinalizeStatus::ParentDirty,
                 branch: lease.branch.clone(),
                 commit: Some(commit),
-                message: "Parent worktree is dirty; merge refused and agent branch retained.".to_string(),
+                message: "Parent worktree is dirty; merge refused and agent branch retained."
+                    .to_string(),
                 worktree_path: lease.path.clone(),
                 retained: true,
             });
@@ -125,9 +142,12 @@ impl WorktreeCoordinator {
             .await
             .context("failed to start agent worktree merge")?;
         if !merge.status.success() {
-            let conflict = git_output(&lease.repo_root, &["diff", "--name-only", "--diff-filter=U"])
-                .await
-                .unwrap_or_default();
+            let conflict = git_output(
+                &lease.repo_root,
+                &["diff", "--name-only", "--diff-filter=U"],
+            )
+            .await
+            .unwrap_or_default();
             let _ = git_status(&lease.repo_root, &["merge", "--abort"]).await;
             return Ok(WorktreeFinalizeResult {
                 status: if conflict.trim().is_empty() {
@@ -138,9 +158,15 @@ impl WorktreeCoordinator {
                 branch: lease.branch.clone(),
                 commit: Some(commit),
                 message: if conflict.trim().is_empty() {
-                    format!("Agent merge failed; branch retained: {}", String::from_utf8_lossy(&merge.stderr).trim())
+                    format!(
+                        "Agent merge failed; branch retained: {}",
+                        String::from_utf8_lossy(&merge.stderr).trim()
+                    )
                 } else {
-                    format!("Agent merge conflicted in: {}. Merge aborted; branch retained.", conflict.lines().collect::<Vec<_>>().join(", "))
+                    format!(
+                        "Agent merge conflicted in: {}. Merge aborted; branch retained.",
+                        conflict.lines().collect::<Vec<_>>().join(", ")
+                    )
                 },
                 worktree_path: lease.path.clone(),
                 retained: true,
@@ -160,7 +186,11 @@ impl WorktreeCoordinator {
         })
     }
 
-    pub fn should_auto_isolate(run_in_background: bool, team_id: Option<&str>, allowed_tools: &[String]) -> bool {
+    pub fn should_auto_isolate(
+        run_in_background: bool,
+        team_id: Option<&str>,
+        allowed_tools: &[String],
+    ) -> bool {
         if !(run_in_background || team_id.is_some()) {
             return false;
         }
@@ -189,14 +219,21 @@ async fn ensure_lease_valid(lease: &AgentWorktreeLease) -> Result<()> {
     }
     let actual_root = git_output(&lease.path, &["rev-parse", "--show-toplevel"]).await?;
     let actual_root = PathBuf::from(actual_root.trim());
-    let expected = lease.path.canonicalize().unwrap_or_else(|_| lease.path.clone());
+    let expected = lease
+        .path
+        .canonicalize()
+        .unwrap_or_else(|_| lease.path.clone());
     let actual = actual_root.canonicalize().unwrap_or(actual_root);
     if actual != expected {
         bail!("agent worktree root changed unexpectedly");
     }
     let branch = git_output(&lease.path, &["branch", "--show-current"]).await?;
     if branch.trim() != lease.branch {
-        bail!("agent worktree branch changed from '{}' to '{}'", lease.branch, branch.trim());
+        bail!(
+            "agent worktree branch changed from '{}' to '{}'",
+            lease.branch,
+            branch.trim()
+        );
     }
     Ok(())
 }
@@ -212,9 +249,17 @@ async fn cleanup_lease(lease: &AgentWorktreeLease) -> Result<()> {
 }
 
 async fn git_output(cwd: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git").args(args).current_dir(cwd).output().await?;
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .await?;
     if !output.status.success() {
-        bail!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
+        bail!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
@@ -230,7 +275,13 @@ fn merge_lock() -> &'static Mutex<()> {
 
 fn sanitize_slug(raw: &str) -> String {
     raw.chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .split('-')
         .filter(|part| !part.is_empty())
@@ -248,10 +299,26 @@ mod tests {
 
     #[test]
     fn auto_isolation_only_for_parallel_mutating_agents() {
-        assert!(WorktreeCoordinator::should_auto_isolate(true, None, &["edit_file".into()]));
-        assert!(WorktreeCoordinator::should_auto_isolate(false, Some("team"), &["bash".into()]));
-        assert!(!WorktreeCoordinator::should_auto_isolate(true, None, &["read_file".into()]));
-        assert!(!WorktreeCoordinator::should_auto_isolate(false, None, &["edit_file".into()]));
+        assert!(WorktreeCoordinator::should_auto_isolate(
+            true,
+            None,
+            &["edit_file".into()]
+        ));
+        assert!(WorktreeCoordinator::should_auto_isolate(
+            false,
+            Some("team"),
+            &["bash".into()]
+        ));
+        assert!(!WorktreeCoordinator::should_auto_isolate(
+            true,
+            None,
+            &["read_file".into()]
+        ));
+        assert!(!WorktreeCoordinator::should_auto_isolate(
+            false,
+            None,
+            &["edit_file".into()]
+        ));
     }
 
     #[test]

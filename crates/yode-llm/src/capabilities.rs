@@ -144,7 +144,10 @@ impl ModelCapabilityRegistry {
         capabilities: ModelCapabilities,
     ) {
         self.overrides.insert(
-            (provider.into().to_ascii_lowercase(), model.into().to_ascii_lowercase()),
+            (
+                provider.into().to_ascii_lowercase(),
+                model.into().to_ascii_lowercase(),
+            ),
             capabilities,
         );
     }
@@ -184,7 +187,11 @@ impl ModelRouter {
         &mut self.registry
     }
 
-    pub fn route(&self, request: &RouteRequest, candidates: &[ModelCandidate]) -> Option<RouteDecision> {
+    pub fn route(
+        &self,
+        request: &RouteRequest,
+        candidates: &[ModelCandidate],
+    ) -> Option<RouteDecision> {
         candidates
             .iter()
             .filter(|candidate| candidate.enabled)
@@ -263,14 +270,10 @@ impl ModelRouter {
             reasons.push("low-cost preference applied".to_string());
         }
 
-        if request
-            .avoid_model
-            .as_ref()
-            .is_some_and(|avoid| {
-                avoid.provider.eq_ignore_ascii_case(&candidate.provider)
-                    && avoid.model.eq_ignore_ascii_case(&candidate.model)
-            })
-        {
+        if request.avoid_model.as_ref().is_some_and(|avoid| {
+            avoid.provider.eq_ignore_ascii_case(&candidate.provider)
+                && avoid.model.eq_ignore_ascii_case(&candidate.model)
+        }) {
             // Verification should prefer an independent second opinion when a
             // viable candidate exists, without making the current model invalid.
             score -= 80;

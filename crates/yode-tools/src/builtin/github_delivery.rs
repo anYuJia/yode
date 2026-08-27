@@ -30,16 +30,23 @@ struct CheckView {
 
 #[async_trait]
 impl Tool for GitHubIssueDeliveryTool {
-    fn name(&self) -> &str { "github_issue_delivery" }
+    fn name(&self) -> &str {
+        "github_issue_delivery"
+    }
 
     fn aliases(&self) -> Vec<String> {
         vec!["issue_to_pr".to_string(), "github_pr_delivery".to_string()]
     }
 
-    fn user_facing_name(&self) -> &str { "GitHub Issue → PR" }
+    fn user_facing_name(&self) -> &str {
+        "GitHub Issue → PR"
+    }
 
     fn activity_description(&self, params: &Value) -> String {
-        let issue = params.get("issue_number").and_then(Value::as_u64).unwrap_or_default();
+        let issue = params
+            .get("issue_number")
+            .and_then(Value::as_u64)
+            .unwrap_or_default();
         format!("Delivering GitHub issue #{issue} as a PR")
     }
 
@@ -63,7 +70,11 @@ impl Tool for GitHubIssueDeliveryTool {
     }
 
     fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities { requires_confirmation: true, supports_auto_execution: false, read_only: false }
+        ToolCapabilities {
+            requires_confirmation: true,
+            supports_auto_execution: false,
+            read_only: false,
+        }
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
@@ -71,7 +82,11 @@ impl Tool for GitHubIssueDeliveryTool {
             .get("issue_number")
             .and_then(Value::as_u64)
             .ok_or_else(|| anyhow::anyhow!("issue_number is required"))?;
-        let base = params.get("base_branch").and_then(Value::as_str).unwrap_or("main").trim();
+        let base = params
+            .get("base_branch")
+            .and_then(Value::as_str)
+            .unwrap_or("main")
+            .trim();
         validate_ref(base)?;
         let cwd = ctx.working_dir.as_deref().unwrap_or_else(|| Path::new("."));
 
@@ -86,13 +101,22 @@ impl Tool for GitHubIssueDeliveryTool {
 
         let issue: IssueView = gh_json(
             cwd,
-            &["issue", "view", &issue_number.to_string(), "--json", "number,title,body,url,state"],
+            &[
+                "issue",
+                "view",
+                &issue_number.to_string(),
+                "--json",
+                "number,title,body,url,state",
+            ],
         )
         .await
         .with_context(|| format!("failed to read GitHub issue #{issue_number}"))?;
         if !issue.state.eq_ignore_ascii_case("open") {
             return Ok(ToolResult::error_typed(
-                format!("Issue #{} is not open (state: {}).", issue.number, issue.state),
+                format!(
+                    "Issue #{} is not open (state: {}).",
+                    issue.number, issue.state
+                ),
                 ToolErrorType::Validation,
                 false,
                 None,
@@ -117,7 +141,11 @@ impl Tool for GitHubIssueDeliveryTool {
         }
         if current_branch.trim() != head {
             return Ok(ToolResult::error_typed(
-                format!("Current branch '{}' does not match requested head '{}'.", current_branch.trim(), head),
+                format!(
+                    "Current branch '{}' does not match requested head '{}'.",
+                    current_branch.trim(),
+                    head
+                ),
                 ToolErrorType::Validation,
                 false,
                 None,
@@ -153,14 +181,15 @@ impl Tool for GitHubIssueDeliveryTool {
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .unwrap_or(issue.title.trim());
-        let supplied_body = params.get("body").and_then(Value::as_str).unwrap_or("").trim();
+        let supplied_body = params
+            .get("body")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         let body = if supplied_body.is_empty() {
             format!(
                 "Implements issue #{}: {}\n\nIssue: {}\n\nFixes #{}",
-                issue.number,
-                issue.title,
-                issue.url,
-                issue.number
+                issue.number, issue.title, issue.url, issue.number
             )
         } else {
             format!("{}\n\nFixes #{}", supplied_body, issue.number)
@@ -168,10 +197,16 @@ impl Tool for GitHubIssueDeliveryTool {
         let mut args = vec![
             "pr", "create", "--base", base, "--head", head, "--title", title, "--body", &body,
         ];
-        if params.get("draft").and_then(Value::as_bool).unwrap_or(false) {
+        if params
+            .get("draft")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+        {
             args.push("--draft");
         }
-        let pr_url = gh_text(cwd, &args).await.context("failed to create pull request")?;
+        let pr_url = gh_text(cwd, &args)
+            .await
+            .context("failed to create pull request")?;
         let pr_url = pr_url.trim().to_string();
         if pr_url.is_empty() {
             bail!("gh pr create succeeded without returning a PR URL");
@@ -212,20 +247,41 @@ impl Tool for GitHubIssueDeliveryTool {
 }
 
 async fn require_gh(cwd: &Path) -> Result<()> {
-    let version = Command::new("gh").arg("--version").current_dir(cwd).output().await
+    let version = Command::new("gh")
+        .arg("--version")
+        .current_dir(cwd)
+        .output()
+        .await
         .context("GitHub CLI executable not found")?;
-    if !version.status.success() { bail!("`gh --version` failed"); }
-    let auth = Command::new("gh").args(["auth", "status"]).current_dir(cwd).output().await?;
+    if !version.status.success() {
+        bail!("`gh --version` failed");
+    }
+    let auth = Command::new("gh")
+        .args(["auth", "status"])
+        .current_dir(cwd)
+        .output()
+        .await?;
     if !auth.status.success() {
-        bail!("GitHub CLI is not authenticated: {}", String::from_utf8_lossy(&auth.stderr).trim());
+        bail!(
+            "GitHub CLI is not authenticated: {}",
+            String::from_utf8_lossy(&auth.stderr).trim()
+        );
     }
     Ok(())
 }
 
 async fn gh_text(cwd: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("gh").args(args).current_dir(cwd).output().await?;
+    let output = Command::new("gh")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .await?;
     if !output.status.success() {
-        bail!("gh {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
+        bail!(
+            "gh {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
@@ -236,9 +292,17 @@ async fn gh_json<T: for<'de> Deserialize<'de>>(cwd: &Path, args: &[&str]) -> Res
 }
 
 async fn git_text(cwd: &Path, args: &[&str]) -> Result<String> {
-    let output = Command::new("git").args(args).current_dir(cwd).output().await?;
+    let output = Command::new("git")
+        .args(args)
+        .current_dir(cwd)
+        .output()
+        .await?;
     if !output.status.success() {
-        bail!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&output.stderr).trim());
+        bail!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
     }
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
@@ -252,7 +316,11 @@ fn validate_ref(value: &str) -> Result<()> {
         || value.starts_with('-')
         || value.contains("..")
         || value.contains("@{")
-        || value.chars().any(|ch| ch.is_control() || ch.is_whitespace() || matches!(ch, '~' | '^' | ':' | '?' | '*' | '[' | '\\'))
+        || value.chars().any(|ch| {
+            ch.is_control()
+                || ch.is_whitespace()
+                || matches!(ch, '~' | '^' | ':' | '?' | '*' | '[' | '\\')
+        })
     {
         bail!("invalid git ref '{value}'");
     }

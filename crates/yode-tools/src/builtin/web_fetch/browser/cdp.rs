@@ -82,7 +82,9 @@ impl ChromeRuntime {
         let profile_dir = browser_profile_dir();
         tokio::fs::create_dir_all(&profile_dir)
             .await
-            .with_context(|| format!("failed to create browser profile {}", profile_dir.display()))?;
+            .with_context(|| {
+                format!("failed to create browser profile {}", profile_dir.display())
+            })?;
 
         let mut command = Command::new(&executable);
         command
@@ -271,8 +273,10 @@ impl ChromeRuntime {
     }
 
     async fn page_info(&self) -> Result<Value> {
-        self.evaluate_value("({url:location.href,title:document.title,readyState:document.readyState})")
-            .await
+        self.evaluate_value(
+            "({url:location.href,title:document.title,readyState:document.readyState})",
+        )
+        .await
     }
 
     async fn evaluate_value(&self, expression: &str) -> Result<Value> {
@@ -288,7 +292,10 @@ impl ChromeRuntime {
             )
             .await?;
         if let Some(exception) = result.get("exceptionDetails") {
-            bail!("JavaScript evaluation failed: {}", compact_json(exception, 800));
+            bail!(
+                "JavaScript evaluation failed: {}",
+                compact_json(exception, 800)
+            );
         }
         Ok(result
             .get("result")

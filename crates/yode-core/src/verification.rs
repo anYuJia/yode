@@ -111,7 +111,11 @@ impl VerificationGate {
         };
 
         let mut seen_required = BTreeSet::new();
-        for criterion in self.criteria.values().filter(|criterion| criterion.required) {
+        for criterion in self
+            .criteria
+            .values()
+            .filter(|criterion| criterion.required)
+        {
             let criterion_evidence = self
                 .evidence
                 .iter()
@@ -131,7 +135,10 @@ impl VerificationGate {
             }
         }
 
-        debug_assert_eq!(seen_required.len() as u32, summary.required_passed + summary.required_failed);
+        debug_assert_eq!(
+            seen_required.len() as u32,
+            summary.required_passed + summary.required_failed
+        );
         summary.can_deliver = summary.required_total > 0
             && summary.required_failed == 0
             && summary.required_unverified == 0

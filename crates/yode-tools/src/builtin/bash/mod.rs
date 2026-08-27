@@ -35,16 +35,37 @@ const DESTRUCTIVE_COMMAND_PATTERNS: &[&str] = &[
 ];
 
 const INTERACTIVE_PROMPT_PATTERNS: &[&str] = &[
-    "password:", "Password:", "passphrase", "[y/n]", "[Y/n]", "[yes/no]",
-    "Are you sure", "are you sure", "Continue?", "continue?", "Press any key",
-    "press any key", "Enter ", "enter ", "Username:", "username:", "(yes/no)",
-    "(Y/N)", "Do you want to", "do you want to", "> ", "$ ", "# ",
+    "password:",
+    "Password:",
+    "passphrase",
+    "[y/n]",
+    "[Y/n]",
+    "[yes/no]",
+    "Are you sure",
+    "are you sure",
+    "Continue?",
+    "continue?",
+    "Press any key",
+    "press any key",
+    "Enter ",
+    "enter ",
+    "Username:",
+    "username:",
+    "(yes/no)",
+    "(Y/N)",
+    "Do you want to",
+    "do you want to",
+    "> ",
+    "$ ",
+    "# ",
 ];
 
 static DESTRUCTIVE_COMMAND_REGEXES: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     DESTRUCTIVE_COMMAND_PATTERNS
         .iter()
-        .map(|pattern| Regex::new(pattern).expect("destructive bash command pattern should compile"))
+        .map(|pattern| {
+            Regex::new(pattern).expect("destructive bash command pattern should compile")
+        })
         .collect()
 });
 
@@ -52,9 +73,13 @@ pub struct BashTool;
 
 #[async_trait]
 impl Tool for BashTool {
-    fn name(&self) -> &str { "bash" }
+    fn name(&self) -> &str {
+        "bash"
+    }
 
-    fn user_facing_name(&self) -> &str { "Bash" }
+    fn user_facing_name(&self) -> &str {
+        "Bash"
+    }
 
     fn activity_description(&self, params: &Value) -> String {
         let command = params.get("command").and_then(|v| v.as_str()).unwrap_or("");
@@ -102,7 +127,11 @@ IMPORTANT: Avoid using this tool to run `find`, `grep`, `cat`, `head`, `tail`, `
     }
 
     fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities { requires_confirmation: true, supports_auto_execution: false, read_only: false }
+        ToolCapabilities {
+            requires_confirmation: true,
+            supports_auto_execution: false,
+            read_only: false,
+        }
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
@@ -116,7 +145,9 @@ IMPORTANT: Avoid using this tool to run `find`, `grep`, `cat`, `head`, `tail`, `
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         if dangerously_disable_sandbox {
-            tracing::warn!("bash OS sandbox explicitly disabled; destructive command guard remains active");
+            tracing::warn!(
+                "bash OS sandbox explicitly disabled; destructive command guard remains active"
+            );
         }
         if let Some(reason) = destructive_command_reason(command) {
             return Ok(ToolResult::error_typed(
@@ -143,7 +174,8 @@ IMPORTANT: Avoid using this tool to run `find`, `grep`, `cat`, `head`, `tail`, `
 
         let before_changes = GitChangeSnapshot::capture(working_dir).await;
         let timeout_duration = Duration::from_secs(timeout_secs);
-        let prepared = crate::sandbox::prepare_shell(command, working_dir, dangerously_disable_sandbox)?;
+        let prepared =
+            crate::sandbox::prepare_shell(command, working_dir, dangerously_disable_sandbox)?;
         let sandbox_info = prepared.info.clone();
         let mut cmd = Command::new(&prepared.executable);
         cmd.args(&prepared.args)
@@ -168,7 +200,8 @@ IMPORTANT: Avoid using this tool to run `find`, `grep`, `cat`, `head`, `tail`, `
                 } else {
                     Vec::new()
                 };
-                self.format_output(command, working_dir, output, modified_files).await?
+                self.format_output(command, working_dir, output, modified_files)
+                    .await?
             }
             watchdog::StallResult::Stalled(partial_output) => {
                 kill_child_after_bash_interruption(&mut child, command, "stalled").await;

@@ -156,7 +156,9 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
 
 /// Register the skill tool with the given skill store.
 pub fn register_skill_tool(registry: &ToolRegistry, store: Arc<Mutex<skill::SkillStore>>) {
-    registry.register(Arc::new(skill::SkillTool { store: store.clone() }));
+    registry.register(Arc::new(skill::SkillTool {
+        store: store.clone(),
+    }));
     registry.register(Arc::new(skill::discover::DiscoverSkillsTool { store }));
 }
 

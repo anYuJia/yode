@@ -86,7 +86,10 @@ pub struct RepositoryIndex {
 impl RepositoryIndex {
     pub fn build(root: impl AsRef<Path>, options: IndexOptions) -> Result<Self> {
         let root = root.as_ref().canonicalize().with_context(|| {
-            format!("failed to resolve repository root {}", root.as_ref().display())
+            format!(
+                "failed to resolve repository root {}",
+                root.as_ref().display()
+            )
         })?;
         let mut index = Self {
             root: root.display().to_string(),
@@ -291,8 +294,32 @@ fn should_skip_dir(name: &str, include_hidden: bool) -> bool {
 
 fn is_source_file(path: &Path) -> bool {
     matches!(
-        path.extension().and_then(|ext| ext.to_str()).unwrap_or_default(),
-        "rs" | "ts" | "tsx" | "js" | "jsx" | "py" | "go" | "java" | "kt" | "kts" | "swift" | "c" | "cc" | "cpp" | "h" | "hpp" | "dart" | "vue" | "svelte" | "toml" | "yaml" | "yml" | "json" | "md"
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or_default(),
+        "rs" | "ts"
+            | "tsx"
+            | "js"
+            | "jsx"
+            | "py"
+            | "go"
+            | "java"
+            | "kt"
+            | "kts"
+            | "swift"
+            | "c"
+            | "cc"
+            | "cpp"
+            | "h"
+            | "hpp"
+            | "dart"
+            | "vue"
+            | "svelte"
+            | "toml"
+            | "yaml"
+            | "yml"
+            | "json"
+            | "md"
     )
 }
 
@@ -325,7 +352,11 @@ fn index_file(root: &Path, path: &Path, options: &IndexOptions) -> Result<Option
 }
 
 fn language_for_path(path: &Path) -> &'static str {
-    match path.extension().and_then(|ext| ext.to_str()).unwrap_or_default() {
+    match path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .unwrap_or_default()
+    {
         "rs" => "rust",
         "ts" | "tsx" => "typescript",
         "js" | "jsx" => "javascript",
@@ -350,28 +381,73 @@ fn language_for_path(path: &Path) -> &'static str {
 fn extract_symbols(content: &str, language: &str) -> Vec<SymbolRecord> {
     let patterns: &[(&str, SymbolKind)] = match language {
         "rust" => &[
-            (r"^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)", SymbolKind::Function),
-            (r"^(?:pub\s+)?struct\s+([A-Za-z_][A-Za-z0-9_]*)", SymbolKind::Struct),
-            (r"^(?:pub\s+)?enum\s+([A-Za-z_][A-Za-z0-9_]*)", SymbolKind::Enum),
-            (r"^(?:pub\s+)?trait\s+([A-Za-z_][A-Za-z0-9_]*)", SymbolKind::Trait),
-            (r"^(?:pub\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)", SymbolKind::Module),
-            (r"^(?:pub\s+)?const\s+([A-Za-z_][A-Za-z0-9_]*)", SymbolKind::Constant),
+            (
+                r"^(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)",
+                SymbolKind::Function,
+            ),
+            (
+                r"^(?:pub\s+)?struct\s+([A-Za-z_][A-Za-z0-9_]*)",
+                SymbolKind::Struct,
+            ),
+            (
+                r"^(?:pub\s+)?enum\s+([A-Za-z_][A-Za-z0-9_]*)",
+                SymbolKind::Enum,
+            ),
+            (
+                r"^(?:pub\s+)?trait\s+([A-Za-z_][A-Za-z0-9_]*)",
+                SymbolKind::Trait,
+            ),
+            (
+                r"^(?:pub\s+)?mod\s+([A-Za-z_][A-Za-z0-9_]*)",
+                SymbolKind::Module,
+            ),
+            (
+                r"^(?:pub\s+)?const\s+([A-Za-z_][A-Za-z0-9_]*)",
+                SymbolKind::Constant,
+            ),
         ],
         "typescript" | "javascript" | "vue" | "svelte" => &[
-            (r"^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)", SymbolKind::Function),
-            (r"^(?:export\s+)?class\s+([A-Za-z_$][A-Za-z0-9_$]*)", SymbolKind::Class),
-            (r"^(?:export\s+)?interface\s+([A-Za-z_$][A-Za-z0-9_$]*)", SymbolKind::Interface),
-            (r"^(?:export\s+)?type\s+([A-Za-z_$][A-Za-z0-9_$]*)", SymbolKind::Type),
-            (r"^(?:export\s+)?const\s+([A-Za-z_$][A-Za-z0-9_$]*)", SymbolKind::Constant),
+            (
+                r"^(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+                SymbolKind::Function,
+            ),
+            (
+                r"^(?:export\s+)?class\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+                SymbolKind::Class,
+            ),
+            (
+                r"^(?:export\s+)?interface\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+                SymbolKind::Interface,
+            ),
+            (
+                r"^(?:export\s+)?type\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+                SymbolKind::Type,
+            ),
+            (
+                r"^(?:export\s+)?const\s+([A-Za-z_$][A-Za-z0-9_$]*)",
+                SymbolKind::Constant,
+            ),
         ],
         "python" => &[
-            (r"^(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)", SymbolKind::Function),
+            (
+                r"^(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)",
+                SymbolKind::Function,
+            ),
             (r"^class\s+([A-Za-z_][A-Za-z0-9_]*)", SymbolKind::Class),
         ],
         "go" => &[
-            (r"^func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)", SymbolKind::Function),
-            (r"^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+struct", SymbolKind::Struct),
-            (r"^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+interface", SymbolKind::Interface),
+            (
+                r"^func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)",
+                SymbolKind::Function,
+            ),
+            (
+                r"^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+struct",
+                SymbolKind::Struct,
+            ),
+            (
+                r"^type\s+([A-Za-z_][A-Za-z0-9_]*)\s+interface",
+                SymbolKind::Interface,
+            ),
         ],
         _ => &[],
     };
@@ -406,8 +482,13 @@ fn extract_imports(content: &str, language: &str) -> Vec<String> {
         let candidate = match language {
             "rust" if trimmed.starts_with("use ") || trimmed.starts_with("mod ") => Some(trimmed),
             "typescript" | "javascript" | "vue" | "svelte"
-                if trimmed.starts_with("import ") || trimmed.contains("require(") => Some(trimmed),
-            "python" if trimmed.starts_with("import ") || trimmed.starts_with("from ") => Some(trimmed),
+                if trimmed.starts_with("import ") || trimmed.contains("require(") =>
+            {
+                Some(trimmed)
+            }
+            "python" if trimmed.starts_with("import ") || trimmed.starts_with("from ") => {
+                Some(trimmed)
+            }
             "go" if trimmed.starts_with('"') && trimmed.ends_with('"') => Some(trimmed),
             _ => None,
         };

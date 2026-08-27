@@ -38,7 +38,11 @@ pub struct RunPostmortem {
 }
 
 impl RunPostmortem {
-    pub fn new(run_id: impl Into<String>, session_id: impl Into<String>, goal: impl Into<String>) -> Self {
+    pub fn new(
+        run_id: impl Into<String>,
+        session_id: impl Into<String>,
+        goal: impl Into<String>,
+    ) -> Self {
         Self {
             run_id: run_id.into(),
             session_id: session_id.into(),
@@ -85,7 +89,9 @@ pub struct LearningStore {
 
 impl LearningStore {
     pub fn for_workspace(workspace: impl AsRef<Path>) -> Self {
-        Self { root: workspace.as_ref().join(".yode").join("learning") }
+        Self {
+            root: workspace.as_ref().join(".yode").join("learning"),
+        }
     }
 
     pub fn record(&self, mut postmortem: RunPostmortem) -> Result<Vec<LearnedLesson>> {
@@ -95,7 +101,10 @@ impl LearningStore {
             postmortem.recorded_at = Utc::now().to_rfc3339();
         }
         let postmortem_path = self.root.join("postmortems.jsonl");
-        let mut file = OpenOptions::new().create(true).append(true).open(&postmortem_path)?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&postmortem_path)?;
         serde_json::to_writer(&mut file, &postmortem)?;
         file.write_all(b"\n")?;
         file.flush()?;
@@ -133,8 +142,14 @@ impl LearningStore {
         lessons.sort_by(|left, right| {
             let right_score = lesson_score(right, &query_terms);
             let left_score = lesson_score(left, &query_terms);
-            right_score.cmp(&left_score)
-                .then_with(|| right.confidence.partial_cmp(&left.confidence).unwrap_or(std::cmp::Ordering::Equal))
+            right_score
+                .cmp(&left_score)
+                .then_with(|| {
+                    right
+                        .confidence
+                        .partial_cmp(&left.confidence)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .then_with(|| right.observations.cmp(&left.observations))
         });
         lessons.retain(|lesson| query_terms.is_empty() || lesson_score(lesson, &query_terms) > 0);
@@ -147,32 +162,45 @@ impl LearningStore {
         Ok(LearningSummary {
             postmortems: self.load_postmortems()?.len(),
             lessons: lessons.len(),
-            recurring_failure_patterns: lessons.values().filter(|lesson| lesson.observations >= 2).count(),
+            recurring_failure_patterns: lessons
+                .values()
+                .filter(|lesson| lesson.observations >= 2)
+                .count(),
         })
     }
 
     fn load_postmortems(&self) -> Result<Vec<RunPostmortem>> {
         let path = self.root.join("postmortems.jsonl");
-        let Ok(file) = fs::File::open(path) else { return Ok(Vec::new()) };
+        let Ok(file) = fs::File::open(path) else {
+            return Ok(Vec::new());
+        };
         let mut items = Vec::new();
         for line in BufReader::new(file).lines() {
             let line = line?;
-            if line.trim().is_empty() { continue; }
-            if let Ok(item) = serde_json::from_str(&line) { items.push(item); }
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(item) = serde_json::from_str(&line) {
+                items.push(item);
+            }
         }
         Ok(items)
     }
 
     fn load_all_lessons(&self) -> Result<BTreeMap<String, LearnedLesson>> {
         let path = self.root.join("lessons.json");
-        let Ok(bytes) = fs::read(path) else { return Ok(BTreeMap::new()) };
+        let Ok(bytes) = fs::read(path) else {
+            return Ok(BTreeMap::new());
+        };
         serde_json::from_slice(&bytes).context("failed to parse Yode learning lessons")
     }
 
     fn save_lessons(&self, lessons: &BTreeMap<String, LearnedLesson>) -> Result<()> {
         fs::create_dir_all(&self.root)?;
         let target = self.root.join("lessons.json");
-        let temp = self.root.join(format!("lessons-{}.tmp", std::process::id()));
+        let temp = self
+            .root
+            .join(format!("lessons-{}.tmp", std::process::id()));
         fs::write(&temp, serde_json::to_vec_pretty(lessons)?)?;
         fs::rename(temp, target)?;
         Ok(())
@@ -180,7 +208,9 @@ impl LearningStore {
 
     fn prune_postmortems(&self, max_items: usize) -> Result<()> {
         let items = self.load_postmortems()?;
-        if items.len() <= max_items { return Ok(()) }
+        if items.len() <= max_items {
+            return Ok(());
+        }
         let path = self.root.join("postmortems.jsonl");
         let keep = &items[items.len() - max_items..];
         let mut bytes = Vec::new();
@@ -197,7 +227,9 @@ fn derive_lessons(postmortem: &RunPostmortem) -> Vec<(String, String, Vec<String
     let mut lessons = Vec::new();
     for tool in &postmortem.failed_tools {
         let normalized = normalize_key(tool);
-        if normalized.is_empty() { continue; }
+        if normalized.is_empty() {
+            continue;
+        }
         lessons.push((
             format!("tool-failure:{normalized}"),
             format!("When `{tool}` fails, diagnose the failure before repeating the same call; prefer a narrower alternative or replan."),
@@ -221,7 +253,11 @@ fn derive_lessons(postmortem: &RunPostmortem) -> Vec<(String, String, Vec<String
     for lesson in &postmortem.lessons {
         let key = normalize_key(lesson);
         if !key.is_empty() {
-            lessons.push((format!("explicit:{key}"), lesson.clone(), vec!["explicit".to_string()]));
+            lessons.push((
+                format!("explicit:{key}"),
+                lesson.clone(),
+                vec!["explicit".to_string()],
+            ));
         }
     }
     lessons
@@ -230,7 +266,9 @@ fn derive_lessons(postmortem: &RunPostmortem) -> Vec<(String, String, Vec<String
 fn sanitize_postmortem(item: &mut RunPostmortem) {
     item.goal = redact(&item.goal);
     item.summary = redact(&item.summary);
-    for value in item.failed_tools.iter_mut()
+    for value in item
+        .failed_tools
+        .iter_mut()
         .chain(item.verification_evidence.iter_mut())
         .chain(item.model_routes.iter_mut())
         .chain(item.lessons.iter_mut())
@@ -240,10 +278,15 @@ fn sanitize_postmortem(item: &mut RunPostmortem) {
 }
 
 fn redact(value: &str) -> String {
-    value.split_whitespace()
+    value
+        .split_whitespace()
         .map(|token| {
             let lower = token.to_ascii_lowercase();
-            if lower.contains("api_key=") || lower.contains("token=") || lower.starts_with("sk-") || lower.starts_with("ghp_") {
+            if lower.contains("api_key=")
+                || lower.contains("token=")
+                || lower.starts_with("sk-")
+                || lower.starts_with("ghp_")
+            {
                 "[REDACTED]".to_string()
             } else {
                 token.to_string()
@@ -254,8 +297,15 @@ fn redact(value: &str) -> String {
 }
 
 fn normalize_key(value: &str) -> String {
-    value.chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .split('-')
         .filter(|part| !part.is_empty())
@@ -265,7 +315,8 @@ fn normalize_key(value: &str) -> String {
 }
 
 fn terms(value: &str) -> HashSet<String> {
-    value.to_ascii_lowercase()
+    value
+        .to_ascii_lowercase()
         .split(|ch: char| !ch.is_ascii_alphanumeric())
         .filter(|part| part.len() >= 2)
         .map(str::to_string)
@@ -273,13 +324,21 @@ fn terms(value: &str) -> HashSet<String> {
 }
 
 fn lesson_score(lesson: &LearnedLesson, query_terms: &HashSet<String>) -> u32 {
-    let haystack = format!("{} {} {}", lesson.key, lesson.text, lesson.tags.join(" ")).to_ascii_lowercase();
-    query_terms.iter().filter(|term| haystack.contains(term.as_str())).count() as u32
+    let haystack =
+        format!("{} {} {}", lesson.key, lesson.text, lesson.tags.join(" ")).to_ascii_lowercase();
+    query_terms
+        .iter()
+        .filter(|term| haystack.contains(term.as_str()))
+        .count() as u32
 }
 
 fn confidence(observations: u32, successful: u32) -> f32 {
     let recurrence = (observations.min(10) as f32) / 10.0;
-    let success_signal = if observations == 0 { 0.0 } else { successful as f32 / observations as f32 };
+    let success_signal = if observations == 0 {
+        0.0
+    } else {
+        successful as f32 / observations as f32
+    };
     (0.35 + recurrence * 0.45 + success_signal * 0.20).min(0.98)
 }
 
@@ -298,12 +357,17 @@ mod tests {
             store.record(postmortem).unwrap();
         }
         let lessons = store.relevant_lessons("test verification", 5).unwrap();
-        assert!(lessons.iter().any(|lesson| lesson.key.contains("test-runner")));
+        assert!(lessons
+            .iter()
+            .any(|lesson| lesson.key.contains("test-runner")));
         assert!(store.summary().unwrap().recurring_failure_patterns >= 1);
     }
 
     #[test]
     fn redacts_common_secret_shapes() {
-        assert_eq!(redact("use api_key=secret and sk-abc"), "use [REDACTED] and [REDACTED]");
+        assert_eq!(
+            redact("use api_key=secret and sk-abc"),
+            "use [REDACTED] and [REDACTED]"
+        );
     }
 }

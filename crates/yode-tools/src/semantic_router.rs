@@ -65,10 +65,16 @@ impl SemanticToolRouter {
         }
 
         let read_intent = tokens.iter().any(|token| {
-            matches!(token.as_str(), "read" | "inspect" | "search" | "find" | "list" | "show" | "查看" | "搜索" | "读取")
+            matches!(
+                token.as_str(),
+                "read" | "inspect" | "search" | "find" | "list" | "show" | "查看" | "搜索" | "读取"
+            )
         });
         let write_intent = tokens.iter().any(|token| {
-            matches!(token.as_str(), "write" | "edit" | "change" | "modify" | "create" | "fix" | "写" | "修改" | "修复")
+            matches!(
+                token.as_str(),
+                "write" | "edit" | "change" | "modify" | "create" | "fix" | "写" | "修改" | "修复"
+            )
         });
         if read_intent && capabilities.read_only {
             score += 18;
@@ -89,7 +95,9 @@ impl SemanticToolRouter {
 
 fn tokenize(value: &str) -> Vec<String> {
     value
-        .split(|ch: char| !(ch.is_ascii_alphanumeric() || ch == '_' || ('\u{4e00}'..='\u{9fff}').contains(&ch)))
+        .split(|ch: char| {
+            !(ch.is_ascii_alphanumeric() || ch == '_' || ('\u{4e00}'..='\u{9fff}').contains(&ch))
+        })
         .flat_map(|part| part.split('_'))
         .map(str::trim)
         .filter(|part| !part.is_empty())
@@ -98,31 +106,56 @@ fn tokenize(value: &str) -> Vec<String> {
 }
 
 fn intent_terms(tokens: &[String]) -> Vec<(&'static str, &'static [&'static str])> {
-    let has = |candidates: &[&str]| tokens.iter().any(|token| candidates.contains(&token.as_str()));
+    let has = |candidates: &[&str]| {
+        tokens
+            .iter()
+            .any(|token| candidates.contains(&token.as_str()))
+    };
     let mut intents = Vec::new();
     if has(&["file", "read", "cat", "读取", "文件"]) {
-        intents.push(("file-read", &["read_file", "file", "ls"] as &'static [&'static str]));
+        intents.push((
+            "file-read",
+            &["read_file", "file", "ls"] as &'static [&'static str],
+        ));
     }
     if has(&["edit", "write", "modify", "change", "修改", "编辑", "写入"]) {
-        intents.push(("file-edit", &["edit", "write", "multi_edit"] as &'static [&'static str]));
+        intents.push((
+            "file-edit",
+            &["edit", "write", "multi_edit"] as &'static [&'static str],
+        ));
     }
     if has(&["search", "find", "grep", "glob", "搜索", "查找"]) {
-        intents.push(("search", &["grep", "glob", "search", "project_map"] as &'static [&'static str]));
+        intents.push((
+            "search",
+            &["grep", "glob", "search", "project_map"] as &'static [&'static str],
+        ));
     }
     if has(&["test", "verify", "verification", "check", "测试", "验证"]) {
-        intents.push(("verification", &["test", "verify", "verification", "review"] as &'static [&'static str]));
+        intents.push((
+            "verification",
+            &["test", "verify", "verification", "review"] as &'static [&'static str],
+        ));
     }
     if has(&["browser", "web", "page", "ui", "浏览器", "网页", "界面"]) {
-        intents.push(("browser", &["browser", "web_fetch"] as &'static [&'static str]));
+        intents.push((
+            "browser",
+            &["browser", "web_fetch"] as &'static [&'static str],
+        ));
     }
     if has(&["git", "commit", "diff", "branch", "提交", "分支"]) {
         intents.push(("git", &["git_", "worktree"] as &'static [&'static str]));
     }
     if has(&["agent", "subagent", "parallel", "team", "代理", "并行"]) {
-        intents.push(("agent", &["agent", "team", "coordinator"] as &'static [&'static str]));
+        intents.push((
+            "agent",
+            &["agent", "team", "coordinator"] as &'static [&'static str],
+        ));
     }
     if has(&["github", "issue", "pr", "pull", "ci"]) {
-        intents.push(("github", &["github", "issue", "pr", "git"] as &'static [&'static str]));
+        intents.push((
+            "github",
+            &["github", "issue", "pr", "git"] as &'static [&'static str],
+        ));
     }
     intents
 }
@@ -144,11 +177,21 @@ mod tests {
 
     #[async_trait]
     impl Tool for Dummy {
-        fn name(&self) -> &str { self.name }
-        fn description(&self) -> &str { self.description }
-        fn parameters_schema(&self) -> Value { json!({"type":"object"}) }
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn description(&self) -> &str {
+            self.description
+        }
+        fn parameters_schema(&self) -> Value {
+            json!({"type":"object"})
+        }
         fn capabilities(&self) -> ToolCapabilities {
-            ToolCapabilities { requires_confirmation: !self.read_only, supports_auto_execution: self.read_only, read_only: self.read_only }
+            ToolCapabilities {
+                requires_confirmation: !self.read_only,
+                supports_auto_execution: self.read_only,
+                read_only: self.read_only,
+            }
         }
         async fn execute(&self, _params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
             Ok(ToolResult::success("ok".into()))
@@ -158,18 +201,36 @@ mod tests {
     #[test]
     fn semantic_intent_beats_unrelated_description() {
         let router = SemanticToolRouter;
-        let edit = Dummy { name: "edit_file", description: "change source code safely", read_only: false };
-        let web = Dummy { name: "web_fetch", description: "fetch content", read_only: true };
+        let edit = Dummy {
+            name: "edit_file",
+            description: "change source code safely",
+            read_only: false,
+        };
+        let web = Dummy {
+            name: "web_fetch",
+            description: "fetch content",
+            read_only: true,
+        };
         let edit_score = router.score("modify file", &edit).unwrap().score;
-        let web_score = router.score("modify file", &web).map(|m| m.score).unwrap_or_default();
+        let web_score = router
+            .score("modify file", &web)
+            .map(|m| m.score)
+            .unwrap_or_default();
         assert!(edit_score > web_score);
     }
 
     #[test]
     fn verification_intent_routes_to_test_tools() {
         let router = SemanticToolRouter;
-        let test = Dummy { name: "test_runner", description: "run repository tests", read_only: false };
+        let test = Dummy {
+            name: "test_runner",
+            description: "run repository tests",
+            read_only: false,
+        };
         let score = router.score("verify the fix with tests", &test).unwrap();
-        assert!(score.reasons.iter().any(|reason| reason.contains("verification")));
+        assert!(score
+            .reasons
+            .iter()
+            .any(|reason| reason.contains("verification")));
     }
 }

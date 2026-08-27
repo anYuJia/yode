@@ -10,9 +10,13 @@ pub struct ToolSearchTool;
 
 #[async_trait]
 impl Tool for ToolSearchTool {
-    fn name(&self) -> &str { "tool_search" }
+    fn name(&self) -> &str {
+        "tool_search"
+    }
 
-    fn user_facing_name(&self) -> &str { "Tool Search" }
+    fn user_facing_name(&self) -> &str {
+        "Tool Search"
+    }
 
     fn activity_description(&self, params: &Value) -> String {
         let query = params.get("query").and_then(|v| v.as_str()).unwrap_or("");
@@ -43,18 +47,28 @@ impl Tool for ToolSearchTool {
     }
 
     fn capabilities(&self) -> ToolCapabilities {
-        ToolCapabilities { requires_confirmation: false, supports_auto_execution: true, read_only: true }
+        ToolCapabilities {
+            requires_confirmation: false,
+            supports_auto_execution: true,
+            read_only: true,
+        }
     }
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
-        let query = params.get("query").and_then(Value::as_str).unwrap_or("").trim();
+        let query = params
+            .get("query")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .trim();
         let max_results = params
             .get("max_results")
             .and_then(Value::as_u64)
             .unwrap_or(5)
             .clamp(1, 20) as usize;
         if query.is_empty() {
-            return Ok(ToolResult::error("'query' parameter is required".to_string()));
+            return Ok(ToolResult::error(
+                "'query' parameter is required".to_string(),
+            ));
         }
 
         let registry = ctx
@@ -76,8 +90,12 @@ impl Tool for ToolSearchTool {
                 if !entry.visible_to_model {
                     continue;
                 }
-                let Some(tool) = registry.get(&entry.name) else { continue };
-                let Some(score) = router.score(query, tool.as_ref()) else { continue };
+                let Some(tool) = registry.get(&entry.name) else {
+                    continue;
+                };
+                let Some(score) = router.score(query, tool.as_ref()) else {
+                    continue;
+                };
                 ranked.push((score, entry.phase, tool.description().to_string()));
             }
         } else {
@@ -89,13 +107,21 @@ impl Tool for ToolSearchTool {
             for (name, tool) in registry.list_deferred() {
                 if let Some(mut score) = router.score(query, tool.as_ref()) {
                     score.name = name;
-                    ranked.push((score, ToolPoolPhase::Deferred, tool.description().to_string()));
+                    ranked.push((
+                        score,
+                        ToolPoolPhase::Deferred,
+                        tool.description().to_string(),
+                    ));
                 }
             }
         }
 
         ranked.sort_by(|left, right| {
-            right.0.score.cmp(&left.0.score).then_with(|| left.0.name.cmp(&right.0.name))
+            right
+                .0
+                .score
+                .cmp(&left.0.score)
+                .then_with(|| left.0.name.cmp(&right.0.name))
         });
         ranked.truncate(max_results);
 
@@ -115,7 +141,11 @@ impl Tool for ToolSearchTool {
         let rendered = ranked
             .iter()
             .map(|(matched, phase, description)| {
-                let phase_label = if *phase == ToolPoolPhase::Deferred { ", deferred" } else { "" };
+                let phase_label = if *phase == ToolPoolPhase::Deferred {
+                    ", deferred"
+                } else {
+                    ""
+                };
                 let why = if matched.reasons.is_empty() {
                     String::new()
                 } else {
@@ -181,9 +211,15 @@ async fn explicit_select(
                 ));
             }
             if let Some(tool) = registry.get(&entry.name) {
-                let activated = entry.phase == ToolPoolPhase::Deferred && registry.activate_tool(&entry.name);
+                let activated =
+                    entry.phase == ToolPoolPhase::Deferred && registry.activate_tool(&entry.name);
                 let content = if activated {
-                    format!("Activated tool '{}' into the active pool.\n\n- **{}**: {}", entry.name, entry.name, tool.description())
+                    format!(
+                        "Activated tool '{}' into the active pool.\n\n- **{}**: {}",
+                        entry.name,
+                        entry.name,
+                        tool.description()
+                    )
                 } else {
                     format!("- **{}**: {}", entry.name, tool.description())
                 };
@@ -212,7 +248,12 @@ async fn explicit_select(
             if name.eq_ignore_ascii_case(req_name) {
                 let activated = registry.activate_tool(&name);
                 return Ok(ToolResult::success_with_metadata(
-                    format!("Activated tool '{}' into the active pool.\n\n- **{}**: {}", name, name, tool.description()),
+                    format!(
+                        "Activated tool '{}' into the active pool.\n\n- **{}**: {}",
+                        name,
+                        name,
+                        tool.description()
+                    ),
                     serde_json::json!({
                         "query": original_query,
                         "count": 1,
@@ -225,7 +266,10 @@ async fn explicit_select(
     }
 
     Ok(ToolResult::success_with_metadata(
-        format!("Tool '{}' was not found in the current tool pool.", req_name),
+        format!(
+            "Tool '{}' was not found in the current tool pool.",
+            req_name
+        ),
         serde_json::json!({"query": original_query, "count": 0, "router": "semantic_v1"}),
     ))
 }
@@ -235,18 +279,34 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::registry::{ToolOrigin, ToolPermissionState, ToolPoolEntry, ToolPoolPhase, ToolPoolSnapshot};
+    use crate::registry::{
+        ToolOrigin, ToolPermissionState, ToolPoolEntry, ToolPoolPhase, ToolPoolSnapshot,
+    };
     use serde_json::json;
 
-    struct DummyTool { name: &'static str, description: &'static str, read_only: bool }
+    struct DummyTool {
+        name: &'static str,
+        description: &'static str,
+        read_only: bool,
+    }
 
     #[async_trait]
     impl Tool for DummyTool {
-        fn name(&self) -> &str { self.name }
-        fn description(&self) -> &str { self.description }
-        fn parameters_schema(&self) -> Value { json!({"type":"object","properties":{}}) }
+        fn name(&self) -> &str {
+            self.name
+        }
+        fn description(&self) -> &str {
+            self.description
+        }
+        fn parameters_schema(&self) -> Value {
+            json!({"type":"object","properties":{}})
+        }
         fn capabilities(&self) -> ToolCapabilities {
-            ToolCapabilities { requires_confirmation: !self.read_only, supports_auto_execution: self.read_only, read_only: self.read_only }
+            ToolCapabilities {
+                requires_confirmation: !self.read_only,
+                supports_auto_execution: self.read_only,
+                read_only: self.read_only,
+            }
         }
         async fn execute(&self, _params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
             Ok(ToolResult::success("ok".to_string()))
@@ -255,9 +315,21 @@ mod tests {
 
     fn test_context(write_file_visible: bool) -> ToolContext {
         let registry = crate::registry::ToolRegistry::new();
-        registry.register(Arc::new(DummyTool { name: "read_file", description: "Read repo files", read_only: true }));
-        registry.register_deferred(Arc::new(DummyTool { name: "write_file", description: "Write repo files", read_only: false }));
-        registry.register_deferred(Arc::new(DummyTool { name: "test_runner", description: "Run repository tests and verify changes", read_only: false }));
+        registry.register(Arc::new(DummyTool {
+            name: "read_file",
+            description: "Read repo files",
+            read_only: true,
+        }));
+        registry.register_deferred(Arc::new(DummyTool {
+            name: "write_file",
+            description: "Write repo files",
+            read_only: false,
+        }));
+        registry.register_deferred(Arc::new(DummyTool {
+            name: "test_runner",
+            description: "Run repository tests and verify changes",
+            read_only: false,
+        }));
         let mut ctx = ToolContext::empty();
         ctx.registry = Some(Arc::new(registry));
         ctx.tool_pool_snapshot = Some(ToolPoolSnapshot {
@@ -265,9 +337,41 @@ mod tests {
             tool_search_enabled: true,
             tool_search_reason: Some("test".to_string()),
             entries: vec![
-                ToolPoolEntry { name: "read_file".to_string(), phase: ToolPoolPhase::Active, origin: ToolOrigin::Builtin, permission: ToolPermissionState::Allow, visible_to_model: true, reason: "Plan mode allows this read-only tool.".to_string(), matched_rule: None },
-                ToolPoolEntry { name: "write_file".to_string(), phase: ToolPoolPhase::Deferred, origin: ToolOrigin::Builtin, permission: if write_file_visible { ToolPermissionState::Allow } else { ToolPermissionState::Deny }, visible_to_model: write_file_visible, reason: if write_file_visible { "Loaded by tool_search.".to_string() } else { "Plan mode blocks mutating tools.".to_string() }, matched_rule: None },
-                ToolPoolEntry { name: "test_runner".to_string(), phase: ToolPoolPhase::Deferred, origin: ToolOrigin::Builtin, permission: ToolPermissionState::Allow, visible_to_model: true, reason: "Verification is allowed.".to_string(), matched_rule: None },
+                ToolPoolEntry {
+                    name: "read_file".to_string(),
+                    phase: ToolPoolPhase::Active,
+                    origin: ToolOrigin::Builtin,
+                    permission: ToolPermissionState::Allow,
+                    visible_to_model: true,
+                    reason: "Plan mode allows this read-only tool.".to_string(),
+                    matched_rule: None,
+                },
+                ToolPoolEntry {
+                    name: "write_file".to_string(),
+                    phase: ToolPoolPhase::Deferred,
+                    origin: ToolOrigin::Builtin,
+                    permission: if write_file_visible {
+                        ToolPermissionState::Allow
+                    } else {
+                        ToolPermissionState::Deny
+                    },
+                    visible_to_model: write_file_visible,
+                    reason: if write_file_visible {
+                        "Loaded by tool_search.".to_string()
+                    } else {
+                        "Plan mode blocks mutating tools.".to_string()
+                    },
+                    matched_rule: None,
+                },
+                ToolPoolEntry {
+                    name: "test_runner".to_string(),
+                    phase: ToolPoolPhase::Deferred,
+                    origin: ToolOrigin::Builtin,
+                    permission: ToolPermissionState::Allow,
+                    visible_to_model: true,
+                    reason: "Verification is allowed.".to_string(),
+                    matched_rule: None,
+                },
             ],
         });
         ctx
@@ -275,7 +379,10 @@ mod tests {
 
     #[tokio::test]
     async fn tool_search_hides_denied_tools_from_results() {
-        let result = ToolSearchTool.execute(json!({"query":"file"}), &test_context(false)).await.unwrap();
+        let result = ToolSearchTool
+            .execute(json!({"query":"file"}), &test_context(false))
+            .await
+            .unwrap();
         assert!(!result.is_error);
         assert!(result.content.contains("read_file"));
         assert!(!result.content.contains("write_file"));
@@ -283,23 +390,57 @@ mod tests {
 
     #[tokio::test]
     async fn tool_search_reports_blocked_select_for_hidden_tool() {
-        let result = ToolSearchTool.execute(json!({"query":"select:write_file"}), &test_context(false)).await.unwrap();
-        assert!(result.content.contains("unavailable in the current tool pool"));
-        assert_eq!(result.metadata.as_ref().and_then(|v| v.get("blocked")).and_then(Value::as_bool), Some(true));
+        let result = ToolSearchTool
+            .execute(json!({"query":"select:write_file"}), &test_context(false))
+            .await
+            .unwrap();
+        assert!(result
+            .content
+            .contains("unavailable in the current tool pool"));
+        assert_eq!(
+            result
+                .metadata
+                .as_ref()
+                .and_then(|v| v.get("blocked"))
+                .and_then(Value::as_bool),
+            Some(true)
+        );
     }
 
     #[tokio::test]
     async fn tool_search_select_activates_visible_deferred_tool() {
         let ctx = test_context(true);
-        let result = ToolSearchTool.execute(json!({"query":"select:write_file"}), &ctx).await.unwrap();
+        let result = ToolSearchTool
+            .execute(json!({"query":"select:write_file"}), &ctx)
+            .await
+            .unwrap();
         assert!(result.content.contains("Activated tool 'write_file'"));
-        assert!(ctx.registry.as_ref().unwrap().definitions().iter().any(|definition| definition.name == "write_file"));
+        assert!(ctx
+            .registry
+            .as_ref()
+            .unwrap()
+            .definitions()
+            .iter()
+            .any(|definition| definition.name == "write_file"));
     }
 
     #[tokio::test]
     async fn semantic_verification_query_ranks_test_runner() {
-        let result = ToolSearchTool.execute(json!({"query":"verify the fix with tests","max_results":1}), &test_context(true)).await.unwrap();
+        let result = ToolSearchTool
+            .execute(
+                json!({"query":"verify the fix with tests","max_results":1}),
+                &test_context(true),
+            )
+            .await
+            .unwrap();
         assert!(result.content.contains("test_runner"));
-        assert_eq!(result.metadata.as_ref().and_then(|v| v.get("router")).and_then(Value::as_str), Some("semantic_v1"));
+        assert_eq!(
+            result
+                .metadata
+                .as_ref()
+                .and_then(|v| v.get("router"))
+                .and_then(Value::as_str),
+            Some("semantic_v1")
+        );
     }
 }

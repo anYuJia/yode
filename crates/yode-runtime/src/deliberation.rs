@@ -100,7 +100,10 @@ pub async fn run_best_of_n<R: DeliberationRunner>(
         .collect::<Result<Vec<_>>>()?;
     let decision = runner.judge(goal, &config.rubric, &candidates).await?;
     validate_decision(&decision, &candidates)?;
-    Ok(BestOfNResult { candidates, decision })
+    Ok(BestOfNResult {
+        candidates,
+        decision,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -156,7 +159,11 @@ pub async fn run_debate<R: DeliberationRunner>(
         for result in join_all(futures).await {
             let (index, agent_id, content) = result?;
             latest[index] = content.clone();
-            turns.push(DebateTurn { round: round + 1, agent_id, content });
+            turns.push(DebateTurn {
+                round: round + 1,
+                agent_id,
+                content,
+            });
         }
     }
 
@@ -171,11 +178,18 @@ pub async fn run_debate<R: DeliberationRunner>(
         .collect::<Vec<_>>();
     let decision = runner.judge(goal, &config.rubric, &finalists).await?;
     validate_decision(&decision, &finalists)?;
-    Ok(DebateResult { turns, finalists, decision })
+    Ok(DebateResult {
+        turns,
+        finalists,
+        decision,
+    })
 }
 
 fn validate_decision(decision: &JudgeDecision, candidates: &[DeliberationCandidate]) -> Result<()> {
-    if !candidates.iter().any(|candidate| candidate.id == decision.winner_id) {
+    if !candidates
+        .iter()
+        .any(|candidate| candidate.id == decision.winner_id)
+    {
         bail!("judge selected unknown candidate '{}'", decision.winner_id);
     }
     Ok(())
@@ -186,7 +200,9 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    struct MockRunner { calls: AtomicUsize }
+    struct MockRunner {
+        calls: AtomicUsize,
+    }
 
     #[async_trait]
     impl DeliberationRunner for MockRunner {
@@ -195,7 +211,12 @@ mod tests {
             Ok(format!("{label}:{}", prompt.len()))
         }
 
-        async fn judge(&self, _goal: &str, _rubric: &str, candidates: &[DeliberationCandidate]) -> Result<JudgeDecision> {
+        async fn judge(
+            &self,
+            _goal: &str,
+            _rubric: &str,
+            candidates: &[DeliberationCandidate],
+        ) -> Result<JudgeDecision> {
             Ok(JudgeDecision {
                 winner_id: candidates.last().unwrap().id.clone(),
                 score: 90,
@@ -207,8 +228,12 @@ mod tests {
 
     #[tokio::test]
     async fn best_of_n_generates_and_judges_candidates() {
-        let runner = MockRunner { calls: AtomicUsize::new(0) };
-        let result = run_best_of_n(&runner, "fix the bug", &BestOfNConfig::default()).await.unwrap();
+        let runner = MockRunner {
+            calls: AtomicUsize::new(0),
+        };
+        let result = run_best_of_n(&runner, "fix the bug", &BestOfNConfig::default())
+            .await
+            .unwrap();
         assert_eq!(result.candidates.len(), 3);
         assert_eq!(result.decision.winner_id, "candidate-3");
         assert_eq!(runner.calls.load(Ordering::SeqCst), 3);
@@ -216,8 +241,12 @@ mod tests {
 
     #[tokio::test]
     async fn debate_produces_round_transcript_and_judgment() {
-        let runner = MockRunner { calls: AtomicUsize::new(0) };
-        let result = run_debate(&runner, "choose an architecture", &DebateConfig::default()).await.unwrap();
+        let runner = MockRunner {
+            calls: AtomicUsize::new(0),
+        };
+        let result = run_debate(&runner, "choose an architecture", &DebateConfig::default())
+            .await
+            .unwrap();
         assert_eq!(result.turns.len(), 4);
         assert_eq!(result.finalists.len(), 2);
     }

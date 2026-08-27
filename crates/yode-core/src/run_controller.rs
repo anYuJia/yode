@@ -40,8 +40,12 @@ pub enum RunSignal {
     },
     ReplanReady,
     DeliveryComplete,
-    Fail { reason: String },
-    Cancel { reason: Option<String> },
+    Fail {
+        reason: String,
+    },
+    Cancel {
+        reason: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -31,7 +31,10 @@ impl DesktopRuntime {
             message: if cleared.is_empty() {
                 "浏览器数据目录已初始化。".to_string()
             } else {
-                format!("已关闭浏览器运行时并清理 {} 个浏览器数据目录。", cleared.len())
+                format!(
+                    "已关闭浏览器运行时并清理 {} 个浏览器数据目录。",
+                    cleared.len()
+                )
             },
             path: Some(self.workspace_path.join(".yode").display().to_string()),
         })

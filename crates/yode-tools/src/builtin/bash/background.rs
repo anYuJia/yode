@@ -13,11 +13,8 @@ impl BashTool {
         ctx: &ToolContext,
         dangerously_disable_sandbox: bool,
     ) -> Result<ToolResult> {
-        let prepared = crate::sandbox::prepare_shell(
-            command,
-            working_dir,
-            dangerously_disable_sandbox,
-        )?;
+        let prepared =
+            crate::sandbox::prepare_shell(command, working_dir, dangerously_disable_sandbox)?;
         let sandbox_info = prepared.info.clone();
         let mut result = crate::builtin::shell_runtime::execute_background_shell(
             crate::builtin::shell_runtime::BackgroundShellSpec {

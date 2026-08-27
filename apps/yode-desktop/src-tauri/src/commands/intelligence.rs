@@ -12,7 +12,9 @@ pub async fn agent_intelligence_snapshot(
     let default_llm = runtime
         .config_get_default_llm()
         .map_err(|error| error.to_string())?;
-    let providers = runtime.config_get_providers().map_err(|error| error.to_string())?;
+    let providers = runtime
+        .config_get_providers()
+        .map_err(|error| error.to_string())?;
 
     let registry = ModelCapabilityRegistry::default();
     let router = ModelRouter::new(registry.clone());

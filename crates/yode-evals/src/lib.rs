@@ -54,8 +54,14 @@ pub struct EvalTask {
 impl EvalTask {
     pub fn validate(&self) -> Result<()> {
         anyhow::ensure!(!self.id.trim().is_empty(), "eval task id cannot be empty");
-        anyhow::ensure!(!self.title.trim().is_empty(), "eval task title cannot be empty");
-        anyhow::ensure!(!self.prompt.trim().is_empty(), "eval task prompt cannot be empty");
+        anyhow::ensure!(
+            !self.title.trim().is_empty(),
+            "eval task title cannot be empty"
+        );
+        anyhow::ensure!(
+            !self.prompt.trim().is_empty(),
+            "eval task prompt cannot be empty"
+        );
 
         let mut ids = std::collections::BTreeSet::new();
         for criterion in &self.acceptance {
@@ -252,10 +258,8 @@ mod tests {
 
     #[test]
     fn aggregates_core_agent_metrics() {
-        let report = aggregate_outcomes(&[
-            outcome(true, false, 10, 100),
-            outcome(false, true, 20, 300),
-        ]);
+        let report =
+            aggregate_outcomes(&[outcome(true, false, 10, 100), outcome(false, true, 20, 300)]);
         assert_eq!(report.runs, 2);
         assert_eq!(report.successes, 1);
         assert_eq!(report.regressions, 1);

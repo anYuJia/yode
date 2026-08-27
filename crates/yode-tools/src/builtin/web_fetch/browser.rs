@@ -109,7 +109,9 @@ impl Tool for WebBrowserTool {
 
     async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
         let action = match params.get("action").and_then(Value::as_str) {
-            Some(action @ ("navigate" | "click" | "type" | "scroll" | "screenshot" | "evaluate")) => action,
+            Some(
+                action @ ("navigate" | "click" | "type" | "scroll" | "screenshot" | "evaluate"),
+            ) => action,
             Some(other) => {
                 return Ok(validation_error(
                     format!("Unknown browser action '{other}'"),
@@ -157,7 +159,10 @@ impl Tool for WebBrowserTool {
                     format!("当前浏览器审批策略不允许打开未加入白名单的域名：{domain}"),
                     ToolErrorType::PermissionDeny,
                     true,
-                    Some("请将该域名加入 设置 > 浏览器 > 已允许域名，或调整授权审批策略。".to_string()),
+                    Some(
+                        "请将该域名加入 设置 > 浏览器 > 已允许域名，或调整授权审批策略。"
+                            .to_string(),
+                    ),
                 ));
             }
         } else if action == "navigate" {
@@ -275,7 +280,9 @@ fn extract_domain(raw_url: &str) -> Option<String> {
 }
 
 fn domain_matches_any(domain: &str, patterns: &[String]) -> bool {
-    patterns.iter().any(|pattern| domain_matches(domain, pattern))
+    patterns
+        .iter()
+        .any(|pattern| domain_matches(domain, pattern))
 }
 
 fn domain_matches(domain: &str, pattern: &str) -> bool {
@@ -301,7 +308,9 @@ mod tests {
 
     async fn env_lock() -> tokio::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await
+        LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+            .lock()
+            .await
     }
 
     fn set_browser_settings(settings: Value) {
@@ -370,6 +379,9 @@ mod tests {
             .await
             .unwrap();
         assert!(result.is_error);
-        assert_eq!(result.error_type, Some(crate::tool::ToolErrorType::Validation));
+        assert_eq!(
+            result.error_type,
+            Some(crate::tool::ToolErrorType::Validation)
+        );
     }
 }
