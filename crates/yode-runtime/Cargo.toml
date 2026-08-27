@@ -11,9 +11,15 @@ categories.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+async-trait = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
 tracing = { workspace = true }
+reqwest = { workspace = true }
 yode-core = { workspace = true }
 yode-llm = { workspace = true }
 yode-tools = { workspace = true }
-serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

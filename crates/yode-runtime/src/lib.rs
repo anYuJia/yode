@@ -1,4 +1,5 @@
 pub mod desktop_events;
+pub mod execution_backend;
 pub mod provider_bootstrap;
 
 pub use desktop_events::{
@@ -6,6 +7,11 @@ pub use desktop_events::{
     AskUserPayload, BudgetExceededPayload, CancelledPayload, CancellingPayload,
     DesktopEventEnvelope, DesktopEventKind, DesktopEventParts, DesktopEventPayload,
     PendingConfirmationParts, RuntimeEventParts,
+};
+pub use execution_backend::{
+    detect_standard_backends, BackendAvailability, CloudExecutionBackend, DockerExecutionBackend,
+    ExecutionBackend, ExecutionBackendCapabilities, ExecutionBackendKind, ExecutionRequest,
+    ExecutionResult, LocalExecutionBackend, SshExecutionBackend,
 };
 pub use provider_bootstrap::{
     bootstrap_provider_registry, bootstrap_provider_registry_with_options, bootstrap_registry_only,
