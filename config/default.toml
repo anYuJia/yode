@@ -39,10 +39,8 @@ language = "zh-CN"
 theme = "dark"
 
 [update]
-# 是否自动检查更新 (true=启用，false=禁用)
-# 禁用后启动时不会检测新版本，也不会提示更新
+# Desktop 更新策略预留。当前版本只检查 GitHub Releases，不在应用内替换二进制。
+# 未来接入签名 Tauri updater 后可复用此配置。
 auto_check = true
-# 是否自动后台下载更新 (true=启用，false=禁用)
-# 启用后检测到新版本会自动下载安装包
-# 禁用后仅提示有新版本，需要手动下载
-auto_download = true
+# 当前必须保持 false：禁止恢复旧 CLI updater 的后台下载/二进制替换路径。
+auto_download = false
