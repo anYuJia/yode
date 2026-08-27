@@ -30,6 +30,7 @@ pub mod powershell;
 pub mod project_map;
 pub mod read_file;
 pub mod remote_runtime;
+pub mod repository_search;
 pub mod review_changes;
 pub mod review_common;
 pub mod review_pipeline;
@@ -62,6 +63,7 @@ pub use ls::LsTool;
 pub use powershell::PowerShellTool;
 pub use project_map::ProjectMapTool;
 pub use read_file::ReadFileTool;
+pub use repository_search::RepositorySearchTool;
 pub use test_runner::TestRunnerTool;
 pub use write_file::WriteFileTool;
 
@@ -132,6 +134,7 @@ pub fn register_builtin_tools(registry: &ToolRegistry) {
     registry.register(Arc::new(review_changes::ReviewChangesTool));
     registry.register(Arc::new(review_pipeline::ReviewPipelineTool));
     registry.register(Arc::new(review_then_commit::ReviewThenCommitTool));
+    registry.register(Arc::new(repository_search::RepositorySearchTool));
     registry.register(Arc::new(project_map::ProjectMapTool));
     registry.register(Arc::new(hypothesis::HypothesisTool));
     registry.register(Arc::new(file_diff::FileDiffTool));
@@ -180,5 +183,6 @@ mod tests {
         assert!(names.contains("write_stdin"));
         assert!(names.contains("request_user_input"));
         assert!(names.contains("list_mcp_resource_templates"));
+        assert!(names.contains("repository_search"));
     }
 }
