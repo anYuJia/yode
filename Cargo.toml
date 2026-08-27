@@ -7,6 +7,7 @@ members = [
     "crates/yode-mcp",
     "crates/yode-agent",
     "crates/yode-runtime",
+    "crates/yode-evals",
 ]
 resolver = "2"
 
@@ -81,6 +82,7 @@ yode-tools = { version = "1.0.0", path = "crates/yode-tools" }
 yode-mcp = { version = "1.0.0", path = "crates/yode-mcp" }
 yode-agent = { version = "1.0.0", path = "crates/yode-agent" }
 yode-runtime = { version = "1.0.0", path = "crates/yode-runtime" }
+yode-evals = { version = "1.0.0", path = "crates/yode-evals" }
 
 [package]
 name = "yode"
