@@ -43,7 +43,7 @@ impl SessionLock {
                 session_id: session_id.to_string(),
             }),
             Err(err) => {
-                if err.kind() == std::io::ErrorKind::WouldBlock {
+                if is_lock_contention(&err) {
                     Err(anyhow::anyhow!(
                         "该会话正在其他进程中运行（对话/压缩/清理等），请等待其完成后重试。"
                     ))
@@ -67,6 +67,23 @@ impl SessionLock {
     pub fn lock_path(&self) -> &Path {
         &self.lock_path
     }
+}
+
+/// `fs2` 在 Unix 上通常映射为 `WouldBlock`；Windows 的 `LockFileEx` 冲突则可能
+/// 保留 Win32 `ERROR_LOCK_VIOLATION` (33)，而不映射为 `WouldBlock`。两者语义相同：
+/// 都表示锁已被其他持有者占用，应向调用方返回统一的会话冲突错误。
+fn is_lock_contention(err: &std::io::Error) -> bool {
+    if err.kind() == std::io::ErrorKind::WouldBlock {
+        return true;
+    }
+    #[cfg(windows)]
+    {
+        const ERROR_LOCK_VIOLATION: i32 = 33;
+        if err.raw_os_error() == Some(ERROR_LOCK_VIOLATION) {
+            return true;
+        }
+    }
+    false
 }
 
 /// 便捷入口：获取指定数据库路径下某 session 的跨进程锁。
@@ -158,6 +175,13 @@ mod tests {
 
         drop(lock);
         SessionLock::acquire(&db_path, "session-aaaa-1111").expect("锁释放后应可重新获取");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_error_lock_violation_is_contention() {
+        let err = std::io::Error::from_raw_os_error(33);
+        assert!(is_lock_contention(&err));
     }
 
     #[test]
