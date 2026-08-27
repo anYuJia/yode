@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
+use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 
 const MAX_POSTMORTEMS: usize = 500;
@@ -96,6 +97,16 @@ impl LearningStore {
 
     pub fn record(&self, mut postmortem: RunPostmortem) -> Result<Vec<LearnedLesson>> {
         fs::create_dir_all(&self.root)?;
+        let lock_path = self.root.join("learning.lock");
+        let lock = OpenOptions::new()
+            .create(true)
+            .read(true)
+            .write(true)
+            .open(&lock_path)
+            .with_context(|| format!("failed to open learning lock {}", lock_path.display()))?;
+        lock.lock_exclusive()
+            .with_context(|| format!("failed to lock learning store {}", self.root.display()))?;
+
         sanitize_postmortem(&mut postmortem);
         if postmortem.recorded_at.trim().is_empty() {
             postmortem.recorded_at = Utc::now().to_rfc3339();
@@ -108,6 +119,7 @@ impl LearningStore {
         serde_json::to_writer(&mut file, &postmortem)?;
         file.write_all(b"\n")?;
         file.flush()?;
+        file.sync_data()?;
 
         let mut lessons = self.load_all_lessons()?;
         for (key, text, tags) in derive_lessons(&postmortem) {
@@ -188,22 +200,22 @@ impl LearningStore {
     }
 
     fn load_all_lessons(&self) -> Result<BTreeMap<String, LearnedLesson>> {
-        let path = self.root.join("lessons.json");
-        let Ok(bytes) = fs::read(path) else {
-            return Ok(BTreeMap::new());
-        };
-        serde_json::from_slice(&bytes).context("failed to parse Yode learning lessons")
+        let target = self.root.join("lessons.json");
+        let backup = backup_path(&target);
+        match read_lessons_file(&target) {
+            Ok(Some(lessons)) => Ok(lessons),
+            Ok(None) => read_lessons_file(&backup).map(|lessons| lessons.unwrap_or_default()),
+            Err(primary_error) => match read_lessons_file(&backup) {
+                Ok(Some(lessons)) => Ok(lessons),
+                _ => Err(primary_error),
+            },
+        }
     }
 
     fn save_lessons(&self, lessons: &BTreeMap<String, LearnedLesson>) -> Result<()> {
         fs::create_dir_all(&self.root)?;
         let target = self.root.join("lessons.json");
-        let temp = self
-            .root
-            .join(format!("lessons-{}.tmp", std::process::id()));
-        fs::write(&temp, serde_json::to_vec_pretty(lessons)?)?;
-        fs::rename(temp, target)?;
-        Ok(())
+        replace_file(&target, &serde_json::to_vec_pretty(lessons)?)
     }
 
     fn prune_postmortems(&self, max_items: usize) -> Result<()> {
@@ -218,9 +230,92 @@ impl LearningStore {
             serde_json::to_writer(&mut bytes, item)?;
             bytes.push(b'\n');
         }
-        fs::write(path, bytes)?;
-        Ok(())
+        replace_file(&path, &bytes)
     }
+}
+
+fn read_lessons_file(path: &Path) -> Result<Option<BTreeMap<String, LearnedLesson>>> {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    serde_json::from_slice(&bytes)
+        .map(Some)
+        .with_context(|| format!("failed to parse Yode learning lessons {}", path.display()))
+}
+
+fn replace_file(target: &Path, bytes: &[u8]) -> Result<()> {
+    let parent = target
+        .parent()
+        .context("learning store target has no parent directory")?;
+    fs::create_dir_all(parent)?;
+    let file_name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("learning");
+    let temp = parent.join(format!(".{file_name}.{}.tmp", std::process::id()));
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&temp)
+        .with_context(|| format!("failed to create temporary learning file {}", temp.display()))?;
+    file.write_all(bytes)?;
+    file.flush()?;
+    file.sync_all()?;
+    drop(file);
+
+    #[cfg(not(windows))]
+    {
+        fs::rename(&temp, target).with_context(|| {
+            format!(
+                "failed to atomically replace learning file {}",
+                target.display()
+            )
+        })?;
+    }
+
+    #[cfg(windows)]
+    {
+        let backup = backup_path(target);
+        let _ = fs::remove_file(&backup);
+        let had_target = target.exists();
+        if had_target {
+            fs::rename(target, &backup).with_context(|| {
+                format!(
+                    "failed to stage existing learning file {} for replacement",
+                    target.display()
+                )
+            })?;
+        }
+        if let Err(error) = fs::rename(&temp, target) {
+            if had_target {
+                let _ = fs::rename(&backup, target);
+            }
+            let _ = fs::remove_file(&temp);
+            return Err(error).with_context(|| {
+                format!(
+                    "failed to atomically replace learning file {}",
+                    target.display()
+                )
+            });
+        }
+        if had_target {
+            let _ = fs::remove_file(&backup);
+        }
+    }
+
+    Ok(())
+}
+
+fn backup_path(target: &Path) -> PathBuf {
+    let file_name = target
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("learning");
+    target.with_file_name(format!("{file_name}.bak"))
 }
 
 fn derive_lessons(postmortem: &RunPostmortem) -> Vec<(String, String, Vec<String>)> {
@@ -361,6 +456,25 @@ mod tests {
             .iter()
             .any(|lesson| lesson.key.contains("test-runner")));
         assert!(store.summary().unwrap().recurring_failure_patterns >= 1);
+    }
+
+    #[test]
+    fn repeated_records_replace_lessons_portably() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = LearningStore::for_workspace(dir.path());
+
+        let mut first = RunPostmortem::new("run-1", "session", "first");
+        first.failed_tools = vec!["bash".to_string()];
+        store.record(first).unwrap();
+
+        let mut second = RunPostmortem::new("run-2", "session", "second");
+        second.failed_tools = vec!["test_runner".to_string()];
+        store.record(second).unwrap();
+
+        let summary = store.summary().unwrap();
+        assert_eq!(summary.postmortems, 2);
+        assert!(summary.lessons >= 2);
+        assert!(dir.path().join(".yode/learning/lessons.json").is_file());
     }
 
     #[test]
