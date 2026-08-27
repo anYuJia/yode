@@ -11,6 +11,7 @@ pub mod session_artifact;
 pub mod state;
 pub mod tool;
 pub mod validation;
+pub mod worktree_coordinator;
 
 pub use builtin::mcp_resources::{
     cleanup_mcp_resource_artifacts, mcp_resource_artifact_retention, mcp_resource_cache_stats,
@@ -26,4 +27,7 @@ pub use semantic_router::{SemanticToolMatch, SemanticToolRouter};
 pub use tool::{
     McpResource, McpResourceProvider, SubAgentRunner, Tool, ToolContext, ToolDefinition,
     ToolResult, UserQuery, WorktreeState,
+};
+pub use worktree_coordinator::{
+    AgentWorktreeLease, WorktreeCoordinator, WorktreeFinalizeResult, WorktreeFinalizeStatus,
 };
