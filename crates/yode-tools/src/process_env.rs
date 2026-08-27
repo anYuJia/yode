@@ -8,10 +8,10 @@ use tokio::process::Command;
 
 /// 基础白名单：子进程解析外部程序、定位用户目录、临时目录和本地化所必需。
 ///
-/// Windows 的 `SystemRoot` / `WINDIR` / `COMSPEC` 等属于进程启动所需的系统
-/// 引导变量，不是应用凭据。Windows PowerShell / cmd 以及部分 Win32 运行时在
-/// `env_clear()` 后缺少这些变量时可能无法初始化，因此显式保留。这里仍然不会
-/// 继承 API key、token、代理、云凭据等敏感变量。
+/// Windows 的系统根目录、用户 profile、程序目录和临时目录属于 shell/Win32
+/// 运行时的核心启动上下文，不是应用凭据。PowerShell/cmd 在 `env_clear()` 后
+/// 缺少其中部分变量时可能无法初始化，因此保留一组最小但完整的 core env。
+/// 这里仍然不会继承 API key、token、代理、云凭据等敏感变量。
 pub const MINIMAL_ENV_ALLOWLIST: &[&str] = &[
     "PATH",
     "HOME",
@@ -23,14 +23,29 @@ pub const MINIMAL_ENV_ALLOWLIST: &[&str] = &[
     "TMPDIR",
     "TMP",
     "TEMP",
+    // Windows core path/shell bootstrap.
+    "PATHEXT",
+    "SHELL",
+    "COMSPEC",
     "SystemRoot",
     "WINDIR",
-    "COMSPEC",
-    "PATHEXT",
+    "SYSTEMDRIVE",
+    // Windows user/profile context required by legacy PowerShell and Win32 APIs.
+    "USERNAME",
+    "USERDOMAIN",
     "USERPROFILE",
+    "HOMEDRIVE",
+    "HOMEPATH",
+    // Program/data roots used while resolving Windows runtime components.
+    "PROGRAMFILES",
+    "PROGRAMFILES(X86)",
+    "PROGRAMW6432",
+    "PROGRAMDATA",
     "APPDATA",
     "LOCALAPPDATA",
-    "PROGRAMDATA",
+    // Optional shell-discovery hints; values are paths, not credentials.
+    "POWERSHELL",
+    "PWSH",
 ];
 
 /// 清空继承环境并只放行白名单变量。调用方随后可以 `.env(...)` 显式补充
@@ -41,6 +56,13 @@ pub fn apply_minimal_env(cmd: &mut Command) {
         if let Ok(value) = std::env::var(key) {
             cmd.env(key, value);
         }
+    }
+
+    // PATHEXT 在 Windows 命令解析中属于核心语义。极简/测试宿主偶尔不提供它，
+    // 使用系统默认值即可恢复 .EXE/.CMD/.BAT 解析，且不会扩大凭据暴露面。
+    #[cfg(windows)]
+    if std::env::var_os("PATHEXT").is_none() {
+        cmd.env("PATHEXT", ".COM;.EXE;.BAT;.CMD");
     }
 }
 
@@ -152,6 +174,32 @@ mod tests {
             String::from_utf8_lossy(&output.stderr)
         );
     }
+
+    #[cfg(windows)]
+    #[tokio::test]
+    async fn minimal_env_keeps_powershell_bootstrap_through_cmd() {
+        let mut cmd = Command::new("cmd.exe");
+        apply_minimal_env(&mut cmd);
+        cmd.args([
+            "/d",
+            "/s",
+            "/c",
+            "powershell.exe -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -OutputFormat Text -Command \"Write-Output ok\"",
+        ]);
+
+        let output = cmd.output().await.expect("cmd should start PowerShell");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success(),
+            "PowerShell through cmd failed under minimal environment: status={} stderr={}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            stdout.contains("ok"),
+            "PowerShell through cmd produced unexpected stdout: {stdout:?}"
+        );
+    }
 }
 
 #[cfg(all(test, unix))]
@@ -176,7 +224,7 @@ mod process_group_tests {
         kill_process_group(&mut child).await.unwrap();
         let _ = child.wait().await;
 
-        // 组内不应残留任何进程（主进程与孙进程都被回收）
+        // 组内不应残留任何进程（主进程与孙进程都被回收）。
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         let probe = std::process::Command::new("sh")
             .arg("-c")
