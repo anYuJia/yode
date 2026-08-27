@@ -1,9 +1,13 @@
+mod cdp;
+
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::tool::{Tool, ToolCapabilities, ToolContext, ToolErrorType, ToolResult};
+
+pub use cdp::shutdown_browser_runtime;
 
 pub struct WebBrowserTool;
 
@@ -57,7 +61,7 @@ impl Tool for WebBrowserTool {
     }
 
     fn description(&self) -> &str {
-        "Interact with a real browser to navigate pages, click elements, type text, scroll, evaluate JavaScript, and capture screenshots. Browser actions never report success unless a real executor completed them."
+        "Interact with a real Chromium browser over Chrome DevTools Protocol (CDP): navigate, click, type, scroll, evaluate JavaScript, and capture screenshot artifacts. Use this to verify web UI behavior instead of assuming frontend changes work."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -66,13 +70,30 @@ impl Tool for WebBrowserTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["navigate", "click", "type", "scroll", "screenshot", "evaluate"]
+                    "enum": ["navigate", "click", "type", "scroll", "screenshot", "evaluate"],
+                    "description": "Browser action to perform against the persistent desktop browser session"
                 },
-                "url": { "type": "string" },
-                "selector": { "type": "string" },
-                "text": { "type": "string" },
-                "code": { "type": "string" },
-                "delta_y": { "type": "integer", "default": 600 }
+                "url": {
+                    "type": "string",
+                    "description": "http:// or https:// URL for navigate"
+                },
+                "selector": {
+                    "type": "string",
+                    "description": "CSS selector for click/type"
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Text for type"
+                },
+                "code": {
+                    "type": "string",
+                    "description": "JavaScript expression for evaluate"
+                },
+                "delta_y": {
+                    "type": "integer",
+                    "default": 600,
+                    "description": "Vertical pixels for scroll; negative scrolls upward"
+                }
             },
             "required": ["action"]
         })
@@ -86,8 +107,23 @@ impl Tool for WebBrowserTool {
         }
     }
 
-    async fn execute(&self, params: Value, _ctx: &ToolContext) -> Result<ToolResult> {
-        let action = params.get("action").and_then(Value::as_str).unwrap_or("");
+    async fn execute(&self, params: Value, ctx: &ToolContext) -> Result<ToolResult> {
+        let action = match params.get("action").and_then(Value::as_str) {
+            Some(action @ ("navigate" | "click" | "type" | "scroll" | "screenshot" | "evaluate")) => action,
+            Some(other) => {
+                return Ok(validation_error(
+                    format!("Unknown browser action '{other}'"),
+                    "Use navigate, click, type, scroll, screenshot, or evaluate.",
+                ))
+            }
+            None => {
+                return Ok(validation_error(
+                    "Browser action is required.".to_string(),
+                    "Provide the action field.",
+                ))
+            }
+        };
+
         let settings = browser_runtime_settings();
         if !settings.enabled {
             return Ok(ToolResult::error_typed(
@@ -96,6 +132,10 @@ impl Tool for WebBrowserTool {
                 true,
                 Some("请在 设置 > 浏览器 中开启浏览器功能后重试。".to_string()),
             ));
+        }
+
+        if let Some(error) = validate_action_inputs(action, &params) {
+            return Ok(error);
         }
 
         let url = params.get("url").and_then(Value::as_str).unwrap_or("");
@@ -121,23 +161,78 @@ impl Tool for WebBrowserTool {
                 ));
             }
         } else if action == "navigate" {
-            return Ok(ToolResult::error_typed(
-                "navigate 操作需要提供有效 URL。".to_string(),
-                ToolErrorType::Validation,
-                true,
-                Some("请传入包含域名的 http:// 或 https:// URL。".to_string()),
+            return Ok(validation_error(
+                "navigate 操作需要有效的 http:// 或 https:// URL。".to_string(),
+                "Provide a URL with a valid domain.",
             ));
         }
 
-        Ok(ToolResult::error_typed(
-            format!(
-                "Browser action '{action}' was not executed because no real browser executor is connected. Mock browser success has been disabled."
-            ),
-            ToolErrorType::Execution,
-            true,
-            Some("Install or enable the Yode desktop browser runtime, then retry the browser action.".to_string()),
-        ))
+        let workspace = ctx
+            .working_dir
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("Working directory not set for browser artifacts"))?;
+        match cdp::execute_browser_action(action, &params, workspace).await {
+            Ok(mut execution) => {
+                if let Some(metadata) = execution.metadata.as_object_mut() {
+                    metadata.insert("browser_enabled".to_string(), json!(settings.enabled));
+                    metadata.insert(
+                        "approval_policy".to_string(),
+                        json!(settings.approval_policy),
+                    );
+                    metadata.insert(
+                        "annotation_screenshots".to_string(),
+                        json!(settings.annotation_screenshots),
+                    );
+                    metadata.insert("requested_domain".to_string(), json!(domain));
+                }
+                Ok(ToolResult::success_with_metadata(
+                    execution.message,
+                    execution.metadata,
+                ))
+            }
+            Err(error) => Ok(ToolResult::error_typed(
+                format!("Real browser execution failed: {error:#}"),
+                ToolErrorType::Execution,
+                true,
+                Some(
+                    "Ensure Chrome, Chromium, or Edge is installed. You may set YODE_BROWSER_EXECUTABLE to an explicit browser path, then retry."
+                        .to_string(),
+                ),
+            )),
+        }
     }
+}
+
+fn validate_action_inputs(action: &str, params: &Value) -> Option<ToolResult> {
+    let non_empty = |key: &str| {
+        params
+            .get(key)
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.trim().is_empty())
+    };
+    let missing = match action {
+        "navigate" if !non_empty("url") => Some("url"),
+        "click" if !non_empty("selector") => Some("selector"),
+        "type" if !non_empty("selector") => Some("selector"),
+        "type" if !non_empty("text") => Some("text"),
+        "evaluate" if !non_empty("code") => Some("code"),
+        _ => None,
+    };
+    missing.map(|key| {
+        validation_error(
+            format!("Browser action '{action}' requires non-empty '{key}'."),
+            "Provide the missing browser action parameter.",
+        )
+    })
+}
+
+fn validation_error(message: String, suggestion: &str) -> ToolResult {
+    ToolResult::error_typed(
+        message,
+        ToolErrorType::Validation,
+        true,
+        Some(suggestion.to_string()),
+    )
 }
 
 fn browser_runtime_settings() -> BrowserRuntimeSettings {
@@ -209,19 +304,8 @@ mod tests {
         LOCK.get_or_init(|| tokio::sync::Mutex::new(())).lock().await
     }
 
-    #[tokio::test]
-    async fn enabled_browser_never_fakes_success_without_executor() {
-        let _guard = env_lock().await;
-        std::env::remove_var("YODE_BROWSER_SETTINGS");
-        let result = WebBrowserTool
-            .execute(
-                json!({"action":"navigate","url":"https://example.com"}),
-                &crate::tool::ToolContext::empty(),
-            )
-            .await
-            .unwrap();
-        assert!(result.is_error);
-        assert!(result.content.contains("Mock browser success has been disabled"));
+    fn set_browser_settings(settings: Value) {
+        std::env::set_var("YODE_BROWSER_SETTINGS", settings.to_string());
     }
 
     #[test]
@@ -230,5 +314,62 @@ mod tests {
         assert!(caps.requires_confirmation);
         assert!(!caps.supports_auto_execution);
         assert!(!caps.read_only);
+    }
+
+    #[tokio::test]
+    async fn web_browser_rejects_when_disabled_without_starting_runtime() {
+        let _guard = env_lock().await;
+        set_browser_settings(json!({
+            "enabled": false,
+            "annotationScreenshots": "Always include",
+            "approvalPolicy": "Always ask",
+            "blockedDomains": [],
+            "allowedDomains": []
+        }));
+        let result = WebBrowserTool
+            .execute(
+                json!({"action":"navigate","url":"https://example.com"}),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("已在设置中关闭"));
+    }
+
+    #[tokio::test]
+    async fn web_browser_rejects_blocked_domain_before_runtime() {
+        let _guard = env_lock().await;
+        set_browser_settings(json!({
+            "enabled": true,
+            "annotationScreenshots": "Always include",
+            "approvalPolicy": "Always allow",
+            "blockedDomains": ["example.com"],
+            "allowedDomains": []
+        }));
+        let result = WebBrowserTool
+            .execute(
+                json!({"action":"navigate","url":"https://docs.example.com/path"}),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert!(result.content.contains("docs.example.com"));
+    }
+
+    #[tokio::test]
+    async fn action_validation_happens_before_runtime_launch() {
+        let _guard = env_lock().await;
+        std::env::remove_var("YODE_BROWSER_SETTINGS");
+        let result = WebBrowserTool
+            .execute(
+                json!({"action":"click","selector":""}),
+                &crate::tool::ToolContext::empty(),
+            )
+            .await
+            .unwrap();
+        assert!(result.is_error);
+        assert_eq!(result.error_type, Some(crate::tool::ToolErrorType::Validation));
     }
 }

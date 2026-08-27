@@ -11,6 +11,7 @@ use crate::protocol::{BrowserSettings, DesktopActionResult};
 
 impl DesktopRuntime {
     pub async fn browser_clear_data(&self) -> Result<DesktopActionResult> {
+        yode_tools::builtin::web_fetch::browser::shutdown_browser_runtime().await?;
         let mut cleared = Vec::new();
         for path in [
             self.workspace_path.join(".yode").join("browser-cache"),
@@ -30,7 +31,7 @@ impl DesktopRuntime {
             message: if cleared.is_empty() {
                 "浏览器数据目录已初始化。".to_string()
             } else {
-                format!("已清理 {} 个浏览器数据目录。", cleared.len())
+                format!("已关闭浏览器运行时并清理 {} 个浏览器数据目录。", cleared.len())
             },
             path: Some(self.workspace_path.join(".yode").display().to_string()),
         })
@@ -69,6 +70,9 @@ impl DesktopRuntime {
         })
         .await?;
         apply_browser_settings_env(&normalized);
+        if !normalized.enabled {
+            yode_tools::builtin::web_fetch::browser::shutdown_browser_runtime().await?;
+        }
         Ok(normalized)
     }
 }
