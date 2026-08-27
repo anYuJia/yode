@@ -16,38 +16,14 @@ const WARNING_THRESHOLD_BUFFER_TOKENS: usize = 20_000;
 const MANUAL_COMPACT_BUFFER_TOKENS: usize = 3_000;
 
 impl ModelLimits {
-    /// Look up known model limits by model name.
+    /// Resolve conservative model limits through the shared capability registry.
+    /// Provider/runtime discovery can override capabilities centrally without
+    /// duplicating model-name conditionals in context management.
     pub fn for_model(model: &str) -> Self {
-        let model_lower = model.to_lowercase();
-        if model_lower.contains("claude-sonnet-4") || model_lower.contains("claude-3-5-sonnet") {
-            Self {
-                context_window: 200_000,
-                output_tokens: 8_192,
-            }
-        } else if model_lower.contains("claude-opus")
-            || model_lower.contains("claude-3-opus")
-            || model_lower.contains("claude-haiku")
-            || model_lower.contains("claude-3-haiku")
-        {
-            Self {
-                context_window: 200_000,
-                output_tokens: 4_096,
-            }
-        } else if model_lower.contains("gpt-4o") || model_lower.contains("gpt-4-turbo") {
-            Self {
-                context_window: 128_000,
-                output_tokens: 4_096,
-            }
-        } else if model_lower.contains("gpt-3.5") {
-            Self {
-                context_window: 16_385,
-                output_tokens: 4_096,
-            }
-        } else {
-            Self {
-                context_window: 128_000,
-                output_tokens: 4_096,
-            }
+        let capabilities = yode_llm::ModelCapabilityRegistry::default().resolve_model(model);
+        Self {
+            context_window: capabilities.context_window,
+            output_tokens: capabilities.max_output_tokens,
         }
     }
 }
