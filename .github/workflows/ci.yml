@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
@@ -21,45 +21,6 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  codex-windows-fix:
-    name: Codex Windows Compatibility Fix
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor != 'github-actions[bot]'
-    runs-on: windows-latest
-    timeout-minutes: 20
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          fetch-depth: 0
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # pinned action commit
-        with:
-          toolchain: stable
-
-      - name: Apply targeted Codex patch
-        run: python scripts/fix_codex_windows_compat.py
-
-      - name: Format
-        run: cargo fmt --all
-
-      - name: Run Codex compatibility tests
-        run: cargo test -p yode-tools codex_compat::tests::
-
-      - name: Commit validated fix
-        shell: pwsh
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add crates/yode-tools/src/builtin/codex_compat.rs
-          git diff --cached --quiet
-          if ($LASTEXITCODE -eq 0) { exit 0 }
-          git commit -m "fix(codex): make shell compatibility cross-platform"
-          git push origin HEAD:main
-
   rust:
     name: Rust Check And Tests
     runs-on: ubuntu-latest
@@ -126,6 +87,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
 
       - name: Install Linux desktop dependencies
         if: runner.os == 'Linux'
@@ -146,8 +109,32 @@ jobs:
       - name: Cache cargo artifacts
         uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c # v2
 
+      - name: Apply Windows Codex compatibility patch
+        if: runner.os == 'Windows'
+        run: python scripts/fix_codex_windows_compat.py
+
+      - name: Format patched Windows source
+        if: runner.os == 'Windows'
+        run: cargo fmt --all
+
+      - name: Codex compatibility tests
+        if: runner.os == 'Windows'
+        run: cargo test -p yode-tools codex_compat::tests::
+
       - name: Workspace tests
         run: cargo test --workspace
+
+      - name: Commit validated Windows Codex fix
+        if: runner.os == 'Windows' && github.event_name == 'push' && github.ref == 'refs/heads/main' && github.actor != 'github-actions[bot]'
+        shell: pwsh
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add crates/yode-tools/src/builtin/codex_compat.rs
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { exit 0 }
+          git commit -m "fix(codex): make shell compatibility cross-platform"
+          git push origin HEAD:main
 
   desktop-frontend:
     name: Desktop Frontend
