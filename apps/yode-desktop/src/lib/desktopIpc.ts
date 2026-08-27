@@ -87,6 +87,12 @@ export type ImportAiSessionsResult = {
   sessions: SessionSummary[];
 };
 
+export type UpdateCheckResult = {
+  version: string;
+  releaseUrl: string;
+  publishedAt: string;
+};
+
 // ─── 命令包装 ──────────────────────────────────────────────────────────────
 
 export function appGetBootstrap(): Promise<Bootstrap> {
@@ -266,18 +272,6 @@ export function licenseNotices(): Promise<unknown[]> {
   return invoke<unknown[]>("license_notices");
 }
 
-export function checkForUpdates(): Promise<unknown> {
-  return invoke<unknown>("check_for_updates");
-}
-
-export function downloadUpdate(): Promise<string> {
-  return invoke<string>("download_update");
-}
-
-export function hasPendingUpdate(): Promise<boolean> {
-  return invoke<boolean>("has_pending_update");
-}
-
-export function applyDownloadedUpdate(): Promise<boolean> {
-  return invoke<boolean>("apply_downloaded_update");
+export function checkForUpdates(): Promise<UpdateCheckResult | null> {
+  return invoke<UpdateCheckResult | null>("check_for_updates");
 }
