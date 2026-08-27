@@ -1,0 +1,37 @@
+name: Temporary Ubuntu Test Diagnosis
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: never
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+      - uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@49a0bdc70d2e1b713ca9e2869b211fcce03d3c1c
+      - name: Run workspace tests with compact failure output
+        shell: bash
+        run: |
+          set +e
+          cargo test --workspace --quiet > /tmp/yode-tests.log 2>&1
+          status=$?
+          if [ "$status" -ne 0 ]; then
+            echo '=== FAILURE SUMMARY ==='
+            grep -n -E 'FAILED|failures:|panicked at|assertion failed|error: test failed|test result: FAILED' /tmp/yode-tests.log | tail -n 120 || true
+            echo '=== LOG TAIL ==='
+            tail -n 180 /tmp/yode-tests.log
+          fi
+          exit "$status"
